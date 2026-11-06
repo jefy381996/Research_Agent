@@ -79,6 +79,68 @@ def index():
     return FileResponse(path)
 
 
+@app.get("/data.json", include_in_schema=False)
+def data_json():
+    """Static fallback payload, when one has been built into web/."""
+    path = os.path.join(STATIC_DIR, "data.json")
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="no static bundle built")
+    return FileResponse(path, media_type="application/json")
+
+
+@app.get("/api/bundle", summary="Everything the interface needs, in one call")
+def bundle():
+    """The evidence table, the stored abstracts, the facets and the counts.
+
+    The interface asks for this first and falls back to a static data.json, so
+    the same build runs against a live database or as files on a CDN.
+    """
+    conn = _conn()
+    try:
+        rows = []
+        for record in conn.execute("""
+            SELECT e.id, e.openalex_id, e.material_system, e.graphene_form,
+                   e.electrode_role, e.battery_type, e.specific_capacity_mah_g,
+                   e.capacity_as_reported, e.initial_capacity_mah_g,
+                   e.current_density_ma_g, e.current_density_as_reported,
+                   e.c_rate, e.cycle_count, e.capacity_retention_pct,
+                   e.first_cycle_ce_pct, e.voltage_window_v, e.electrolyte,
+                   e.temperature_c, e.areal_loading_mg_cm2, e.confidence,
+                   e.flags, e.source_quote, e.source_section,
+                   p.title, p.year, p.journal, p.doi
+            FROM evidence e JOIN papers p ON p.openalex_id = e.openalex_id"""):
+            row = dict(record)
+            try:
+                row["flags"] = json.loads(row["flags"] or "[]")
+            except (TypeError, ValueError):
+                row["flags"] = []
+            rows.append(row)
+
+        passages = [{"i": r["openalex_id"], "t": r["title"], "y": r["year"],
+                     "j": r["journal"], "d": r["doi"], "x": (r["abstract"] or "")[:1800]}
+                    for r in conn.execute(
+                        "SELECT openalex_id, title, year, journal, doi, abstract"
+                        " FROM papers WHERE abstract IS NOT NULL AND abstract != ''"
+                        " ORDER BY citations_per_year DESC")]
+
+        def facet(column):
+            return [{"value": r[0], "count": r[1]} for r in conn.execute(
+                f"SELECT {column}, count(*) FROM evidence"
+                f" WHERE {column} IS NOT NULL AND {column} != ''"
+                f" GROUP BY 1 ORDER BY 2 DESC LIMIT 40")]
+
+        return {
+            "rows": rows,
+            "passages": passages,
+            "facets": {k: facet(k) for k in ("confidence", "battery_type",
+                                             "graphene_form", "electrode_role",
+                                             "material_system")},
+            "stats": get_stats(),
+        }
+    finally:
+        conn.close()
+
+
 @app.get("/app.js", include_in_schema=False)
 def app_js():
     return FileResponse(os.path.join(STATIC_DIR, "app.js"),

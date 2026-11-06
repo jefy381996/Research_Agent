@@ -1,78 +1,87 @@
 <!doctype html>
-<html lang="en" data-palette="#2a78d6,#eb6834,#1baf7a">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Graphene Battery Evidence</title>
-<meta name="description" content="Comparable performance figures from the graphene battery literature, each carrying the sentence it came from.">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Graphene Battery Research Agent</title>
+<meta name="description" content="Ask about graphene batteries and get an answer built from real measurements, with the sentence behind every number.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;450;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/app.css">
+<link rel="stylesheet" href="app.css">
 </head>
 <body>
-<a class="skip" href="#main">Skip to the evidence table</a>
+<a class="skip" href="#main">Skip to the agent</a>
 
 <header class="topbar">
+  <div class="brand">
+    <span class="mark" aria-hidden="true"></span>
+    <span><b>Graphene Battery Agent</b><span>evidence-grounded</span></span>
+  </div>
   <nav class="tabs" role="tablist" aria-label="Sections">
-    <button role="tab" class="tab" data-view="evidence" aria-selected="true">Evidence</button>
-    <button role="tab" class="tab" data-view="ask" aria-selected="false">Ask</button>
+    <button role="tab" class="tab" data-view="ask" aria-selected="true">Ask</button>
+    <button role="tab" class="tab" data-view="evidence" aria-selected="false">Evidence</button>
     <button role="tab" class="tab" data-view="calculator" aria-selected="false">Calculator</button>
-    <button role="tab" class="tab" data-view="library" aria-selected="false">Library</button>
+    <button role="tab" class="tab" data-view="notebook" aria-selected="false">Notebook<span class="pill" id="nbn" hidden>0</span></button>
     <button role="tab" class="tab" data-view="sources" aria-selected="false">Sources</button>
   </nav>
-  <div class="topbar-right">
-    <button class="ghost" id="palette-open" aria-keyshortcuts="Meta+K Control+K">
-      <span class="kbd">&#8984;K</span> Search
-    </button>
-    <button class="ghost icon" id="theme-toggle" aria-label="Switch between light and dark">&#9790;</button>
-  </div>
+  <span class="spacer"></span>
+  <button class="btn" id="pal-open" aria-keyshortcuts="Meta+K Control+K"><span class="kbd">&#8984;K</span>Jump</button>
+  <button class="btn icon" id="theme" aria-label="Switch between light and dark">&#9790;</button>
 </header>
 
 <main id="main">
 
-  <!-- Evidence -->
-  <section class="view" data-view="evidence" aria-label="Evidence table">
-    <aside class="rail" aria-label="Filters">
-      <div class="rail-head">
-        <span>Filters</span>
-        <button class="link" id="filters-clear">Clear</button>
+  <section class="view askview" data-view="ask" aria-label="Ask">
+    <div class="scroll" id="scroll"><div class="wrap">
+      <div class="hero" id="hero">
+        <span class="badge"><i></i> Runs entirely on its own data &mdash; nothing is sent anywhere</span>
+        <h1>Ask about graphene batteries. Every number traced to a paper.</h1>
+        <p>It searches real measurements, runs the arithmetic itself, and shows you the
+           sentence each figure came from. When the library has no answer, it says so.</p>
+        <div class="statstrip" id="strip"></div>
       </div>
-      <label class="field">
-        <span>Find in title, quote or material</span>
-        <input type="search" id="filter-q" placeholder="silicon, Li-S, aerogel">
-      </label>
-      <div id="facet-confidence" class="facet"></div>
-      <div id="facet-battery_type" class="facet"></div>
-      <div id="facet-graphene_form" class="facet"></div>
-      <div id="facet-electrode_role" class="facet"></div>
-      <div id="facet-material_system" class="facet"></div>
+      <div class="thread" id="thread"></div>
+      <div class="chips" id="chips"></div>
+    </div></div>
+    <form class="composer" id="form">
+      <div class="inner">
+        <div class="cbox">
+          <textarea id="ask" rows="1" aria-label="Your question"
+            placeholder="What capacity do silicon graphene anodes reach in lithium-ion cells?"></textarea>
+          <button type="submit" class="btn pri" id="send">Ask</button>
+        </div>
+        <div class="chint"><span id="hint">Try naming a material and a chemistry &mdash; &ldquo;silicon graphene anode in lithium-ion&rdquo;.</span></div>
+      </div>
+    </form>
+  </section>
+
+  <section class="view" data-view="evidence" hidden aria-label="Evidence table">
+    <aside class="rail" aria-label="Filters">
+      <h4>Filters<button class="lnk" id="clear">Clear</button></h4>
+      <label class="fld"><span>Find in title, quote or material</span>
+        <input type="search" id="fq" placeholder="silicon, Li-S, aerogel"></label>
+      <div id="f-confidence" class="facet"></div>
+      <div id="f-battery_type" class="facet"></div>
+      <div id="f-graphene_form" class="facet"></div>
+      <div id="f-electrode_role" class="facet"></div>
+      <div id="f-material_system" class="facet"></div>
       <div class="facet">
         <h3>Capacity, mAh/g</h3>
-        <div class="range">
-          <input type="number" id="filter-capmin" placeholder="min" aria-label="Minimum capacity">
-          <input type="number" id="filter-capmax" placeholder="max" aria-label="Maximum capacity">
-        </div>
+        <div class="range"><input type="number" id="fcmin" placeholder="min" aria-label="Minimum capacity">
+          <input type="number" id="fcmax" placeholder="max" aria-label="Maximum capacity"></div>
         <h3>Minimum cycles</h3>
-        <div class="range">
-          <input type="number" id="filter-cycmin" placeholder="e.g. 500" aria-label="Minimum cycles">
-        </div>
+        <div class="range"><input type="number" id="fcyc" placeholder="e.g. 500" aria-label="Minimum cycles"></div>
         <h3>Year</h3>
-        <div class="range">
-          <input type="number" id="filter-ymin" placeholder="2019" aria-label="Earliest year">
-          <input type="number" id="filter-ymax" placeholder="2026" aria-label="Latest year">
-        </div>
+        <div class="range"><input type="number" id="fymin" placeholder="2019" aria-label="Earliest year">
+          <input type="number" id="fymax" placeholder="2026" aria-label="Latest year"></div>
       </div>
     </aside>
-
     <div class="pane">
-      <div class="pane-head">
-        <div class="counts">
-          <strong id="result-count">&mdash;</strong>
-          <span id="result-detail" class="muted"></span>
-        </div>
-        <div class="pane-actions">
-          <select id="view-preset" aria-label="Saved views">
+      <div class="pane-h">
+        <div class="cnt"><b id="rc">&mdash;</b><span id="rd"></span></div>
+        <div class="pane-a">
+          <select id="preset" aria-label="Saved views">
             <option value="default">Verified measurements, highest capacity first</option>
             <option value="all">All evidence, including flagged</option>
             <option value="flagged">Flagged only</option>
@@ -81,107 +90,65 @@
             <option value="sulfur">Sulfur cathodes</option>
             <option value="recent">Published 2024 onward</option>
           </select>
-          <button class="ghost" id="export-csv">Export CSV</button>
-          <button class="ghost" id="export-xlsx">Export Excel</button>
+          <button class="btn" id="csv">Export CSV</button>
         </div>
       </div>
-
-      <div class="note" id="method-note">
-        Every number below was read from one sentence of one paper, and that
-        sentence is attached to it. An empty cell means the paper did not state
-        the value; nothing is estimated or averaged.
-        <button class="link" id="note-more">What the checks do and do not cover</button>
-      </div>
-
-      <div class="grid-wrap" id="grid-wrap" tabindex="0" role="region" aria-label="Evidence rows, scrollable">
-        <table class="grid" id="grid">
-          <thead><tr id="grid-head"></tr></thead>
-          <tbody id="grid-body"></tbody>
-        </table>
-        <div id="grid-empty" class="empty" hidden></div>
+      <div class="note" id="mnote">Every number was read from one sentence of one paper, and
+        that sentence is attached to it. An empty cell means the paper did not state the value.
+        <button class="lnk" id="more">What the checks do and do not cover</button></div>
+      <div class="gw" id="gw" tabindex="0" role="region" aria-label="Evidence rows">
+        <table class="g"><thead><tr id="gh"></tr></thead><tbody id="gb"></tbody></table>
+        <div id="ge" class="empty" hidden></div>
       </div>
     </div>
   </section>
 
-  <!-- Ask -->
-  <section class="view" data-view="ask" hidden aria-label="Ask the library">
-    <div class="centre">
-      <form id="ask-form" class="ask-form">
-        <label class="field">
-          <span>Ask a question. It is answered only from the stored papers.</span>
-          <input type="text" id="ask-input" autocomplete="off"
-                 placeholder="What capacity do silicon graphene anodes reach in lithium-ion batteries?">
-        </label>
-        <button class="primary" type="submit">Ask</button>
-      </form>
-      <div class="examples" id="ask-examples"></div>
-      <div id="ask-result" class="ask-result" hidden></div>
-    </div>
-  </section>
-
-  <!-- Calculator -->
   <section class="view" data-view="calculator" hidden aria-label="Calculators">
-    <div class="centre">
-      <div id="calc-list" class="calc-list"></div>
+    <div class="mid">
+      <h2 class="h2">Calculators</h2>
+      <p class="sub">Each one shows its formula and its inputs, and compares the result against
+        what the library actually reports, so a number is never produced without context.</p>
+      <div id="calcs" class="calcs"></div>
     </div>
   </section>
 
-  <!-- Library -->
-  <section class="view" data-view="library" hidden aria-label="Your library">
-    <div class="centre">
-      <div id="drop" class="drop" tabindex="0" role="button"
-           aria-label="Upload a PDF. Press Enter to choose a file.">
-        <strong>Drop a PDF here, or press Enter to choose one</strong>
-        <span class="muted">The text is extracted and indexed alongside the
-        public set. The PDF itself is deleted immediately and never stored.</span>
-        <input type="file" id="file" accept="application/pdf" hidden>
-      </div>
-      <div id="upload-status" class="upload-status" hidden></div>
-      <div id="doc-list"></div>
+  <section class="view" data-view="notebook" hidden aria-label="Notebook">
+    <div class="mid">
+      <h2 class="h2">Notebook</h2>
+      <p class="sub">Answers you keep, with their citations. Stored in this browser.</p>
+      <div id="nbs" class="nbs"></div>
     </div>
   </section>
 
-  <!-- Sources -->
   <section class="view" data-view="sources" hidden aria-label="Sources">
-    <div class="pane full">
-      <div class="pane-head">
-        <div class="counts"><strong id="src-count">&mdash;</strong>
-          <span class="muted">papers in the library</span></div>
-        <input type="search" id="src-q" placeholder="Find a paper or journal" aria-label="Find a paper">
+    <div class="pane">
+      <div class="pane-h">
+        <div class="cnt"><b id="sc">&mdash;</b><span>papers contributing measurements</span></div>
+        <input type="search" id="sq" placeholder="Find a paper or journal" style="width:280px" aria-label="Find a paper">
       </div>
-      <div class="grid-wrap" id="src-wrap">
-        <table class="grid" id="src-grid">
-          <thead><tr>
-            <th>Paper</th><th>Year</th><th>Journal</th><th>Licence</th>
-            <th>Access</th><th class="num">Evidence</th><th>Text stored</th>
-            <th>Pulled</th>
-          </tr></thead>
-          <tbody id="src-body"></tbody>
-        </table>
+      <div class="gw">
+        <table class="g"><thead><tr>
+          <th>Paper</th><th class="num">Year</th><th>Journal</th><th>Read from</th>
+          <th>Confidence</th><th class="num">Measurements</th><th>DOI</th>
+        </tr></thead><tbody id="sb"></tbody></table>
       </div>
     </div>
   </section>
 </main>
 
-<!-- Source drawer -->
-<div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
-<aside class="drawer" id="drawer" hidden role="dialog" aria-modal="true"
-        aria-labelledby="drawer-title">
-  <div class="drawer-head">
-    <h2 id="drawer-title">Source</h2>
-    <button class="ghost icon" id="drawer-close" aria-label="Close">&times;</button>
-  </div>
-  <div class="drawer-body" id="drawer-body"></div>
+<div class="bd" id="bd" hidden></div>
+<aside class="drawer" id="drawer" hidden role="dialog" aria-modal="true" aria-labelledby="dt">
+  <div class="drawer-h"><h2 id="dt">Source</h2>
+    <button class="btn icon" id="dclose" aria-label="Close">&times;</button></div>
+  <div class="drawer-b" id="db"></div>
 </aside>
 
-<!-- Command palette -->
-<div class="palette-backdrop" id="palette-backdrop" hidden></div>
-<div class="palette" id="palette" hidden role="dialog" aria-modal="true" aria-label="Command palette">
-  <input type="text" id="palette-input" placeholder="Jump to a section, a material, or ask a question"
-         autocomplete="off">
-  <ul id="palette-list" role="listbox"></ul>
+<div class="bd" id="palbd" hidden></div>
+<div class="pal" id="pal" hidden role="dialog" aria-modal="true" aria-label="Jump to">
+  <input type="text" id="palin" placeholder="Jump to a section, a material, or ask a question" autocomplete="off">
+  <ul id="pall" role="listbox"></ul>
 </div>
 
-<script src="/app.js" type="module"></script>
+<script src="app.js"></script>
 </body>
 </html>
