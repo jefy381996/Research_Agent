@@ -32,8 +32,14 @@ RETENTION_HARD_MAX = 100.0
 CE_HARD_MAX = 100.0
 TEMP_MIN, TEMP_MAX = -40.0, 200.0
 VOLTAGE_MIN, VOLTAGE_MAX = 0.0, 5.0
-OUTLIER_SIGMA = 3.0
+# A plain standard deviation is masked by the very values this check exists to
+# find: one 90,000 mAh/g entry inflates sigma so far that it no longer sits
+# three sigma from its own group. The median absolute deviation is not moved by
+# the outlier, so the check works on the cases that matter. 3.5 on the modified
+# z-score is the conventional equivalent of 3 sigma.
+OUTLIER_SIGMA = 3.5
 OUTLIER_MIN_GROUP = 5
+MAD_SCALE = 0.6745
 
 
 def check_bounds(row: dict) -> list[str]:
@@ -42,9 +48,20 @@ def check_bounds(row: dict) -> list[str]:
     cap = _num(row.get("specific_capacity_mah_g"))
     if cap is not None:
         if cap > CAPACITY_HARD_MAX:
-            flags.append(
-                f"capacity_above_{CAPACITY_HARD_MAX:.0f}_mah_g: {cap:g} exceeds any "
-                "known electrode; likely an F/g supercapacitor value or a unit error")
+            # Lithium-air cathodes are conventionally reported per gram of
+            # carbon and legitimately exceed this bound, so the reason says so
+            # rather than asserting an error the chemistry does not support.
+            if (row.get("battery_type") or "") == "lithium-air":
+                flags.append(
+                    f"capacity_above_{CAPACITY_HARD_MAX:.0f}_mah_g: {cap:g}. "
+                    "Lithium-air cathode capacities are normally quoted per gram "
+                    "of carbon, not per gram of electrode, so this may be correct "
+                    "by that convention and is not comparable with the rest")
+            else:
+                flags.append(
+                    f"capacity_above_{CAPACITY_HARD_MAX:.0f}_mah_g: {cap:g} exceeds "
+                    "any known electrode; likely an F/g supercapacitor value or a "
+                    "unit error")
         elif cap < CAPACITY_HARD_MIN:
             flags.append(f"capacity_implausibly_low: {cap:g} mAh/g")
 
@@ -126,19 +143,26 @@ def check_outliers(rows: list[dict]) -> dict[int, list[str]]:
         if len(members) < OUTLIER_MIN_GROUP:
             continue
         values = [v for _, v in members]
-        mean = statistics.fmean(values)
-        try:
-            sd = statistics.stdev(values)
-        except statistics.StatisticsError:
-            continue
-        if sd == 0:
-            continue
+        centre = statistics.median(values)
+        deviations = [abs(v - centre) for v in values]
+        mad = statistics.median(deviations)
+        if mad > 0:
+            scale, label = mad / MAD_SCALE, "robust sigma"
+        else:
+            # Every value identical but for the outlier: fall back to spread.
+            try:
+                scale = statistics.stdev(values)
+            except statistics.StatisticsError:
+                continue
+            label = "sigma"
+            if scale == 0:
+                continue
         for idx, value in members:
-            z = abs(value - mean) / sd
-            if z > OUTLIER_SIGMA:
+            score = abs(value - centre) / scale
+            if score > OUTLIER_SIGMA:
                 out[idx].append(
-                    f"group_outlier: {value:g} mAh/g is {z:.1f} sigma from the "
-                    f"{key!r} mean of {mean:.0f} (n={len(values)})")
+                    f"group_outlier: {value:g} mAh/g is {score:.1f} {label} from "
+                    f"the {key!r} median of {centre:.0f} (n={len(values)})")
     return out
 
 

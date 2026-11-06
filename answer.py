@@ -44,6 +44,33 @@ GENERIC_TERMS = {
     "many", "much", "long", "does", "reach", "reaches", "get", "gets",
 }
 
+# Questions a corpus of measurements cannot answer however well the words
+# overlap: advice, commercial recommendation, prediction, personal opinion.
+# Term matching alone let "which graphene battery company should I invest in?"
+# through, because the corpus is full of "graphene" and "battery" and prefix
+# matching reads "invest" inside "investigated".
+OUT_OF_REMIT = [
+    (r"\bshould\s+(?:i|we|you)\b", "asks for advice"),
+    (r"\b(?:invest|investment|investor|stock|shares|share\s+price|ticker|"
+     r"market\s+cap|valuation)\b(?!igat)", "asks about investment"),
+    (r"\b(?:company|companies|startup|supplier|vendor|manufacturer)\b",
+     "asks about companies rather than measurements"),
+    (r"\b(?:forecast|predict|projection)\w*\b", "asks for a prediction"),
+    (r"\bwill\b[^?]*\b20[2-9]\d\b", "asks for a prediction"),
+    (r"\brecommend\w*\b", "asks for a recommendation"),
+    (r"\b(?:buy|purchase|cheapest|price)\b", "asks about commerce"),
+]
+
+
+def out_of_remit(question: str):
+    """The reason this question is outside what measurements can answer."""
+    low = question.lower()
+    for pattern, reason in OUT_OF_REMIT:
+        if re.search(pattern, low):
+            return reason
+    return None
+
+
 QUANTITIES = [
     ("specific_capacity_mah_g", "mAh/g", "specific capacity",
      (r"capacit", r"mah", r"\bcapacity\b")),
@@ -163,6 +190,10 @@ def answer(question: str, conn=None) -> dict:
     try:
         facets = detect_facets(question)
         quantities = detect_quantities(question)
+
+        remit = out_of_remit(question)
+        if remit:
+            return _out_of_remit(question, facets, remit)
 
         rows = []
         if any(facets.values()):
@@ -317,11 +348,52 @@ def _not_found(question, facets, quantities, n_rows, n_chunks) -> dict:
     }
 
 
+AS_REPORTED = {
+    "specific_capacity_mah_g": "capacity_as_reported",
+    "current_density_ma_g": "current_density_as_reported",
+}
+
+
+def _out_of_remit(question, facets, reason) -> dict:
+    return {
+        "question": question,
+        "status": "not_found",
+        "mode": "refused",
+        "summary": ("Not found in the library. This question " + reason + ", and "
+                    "the library holds measurements reported in papers, not "
+                    "advice, prices or predictions. The tool does not answer "
+                    "from outside the stored papers."),
+        "statistics": {},
+        "citations": [],
+        "coverage": {
+            "evidence_rows": 0, "papers": 0, "year_range": None,
+            "flagged_rows": 0,
+            "facets_detected": {k: v for k, v in facets.items() if v},
+            "searched": ["nothing: the question is outside what the evidence "
+                         "table can answer"],
+            "matched_passages": 0,
+            "not_reported": [reason],
+            "suggestion": ("Ask what the papers measured, for example "
+                           "'capacity of silicon graphene anodes in "
+                           "lithium-ion' or 'cycle life of rGO cathodes'."),
+        },
+    }
+
+
 def _citation(n, row) -> dict:
     values = {}
     for field, unit, label, _ in QUANTITIES:
-        if row.get(field) is not None:
-            values[label] = f"{float(row[field]):g} {unit}"
+        if row.get(field) is None:
+            continue
+        shown = f"{float(row[field]):g} {unit}"
+        # Where the stored value is a unit conversion, show the paper's own
+        # wording too, so the reader can find the figure in the quote.
+        reported = row.get(AS_REPORTED.get(field, ""), None)
+        if reported and str(reported).split()[0] not in (row.get("source_quote") or ""):
+            pass
+        elif reported and f"{float(row[field]):g}" not in (row.get("source_quote") or ""):
+            shown = f"{shown} (reported as {reported})"
+        values[label] = shown
     return {
         "n": n,
         "evidence_id": row.get("id"),

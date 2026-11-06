@@ -1,0 +1,105 @@
+name: Weekly refresh
+
+on:
+  schedule:
+    # 03:00 UTC every Sunday
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: weekly-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install pinned dependencies
+        run: pip install -r requirements.txt
+
+      - name: Collect papers from OpenAlex
+        env:
+          OPENALEX_API_KEY: ${{ secrets.OPENALEX_API_KEY }}
+        run: python collect_papers.py --out data/papers.csv
+
+      - name: Refuse to continue on a short collection
+        run: |
+          rows=$(python - <<'PY'
+          import csv
+          print(sum(1 for _ in csv.DictReader(open('data/papers.csv', encoding='utf-8'))))
+          PY
+          )
+          echo "collected rows: $rows"
+          if [ "$rows" -lt 3000 ]; then
+            echo "::error::Only $rows papers collected; expected at least 3000."
+            echo "Refusing to commit a short dataset."
+            exit 1
+          fi
+
+      - name: Load into the database
+        run: python load_papers.py
+
+      - name: Fetch full text where the licence allows it
+        env:
+          OPENALEX_API_KEY: ${{ secrets.OPENALEX_API_KEY }}
+        run: python fetch_text.py
+
+      - name: Extract evidence and run the checks
+        run: python extract_evidence.py
+
+      - name: Build the search index
+        run: python build_index.py
+
+      - name: Load Materials Project reference data
+        env:
+          MP_API_KEY: ${{ secrets.MP_API_KEY }}
+        run: python collect_mp.py
+
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Scorecard, answering and refusal
+        run: python scorecard.py --out data/scorecard.csv
+
+      - name: Refuse to continue on an empty evidence table
+        run: |
+          rows=$(python - <<'PY'
+          import db
+          print(db.connect().execute("SELECT count(*) FROM evidence").fetchone()[0])
+          PY
+          )
+          echo "evidence rows: $rows"
+          if [ "$rows" -lt 800 ]; then
+            echo "::error::Only $rows evidence rows; expected at least 800."
+            exit 1
+          fi
+
+      - name: Commit only if something actually changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/papers.csv data/research_agent.db data/scorecard.csv
+          if git diff --cached --quiet; then
+            echo "No change in the data. Nothing committed."
+            exit 0
+          fi
+          git commit -m "Weekly refresh: $(date -u +%Y-%m-%d)"
+          for attempt in 1 2 3 4; do
+            git pull --rebase origin "${GITHUB_REF_NAME}" && \
+            git push origin "HEAD:${GITHUB_REF_NAME}" && exit 0
+            echo "push attempt $attempt failed, retrying"
+            sleep $((2 ** attempt))
+          done
+          echo "::error::Could not push the refreshed data."
+          exit 1

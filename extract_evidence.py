@@ -143,6 +143,29 @@ FARAD_RE = re.compile(NUM + r"\s*F\s*(?:/|\s)?\s*g", re.I)
 FROM_TO_RE = re.compile(
     r"from\s+" + NUM + r"\s*(?:mA\s?h|mAh|A\s?h)[^.]{0,80}?\bto\s+" + NUM, re.I)
 
+# A capacity introduced as a theoretical limit is a textbook constant, not a
+# measurement. Abstracts routinely open with "the theoretical capacity of
+# silicon is 4200 mAh/g"; storing that as a result would put a number nobody
+# measured at the top of the table. The marker is looked for in the words
+# immediately before the value, so a sentence that cites a theoretical figure
+# AND reports a real one still yields the real one.
+THEORETICAL_RE = re.compile(
+    r"theoretic|in\s+theory|maximum\s+possible", re.I)
+
+# Distance alone cannot separate the two cases. "The theoretical capacity of
+# silicon can reach up to 4200 mAh/g" is a textbook constant; "exceeding the
+# theoretical capacity of graphite (372 mAh/g), the anode delivered 1250
+# mAh/g" reports a real measurement in the same breath. What distinguishes
+# them is a finite measurement verb standing between the theoretical phrase
+# and the value. Infinitives such as "can reach" are deliberately excluded.
+MEASURED_RE = re.compile(
+    r"\b(?:deliver(?:ed|s|ing)|exhibit(?:ed|s|ing)|achiev(?:ed|es|ing)|"
+    r"retain(?:ed|s|ing)|show(?:ed|s|ing|n)|demonstrat(?:ed|es|ing)|"
+    r"maintain(?:ed|s|ing)|obtain(?:ed|s|ing)|display(?:ed|s|ing)|"
+    r"yield(?:ed|s|ing)|provid(?:ed|es|ing)|attain(?:ed|s|ing)|"
+    r"reach(?:ed|es)|record(?:ed|s)|measur(?:ed|es)|"
+    r"present(?:ed|s)|offer(?:ed|s)|possess(?:ed|es))\b", re.I)
+
 # --- classification vocabulary ---------------------------------------------
 GRAPHENE_FORMS = [
     ("rGO", (r"reduced\s+graphene\s+oxide", r"\brGO\b", r"\br-GO\b")),
@@ -295,16 +318,37 @@ def extract_from_sentence(sentence, title, abstract, section):
     if not caps and retention is None:
         return None
 
+
     notes = []
-    cap_values = [v for v in (_num(c[0]) for c in caps) if v is not None]
+    # Keep each capacity with its position so a theoretical claim can be told
+    # apart from a measurement by the words that introduce it.
+    measured = []
+    skipped_theoretical = 0
+    for match in CAPACITY_RE.finditer(norm):
+        value = _num(match.group(1))
+        if value is None:
+            continue
+        before = norm[:match.start()]
+        claim = THEORETICAL_RE.search(before)
+        if claim and not MEASURED_RE.search(before[claim.end():]):
+            skipped_theoretical += 1
+            continue
+        measured.append((value, match.group(1), match.group(2)))
+
+    cap_values = [v for v, _, _ in measured]
     # First value as written, in reading order. Never the min or the max:
     # choosing between two reported values would be inference.
     capacity = cap_values[0] if cap_values else None
-    capacity_reported = (caps[0][0] + " " + caps[0][1]) if caps else None
+    capacity_reported = (measured[0][1] + " " + measured[0][2]) if measured else None
     capacity_derived = None
-    if caps and re.search(r"m\s*A\s?h\s*(?:/|\s)?\s*mg", caps[0][1], re.I):
+    if measured and re.search(r"m\s*A\s?h\s*(?:/|\s)?\s*mg", measured[0][2], re.I):
         capacity = capacity * 1000.0 if capacity is not None else None
         capacity_derived = capacity_reported
+    if skipped_theoretical:
+        notes.append(
+            f"theoretical_value_ignored: {skipped_theoretical} capacity figure(s) "
+            "in this sentence are stated as theoretical limits and were not stored "
+            "as measurements")
 
     initial_capacity = None
     from_to = FROM_TO_RE.search(norm)
@@ -320,6 +364,11 @@ def extract_from_sentence(sentence, title, abstract, section):
 
     if FARAD_RE.search(norm):
         notes.append("sentence_also_reports_farads_per_gram: check for a unit mix-up")
+
+    # Every capacity in the sentence was a theoretical limit and retention was
+    # not reported either, so there is no measurement here to store.
+    if capacity is None and retention is None:
+        return None
 
     current = None
     current_reported = None
@@ -527,6 +576,7 @@ def main():
 
     sql = ("SELECT openalex_id, title, abstract FROM papers"
            " WHERE abstract IS NOT NULL AND abstract != ''"
+           " AND coalesce(source,'openalex') != 'upload'"
            " ORDER BY citations_per_year DESC")
     if args.limit:
         sql += f" LIMIT {int(args.limit)}"
@@ -582,6 +632,14 @@ def main():
     sql_ins = (f"INSERT INTO evidence({','.join(INSERT_FIELDS)})"
                f" VALUES({placeholders})"
                f" ON CONFLICT(row_hash) DO UPDATE SET {assignments}")
+    touched = sorted({p["openalex_id"] for p in papers})
+    for start in range(0, len(touched), 400):
+        batch = touched[start:start + 400]
+        conn.execute(
+            f"DELETE FROM evidence WHERE openalex_id IN"
+            f" ({','.join('?' * len(batch))})", batch)
+    conn.commit()
+
     written = 0
     for row in all_rows:
         row.pop("_derived", None)
