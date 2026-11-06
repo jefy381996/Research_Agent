@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 """Collect graphene-battery paper metadata from OpenAlex into a CSV.
 
-Phase 1: data collection only. Re-running is safe: rows are merged on the
-OpenAlex work id, so the same paper is never written twice.
+Ten title-anchored searches cover the sub-domains of graphene battery
+research. Results are unioned and de-duplicated on the OpenAlex work id.
+
+Why the work id and not the DOI: a meaningful share of OpenAlex works carry
+no DOI. Keying on DOI would collapse every DOI-less paper into a single row.
+The DOI is still stored, and `load_papers.py` maps an empty DOI to NULL so a
+UNIQUE constraint on the column behaves correctly.
+
+Re-running is safe: existing rows are merged, never duplicated.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
-import json
 import os
 import sys
 import tempfile
@@ -21,14 +27,23 @@ import requests
 
 API = "https://api.openalex.org/works"
 
-# --- Search definition ------------------------------------------------------
-# Title-only search: high precision. Both "graphene" and "battery" must appear
-# in the title, the work must be a journal article, published 2019 or later.
-FILTERS = (
-    "from_publication_date:2019-01-01",
-    "type:article",
-    "title.search:graphene AND battery",
-)
+BASE_FILTERS = ("from_publication_date:2019-01-01", "type:article")
+
+# Ten searches. Each requires a graphene-family term in the title, so a paper
+# that merely mentions graphene in passing is not pulled in.
+SEARCHES = [
+    ("battery",        'title.search:graphene AND (battery OR batteries)'),
+    ("anode",          'title.search:graphene AND (anode OR anodes)'),
+    ("cathode",        'title.search:graphene AND (cathode OR cathodes)'),
+    ("graphene-oxide", 'title.search:"graphene oxide" AND (battery OR anode OR cathode)'),
+    ("rgo",            'title.search:("reduced graphene oxide" OR rGO) AND (battery OR anode OR cathode)'),
+    ("lithium-ion",    'title.search:graphene AND ("lithium-ion" OR "lithium ion" OR "Li-ion")'),
+    ("sodium-ion",     'title.search:graphene AND ("sodium-ion" OR "sodium ion" OR "Na-ion")'),
+    ("lithium-sulfur", 'title.search:graphene AND ("lithium-sulfur" OR "lithium sulfur" OR "Li-S")'),
+    ("solid-state",    'title.search:graphene AND ("solid-state" OR "solid state") AND (battery OR electrolyte)'),
+    ("silicon",        'title.search:graphene AND (silicon OR Si) AND (anode OR battery)'),
+]
+
 SELECT = (
     "id,doi,title,publication_year,publication_date,type,primary_location,"
     "best_oa_location,open_access,authorships,cited_by_count,"
@@ -41,28 +56,22 @@ COLUMNS = [
     "openalex_id", "doi", "title", "year", "publication_date", "journal",
     "publisher", "type", "authors", "cited_by_count", "citations_per_year",
     "is_oa", "oa_status", "licence", "full_text_reusable", "pdf_url",
-    "landing_page_url", "abstract", "retrieved_at",
+    "landing_page_url", "abstract", "is_preprint", "source_queries",
+    "retrieved_at",
 ]
 
-# Licences that permit copying and redistribution of the full text.
 LICENCE_REUSABLE = {"cc0", "cc-by", "cc-by-sa", "public-domain", "pd"}
-# Open but with terms that restrict reuse (non-commercial / no-derivatives),
-# or open with unstated terms.
 LICENCE_RESTRICTED = {
     "cc-by-nc", "cc-by-nd", "cc-by-nc-sa", "cc-by-nc-nd",
     "publisher-specific-oa", "other-oa", "publisher-specific-open-access",
 }
 
-# Network behaviour
 MAX_PAGE_RETRIES = 4
 BACKOFF_BASE = 2
-MAX_RETRY_AFTER = 120  # seconds; longer than this is a hard failure
+MAX_RETRY_AFTER = 120
 
-
-# --- Helpers ----------------------------------------------------------------
 
 def load_env(path=".env"):
-    """Minimal .env reader. No extra dependency."""
     if not os.path.exists(path):
         return
     with open(path, encoding="utf-8") as fh:
@@ -86,28 +95,28 @@ def api_key():
 
 
 def reconstruct_abstract(index):
-    """Rebuild abstract text from OpenAlex's inverted index."""
     if not index:
         return ""
-    positions = []
-    for word, slots in index.items():
-        for slot in slots:
-            positions.append((slot, word))
-    positions.sort()
-    return " ".join(word for _, word in positions)
+    slots = []
+    for word, positions in index.items():
+        for pos in positions:
+            slots.append((pos, word))
+    slots.sort()
+    return " ".join(word for _, word in slots)
 
 
 def clean_doi(raw):
     if not raw:
         return ""
-    return raw.replace("https://doi.org/", "").replace("http://doi.org/", "").strip()
+    return (raw.replace("https://doi.org/", "")
+               .replace("http://doi.org/", "").strip().lower())
 
 
 def classify_reuse(licence, is_oa):
-    """Map licence + OA status to a full-text reuse verdict.
+    """Licence + OA status -> full-text reuse verdict.
 
-    NOTE: OpenAlex licence metadata is incomplete and sometimes wrong.
-    'yes' is a lead worth checking, not legal clearance.
+    OpenAlex licence metadata is incomplete and sometimes wrong, so `yes` is a
+    lead worth checking rather than legal clearance.
     """
     lic = (licence or "").lower().strip()
     if lic in LICENCE_REUSABLE:
@@ -116,33 +125,25 @@ def classify_reuse(licence, is_oa):
         return "restricted"
     if lic:
         parts = set(lic.split("-"))
-        if "nc" in parts or "nd" in parts:
-            return "restricted"
-        return "unknown"
+        return "restricted" if ("nc" in parts or "nd" in parts) else "unknown"
     return "unknown" if is_oa else "no"
 
 
-def flatten(work, current_year, retrieved_at):
-    """Turn one OpenAlex work into one CSV row. Raises on malformed input."""
+def flatten(work, current_year, retrieved_at, label):
     primary = work.get("primary_location") or {}
     best_oa = work.get("best_oa_location") or {}
     source = primary.get("source") or {}
     oa = work.get("open_access") or {}
 
-    year = work.get("publication_year")
-    year = int(year) if year else ""
+    raw_year = work.get("publication_year")
+    year = int(raw_year) if raw_year else ""
 
     cited = work.get("cited_by_count") or 0
-    if year:
-        age = max(1, current_year - int(year) + 1)
-        cpy = round(cited / age, 2)
-    else:
-        cpy = ""
+    cpy = round(cited / max(1, current_year - int(year) + 1), 2) if year else ""
 
     names = []
     for a in (work.get("authorships") or []):
-        author = a.get("author") or {}
-        name = (author.get("display_name") or "").strip()
+        name = ((a.get("author") or {}).get("display_name") or "").strip()
         if name:
             names.append(name)
     authors = "; ".join(names[:MAX_AUTHORS])
@@ -151,6 +152,7 @@ def flatten(work, current_year, retrieved_at):
 
     licence = best_oa.get("license") or primary.get("license") or ""
     is_oa = bool(oa.get("is_oa"))
+    wtype = work.get("type") or ""
 
     return {
         "openalex_id": (work.get("id") or "").replace("https://openalex.org/", ""),
@@ -160,7 +162,7 @@ def flatten(work, current_year, retrieved_at):
         "publication_date": work.get("publication_date") or "",
         "journal": (source.get("display_name") or "").strip(),
         "publisher": (source.get("host_organization_name") or "").strip(),
-        "type": work.get("type") or "",
+        "type": wtype,
         "authors": authors,
         "cited_by_count": cited,
         "citations_per_year": cpy,
@@ -169,18 +171,18 @@ def flatten(work, current_year, retrieved_at):
         "licence": licence,
         "full_text_reusable": classify_reuse(licence, is_oa),
         "pdf_url": best_oa.get("pdf_url") or primary.get("pdf_url") or "",
-        "landing_page_url": (
-            best_oa.get("landing_page_url") or primary.get("landing_page_url") or ""
-        ),
+        "landing_page_url": (best_oa.get("landing_page_url")
+                             or primary.get("landing_page_url") or ""),
         "abstract": reconstruct_abstract(work.get("abstract_inverted_index")),
+        "is_preprint": "yes" if wtype == "preprint" else "no",
+        "source_queries": label,
         "retrieved_at": retrieved_at,
     }
 
 
-def fetch_page(session, cursor, key):
-    """Fetch one page. Retries transient failures, then fails hard."""
+def fetch_page(session, query_filter, cursor, key):
     params = {
-        "filter": ",".join(FILTERS),
+        "filter": query_filter,
         "select": SELECT,
         "per-page": str(PER_PAGE),
         "cursor": cursor,
@@ -205,10 +207,7 @@ def fetch_page(session, cursor, key):
                 except (TypeError, ValueError):
                     wait = BACKOFF_BASE ** attempt
                 if wait > MAX_RETRY_AFTER:
-                    sys.exit(
-                        f"ERROR: rate limited for {wait}s, longer than this run "
-                        f"will wait. Nothing written.\n  {last}"
-                    )
+                    sys.exit(f"ERROR: rate limited for {wait}s. Nothing written.\n  {last}")
                 time.sleep(wait)
                 continue
             if resp.status_code in (401, 403):
@@ -218,14 +217,10 @@ def fetch_page(session, cursor, key):
         if attempt < MAX_PAGE_RETRIES:
             time.sleep(BACKOFF_BASE ** attempt)
 
-    sys.exit(
-        f"ERROR: page failed after {MAX_PAGE_RETRIES} attempts. Nothing written.\n"
-        f"  {last}"
-    )
+    sys.exit(f"ERROR: page failed after {MAX_PAGE_RETRIES} attempts. Nothing written.\n  {last}")
 
 
 def read_existing(path):
-    """Load an existing CSV so a re-run merges instead of duplicating."""
     if not path or not os.path.exists(path):
         return {}
     rows = {}
@@ -241,7 +236,6 @@ def read_existing(path):
 
 
 def write_atomic(path, rows):
-    """Write to a temp file in the same directory, then rename into place."""
     parent = os.path.dirname(os.path.abspath(path))
     os.makedirs(parent, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=parent, prefix=".papers-", suffix=".csv")
@@ -258,19 +252,52 @@ def write_atomic(path, rows):
         raise
 
 
-# --- Main -------------------------------------------------------------------
+def run_search(session, label, search, key, current_year, retrieved_at,
+               collected, dry_run):
+    query_filter = ",".join(BASE_FILTERS + (search,))
+    page = fetch_page(session, query_filter, "*", key)
+    total = page.get("meta", {}).get("count", 0)
+    print(f"  [{label}] OpenAlex reports {total} works")
+    if dry_run:
+        return total, 0
+
+    pages, skipped, cursor = 0, 0, "*"
+    while True:
+        if pages:
+            page = fetch_page(session, query_filter, cursor, key)
+        pages += 1
+        results = page.get("results", [])
+        for work in results:
+            try:
+                row = flatten(work, current_year, retrieved_at, label)
+            except Exception as exc:
+                skipped += 1
+                print(f"    skipped a record: {type(exc).__name__}: {exc}", flush=True)
+                continue
+            wid = row["openalex_id"]
+            if not wid:
+                skipped += 1
+                continue
+            if wid in collected:
+                prior = collected[wid]["source_queries"]
+                if label not in prior.split("|"):
+                    collected[wid]["source_queries"] = prior + "|" + label
+            else:
+                collected[wid] = row
+        cursor = page.get("meta", {}).get("next_cursor")
+        if not cursor or not results:
+            break
+    print(f"    {pages} pages, union now {len(collected)}", flush=True)
+    return total, skipped
+
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Collect graphene-battery paper metadata from OpenAlex."
-    )
+        description="Collect graphene-battery paper metadata from OpenAlex.")
     parser.add_argument("--out", help="CSV path to write, e.g. data/papers.csv")
-    parser.add_argument(
-        "--dry-run", action="store_true",
-        help="Fetch one page, report what would be collected, write nothing.",
-    )
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Report counts per search and write nothing.")
     args = parser.parse_args()
-
     if not args.dry_run and not args.out:
         parser.error("either --out PATH or --dry-run is required")
 
@@ -282,102 +309,46 @@ def main():
     retrieved_at = now.replace(microsecond=0).isoformat()
 
     print("OpenAlex collection run")
-    print(f"  filter      : {','.join(FILTERS)}")
-    print(f"  per-page    : {PER_PAGE}")
-    print(f"  mode        : {'DRY RUN (writes nothing)' if args.dry_run else 'full'}")
-    if not args.dry_run:
-        print(f"  output      : {args.out}")
-    print(f"  api key     : configured ({len(key)} chars, value not shown)")
+    print(f"  searches : {len(SEARCHES)}")
+    print(f"  base     : {','.join(BASE_FILTERS)}")
+    print(f"  mode     : {'DRY RUN (writes nothing)' if args.dry_run else 'full'}")
+    print(f"  api key  : configured ({len(key)} chars, value not shown)")
     print()
 
     session = requests.Session()
-    session.headers["User-Agent"] = "research-agent/0.1 (Phase 1 collector)"
+    session.headers["User-Agent"] = "research-agent/0.2 (graphene battery evidence)"
 
-    page = fetch_page(session, "*", key)
-    total = page.get("meta", {}).get("count", 0)
-    print(f"Matching works reported by OpenAlex: {total}")
-    print(f"Pages to fetch at {PER_PAGE}/page       : {-(-total // PER_PAGE)}")
+    collected, skipped_total, reported = {}, 0, 0
+    for label, search in SEARCHES:
+        total, skipped = run_search(session, label, search, key, current_year,
+                                    retrieved_at, collected, args.dry_run)
+        reported += total
+        skipped_total += skipped
+
     print()
-
+    print(f"Sum of per-search counts (with overlap): {reported}")
     if args.dry_run:
-        rows, skipped = [], 0
-        for work in page.get("results", []):
-            try:
-                rows.append(flatten(work, current_year, retrieved_at))
-            except Exception:
-                skipped += 1
-        print(f"First page parsed: {len(rows)} rows, {skipped} skipped")
-        print()
-        print("Columns:")
-        print("  " + ", ".join(COLUMNS))
-        print()
-        print("Sample of 3 rows:")
-        for row in rows[:3]:
-            print("  ---")
-            print(f"  openalex_id        : {row['openalex_id']}")
-            print(f"  doi                : {row['doi'] or '(empty)'}")
-            print(f"  title              : {row['title'][:90]}")
-            print(f"  year               : {row['year']}")
-            print(f"  journal            : {row['journal'][:70] or '(empty)'}")
-            print(f"  cited_by_count     : {row['cited_by_count']}")
-            print(f"  citations_per_year : {row['citations_per_year']}")
-            print(f"  oa_status          : {row['oa_status'] or '(empty)'}")
-            print(f"  licence            : {row['licence'] or '(empty)'}")
-            print(f"  full_text_reusable : {row['full_text_reusable']}")
-            print(f"  pdf_url            : {(row['pdf_url'] or '(empty)')[:70]}")
-            print(f"  abstract           : {len(row['abstract'])} chars")
-        print()
         print("DRY RUN complete. No file was written.")
         return
-
-    existing = read_existing(args.out)
-    print(f"Existing rows loaded for merge: {len(existing)}")
-
-    collected, skipped, pages = {}, 0, 0
-    cursor = "*"
-    while True:
-        if pages:  # first page already fetched
-            page = fetch_page(session, cursor, key)
-        pages += 1
-        results = page.get("results", [])
-        for work in results:
-            try:
-                row = flatten(work, current_year, retrieved_at)
-            except Exception as exc:
-                skipped += 1
-                print(f"  skipped a record: {type(exc).__name__}: {exc}", flush=True)
-                continue
-            if row["openalex_id"]:
-                collected[row["openalex_id"]] = row
-            else:
-                skipped += 1
-        print(f"  page {pages}: +{len(results)} (total {len(collected)})", flush=True)
-        cursor = page.get("meta", {}).get("next_cursor")
-        if not cursor or not results:
-            break
 
     if not collected:
         sys.exit("ERROR: collected zero rows. Nothing written.")
 
+    existing = read_existing(args.out)
     merged = dict(existing)
     new_ids = set(collected) - set(existing)
     merged.update(collected)
-    rows = sorted(
-        merged.values(),
-        key=lambda r: (
-            -float(r.get("citations_per_year") or 0),
-            str(r.get("title", "")),
-        ),
-    )
+    rows = sorted(merged.values(),
+                  key=lambda r: (-float(r.get("citations_per_year") or 0),
+                                 str(r.get("title", ""))))
     write_atomic(args.out, rows)
 
-    print()
-    print(f"Pages fetched    : {pages}")
-    print(f"Records skipped  : {skipped}")
-    print(f"New this run     : {len(new_ids)}")
-    print(f"Updated existing : {len(set(collected) & set(existing))}")
-    print(f"Total rows in CSV: {len(rows)}")
-    print(f"Written to       : {args.out}")
+    print(f"Unique papers after de-duplication    : {len(collected)}")
+    print(f"Records skipped                       : {skipped_total}")
+    print(f"New this run                          : {len(new_ids)}")
+    print(f"Updated existing                      : {len(set(collected) & set(existing))}")
+    print(f"Total rows in CSV                     : {len(rows)}")
+    print(f"Written to                            : {args.out}")
 
 
 if __name__ == "__main__":
