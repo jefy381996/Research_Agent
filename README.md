@@ -39,6 +39,22 @@ look at the interface only, the last command is the one you need.
 python -m unittest discover -s tests && python scorecard.py
 ```
 
+## A shareable link, with nothing to deploy
+
+`build_demo.py` writes a static mirror into `demo/`: the same interface and the
+same data, with the evidence table and the stored abstracts embedded so the
+page needs no backend. Filtering, the source drawer, asking, refusing and CSV
+export all work. Uploading your own PDF is the one feature it cannot offer,
+because that needs the running service.
+
+```bash
+python build_demo.py && python -m http.server 8001 --directory demo
+```
+
+A published copy is at <https://claude.ai/artifact/QuP8gNZpF5guDB4NvsjFoW>. It
+is private until it is shared from the page's Share menu, so share it before
+sending the link to anyone.
+
 ## How it works
 
 | Stage | Script | What it does |
