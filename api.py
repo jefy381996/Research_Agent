@@ -744,6 +744,28 @@ def export_xlsx(material: str | None = None, graphene_form: str | None = None,
                  'attachment; filename="graphene-battery-evidence.xlsx"'})
 
 
+@app.get("/api/live", summary="Search the literature beyond the stored snapshot")
+def get_live(q: str, limit: int = Query(25, ge=1, le=50),
+             since: int = Query(2019, ge=1900, le=2100)):
+    """Query OpenAlex now and extract what the results state.
+
+    Nothing is written to the library: these are leads, fetched at question
+    time and read with the same extractor, and the response says so.
+    """
+    import live
+    if not (q or "").strip():
+        raise HTTPException(status_code=400, detail="q is required")
+    result = live.search(q, limit=limit, since=since)
+    for row in result.get("rows", []):
+        row.pop("_derived", None)
+        if isinstance(row.get("flags"), str):
+            try:
+                row["flags"] = json.loads(row["flags"])
+            except (TypeError, ValueError):
+                row["flags"] = []
+    return result
+
+
 @app.get("/api/health", summary="Liveness and corpus readiness")
 def health():
     conn = _conn()

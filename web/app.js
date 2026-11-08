@@ -308,6 +308,34 @@ function understand(question) {
     quantities, wantsCalc, low };
 }
 
+function renderLive(r) {
+  if (!r.available)
+    return `<h3>Live search unavailable</h3>
+      <p class="sub" style="margin:0">${esc(r.reason || "the service did not answer")}.</p>`;
+  const rows = (r.rows || []).slice(0, 8);
+  const fresh = (r.papers || []).filter((p) => !p.already_in_library).slice(0, 6);
+  return `<h3>Fetched from the literature just now</h3>
+    <p class="sub" style="margin:0 0 14px">Searched <b>${esc(r.query)}</b> and read
+      ${(r.papers || []).length} papers, <b>${r.new_to_library}</b> of them not in the
+      library. ${esc(r.note || "")}</p>
+    ${rows.length ? `<div class="srcs">${rows.map((row, i) => `
+      <div class="src ${row.confidence === "flagged" ? "flagged" : ""}" style="--i:${i}">
+        <div class="n">L${i + 1}</div><div>
+        <div class="t">${esc(row.title || "")}</div>
+        <div class="m"><span>${esc(row.journal || "")}</span><span>${row.year || ""}</span>
+          <span>${esc(row.material_system || "")}</span>
+          <span>${row.already_in_library ? "already stored" : "new"}</span></div>
+        <div class="qt">${esc((row.source_quote || "").slice(0, 300))}</div>
+      </div></div>`).join("")}</div>`
+      : `<p class="sub" style="margin:0">No measurement could be read from these
+         abstracts. The papers themselves are listed below.</p>`}
+    ${fresh.length ? `<div class="csec" style="margin-top:18px">
+      <h3>Papers new to the library</h3>
+      ${fresh.map((p) => `<div class="cpaper" style="cursor:default">
+        <b>${esc(p.title || "")}</b><span>${esc(p.journal || "")} \u00b7 ${p.year || ""}
+        ${p.doi ? ` \u00b7 ${esc(p.doi)}` : ""}</span></div>`).join("")}</div>` : ""}`;
+}
+
 /* ── knowledge browser ──────────────────────────────────── */
 let exCat = null;
 function paintExplore(q = "") {
@@ -377,7 +405,26 @@ function openConcept(slug) {
   document.querySelector(".view[data-view=concept] .mid").scrollTop = 0;
 }
 
-document.addEventListener("click", (e) => {
+document.addEventListener("click", async (e) => {
+  const liveBtn = e.target.closest("[data-live]");
+  if (liveBtn) {
+    const host = liveBtn.closest(".out") || liveBtn.closest(".refusal")?.parentElement;
+    liveBtn.disabled = true; liveBtn.textContent = "Searching the literature\u2026";
+    let panel = document.createElement("div");
+    panel.className = "card"; panel.style.marginTop = "16px";
+    (host || document.body).appendChild(panel);
+    try {
+      const r = await fetch(`api/live?q=${encodeURIComponent(liveBtn.dataset.live)}`)
+        .then((x) => x.json());
+      panel.innerHTML = renderLive(r);
+      animateBlocks(panel);
+    } catch (err) {
+      panel.innerHTML = `<h3>Live search</h3><p class="sub">Could not reach the
+        literature service. ${esc(String(err.message || err))}</p>`;
+    }
+    liveBtn.textContent = "Searched";
+    return;
+  }
   const c = e.target.closest("[data-concept]");
   if (c) { openConcept(c.dataset.concept); return; }
   const back = e.target.closest("[data-back]");
@@ -1064,6 +1111,8 @@ async function ask(question) {
   const out = turn.querySelector(".out");
   out.innerHTML = html + `<div class="acts">
     <button class="btn" data-save>Save to notebook</button>
+    ${API ? `<button class="btn" data-live="${esc(question)}">Search live literature</button>`
+          : ""}
     <span class="dim">${refs.length} source${refs.length === 1 ? "" : "s"}</span></div>`;
   animateBlocks(out);
   turn.querySelector("[data-hide]").hidden = false;
