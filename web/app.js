@@ -14,6 +14,34 @@ const fmt = (v, d = 0) => (v === null || v === undefined || v === "")
   ? null : Number(v).toLocaleString("en-GB", { maximumFractionDigits: d });
 const NR = '<span class="nr">not reported</span>';
 
+/* Give each child an index the stylesheet turns into a delay, so a list
+   arrives in sequence rather than all at once. */
+function stagger(root, selector, cap = 24) {
+  if (!root) return;
+  root.querySelectorAll(selector).forEach((el, i) => {
+    el.style.setProperty("--i", Math.min(i, cap));
+  });
+}
+
+/* Count a figure up to its value. The element keeps its unit markup; only the
+   leading number is animated, and it lands exactly on the real value. */
+function countUp(el, value, decimals) {
+  if (!el || !Number.isFinite(value)) return;
+  const reduce = window.matchMedia
+    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const render = (v) => { el.textContent = v.toLocaleString("en-GB",
+    { minimumFractionDigits: decimals, maximumFractionDigits: decimals }); };
+  if (reduce || Math.abs(value) < 0.01) { render(value); return; }
+  const DUR = 780, t0 = performance.now();
+  const tick = (now) => {
+    const p = Math.min(1, (now - t0) / DUR);
+    const eased = 1 - Math.pow(1 - p, 4);
+    render(value * eased);
+    if (p < 1) requestAnimationFrame(tick); else render(value);
+  };
+  requestAnimationFrame(tick);
+}
+
 /* ── vocabulary ─────────────────────────────────────────── */
 const V = {
   partner: [["Si", /\bsilicon\b|\bsi\b|\bsiox\b/], ["S", /\bsulfur\b|\bsulphur\b|\bli-?s\b/],
@@ -304,7 +332,7 @@ function paintExplore(q = "") {
   list.forEach((c) => { (groups[c.category] = groups[c.category] || []).push(c); });
   $("exgrid").innerHTML = Object.entries(groups).map(([cat, items]) => `
     <div class="exgroup"><h3>${esc(cat)} \u00b7 ${items.length}</h3>
-    <div class="excards">${items.map((c) => `<button class="excard" data-concept="${esc(c.slug)}">
+    <div class="excards">${items.map((c, i) => `<button class="excard" style="--i:${i}" data-concept="${esc(c.slug)}">
       <b>${esc(c.title)}</b>${c.description ? `<i>${esc(c.description)}</i>` : ""}
       <p>${esc((c.summary || "").slice(0, 190))}</p></button>`).join("")}</div></div>`).join("");
 }
@@ -462,7 +490,7 @@ function hbars(items, unit, label) {
       <text class="val" x="${P.l + bw + 7}" y="${y + 14}">${fmt(it.value, it.value < 10 ? 2 : 0)}</text>
       <rect class="hit" x="0" y="${y}" width="${W}" height="${rowH}"></rect></g>`;
   });
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img"
+  return `<svg class="chart h" viewBox="0 0 ${W} ${H}" role="img"
     aria-label="${esc(label)}">${body}</svg>`;
 }
 
@@ -480,12 +508,13 @@ function trendline(points, unit, label) {
       <text x="${P.l - 8}" y="${gy + 3}" text-anchor="end">${fmt(lo + f * (hi - lo), 0)}</text>`; });
   points.forEach((p, i) => {
     dots += `<g class="it" data-tip="${esc(`<b>${p.name}</b>median ${fmt(p.value, 0)} ${unit} &middot; ${p.n} measurements`)}">
-      <circle cx="${X(i)}" cy="${Y(p.value)}" r="4" fill="var(--acc)"></circle>
+      <circle cx="${X(i)}" cy="${Y(p.value)}" r="3.5" fill="var(--ink)"
+        style="--i:${i}"></circle>
       <rect class="hit" x="${X(i) - 16}" y="${P.t}" width="32" height="${ih}"></rect>
       <text x="${X(i)}" y="${H - 9}" text-anchor="middle">${esc(p.name)}</text></g>`;
   });
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">
-    ${grid}<path d="${path}" fill="none" stroke="var(--acc)" stroke-width="2"
+    ${grid}<path d="${path}" data-draw fill="none" stroke="var(--ink)" stroke-width="1.75"
       stroke-linejoin="round" stroke-linecap="round"></path>${dots}</svg>`;
 }
 
@@ -843,7 +872,7 @@ function renderAnswer(a) {
       p25: g.p25, p75: g.p75, q: i === 0 ? "q4" : i < 3 ? "q3" : "q2" }));
     const best = a.groups[0];
     blocks.push(`<div class="headline"><div class="lbl">highest median ${esc(a.label)}</div>
-      <div class="big">${esc(best.name)}</div>
+      <div class="big txt">${esc(best.name)}</div>
       <div class="sub"><b>${fmt(best.median, 1)} ${esc(a.unit)}</b> across ${best.n} measurements
         &middot; middle half ${fmt(best.p25, 0)}–${fmt(best.p75, 0)}</div></div>`);
     blocks.push(`<div class="card"><h3>Median ${esc(a.label)} by material system</h3>
@@ -924,6 +953,34 @@ function gapBlock(a, papers, flagged, years) {
     s += ` These papers do not state <b>${a.missing.map(esc).join(", ")}</b>.`;
   s += ` Nothing here is estimated: an absent value means the paper never gave one.`;
   return `<div class="gap">${s}</div>`;
+}
+
+/* Index everything that should arrive in sequence, measure each line so it
+   can draw itself, and run the headline figure up to its value. */
+function animateBlocks(root) {
+  if (!root) return;
+  stagger(root, ".src");
+  stagger(root, ".metric");
+  root.querySelectorAll("svg.chart").forEach((svg) => {
+    svg.querySelectorAll(".bar").forEach((b, i) => b.style.setProperty("--i", i));
+    svg.querySelectorAll("path[data-draw]").forEach((p) => {
+      try { p.style.setProperty("--len", p.getTotalLength()); } catch (e) { /* no layout */ }
+    });
+  });
+  const big = root.querySelector(".headline .big");
+  if (big) {
+    const first = big.firstChild;
+    if (first && first.nodeType === 3) {
+      const raw = first.textContent.trim().replace(/,/g, "");
+      const value = Number(raw);
+      if (Number.isFinite(value)) {
+        const decimals = (raw.split(".")[1] || "").length;
+        const span = document.createElement("span");
+        big.replaceChild(span, first);
+        countUp(span, value, decimals);
+      }
+    }
+  }
 }
 
 /* ── views ──────────────────────────────────────────────── */
@@ -1008,6 +1065,7 @@ async function ask(question) {
   out.innerHTML = html + `<div class="acts">
     <button class="btn" data-save>Save to notebook</button>
     <span class="dim">${refs.length} source${refs.length === 1 ? "" : "s"}</span></div>`;
+  animateBlocks(out);
   turn.querySelector("[data-hide]").hidden = false;
   turn.querySelector("[data-hide]").addEventListener("click", (e) => {
     const tl = turn.querySelector(".tl");
@@ -1052,11 +1110,32 @@ const CHIPS = [
 ];
 
 /* ── drawer ─────────────────────────────────────────────── */
+/* An overlay that vanishes on close feels broken however well it opened, so
+   the exit is animated too and the element is hidden only once it finishes.
+   The timeout is the fallback for reduced motion, where no animation runs. */
+function closeOverlay(el, backdrop) {
+  if (el.hidden || el.dataset.closing) return;
+  el.dataset.closing = "1";
+  el.classList.add("closing"); backdrop.classList.add("closing");
+  let done = false;
+  const finish = () => {
+    if (done) return; done = true;
+    el.hidden = true; backdrop.hidden = true;
+    el.classList.remove("closing"); backdrop.classList.remove("closing");
+    delete el.dataset.closing;
+  };
+  el.addEventListener("animationend", finish, { once: true });
+  setTimeout(finish, 320);
+}
+
 function openDrawer(title, html) {
   $("dt").textContent = title; $("db").innerHTML = html;
-  $("bd").hidden = false; $("drawer").hidden = false; $("dclose").focus();
+  $("bd").hidden = false; $("drawer").hidden = false;
+  $("drawer").classList.remove("closing"); $("bd").classList.remove("closing");
+  stagger($("db"), ".src, mark");
+  $("dclose").focus();
 }
-const closeDrawer = () => { $("drawer").hidden = true; $("bd").hidden = true; };
+const closeDrawer = () => closeOverlay($("drawer"), $("bd"));
 $("dclose").addEventListener("click", closeDrawer);
 $("bd").addEventListener("click", closeDrawer);
 
@@ -1425,8 +1504,9 @@ $("theme").addEventListener("click", () => {
 
 let palItems = [], palIdx = 0;
 const openPal = () => { $("palbd").hidden = false; $("pal").hidden = false;
+  $("pal").classList.remove("closing"); $("palbd").classList.remove("closing");
   $("palin").value = ""; paintPal(""); $("palin").focus(); };
-const closePal = () => { $("pal").hidden = true; $("palbd").hidden = true; };
+const closePal = () => closeOverlay($("pal"), $("palbd"));
 function paintPal(term) {
   const t = term.toLowerCase();
   const base = [
@@ -1501,13 +1581,15 @@ async function loadData() {
     [s.material_systems, "material systems"],
     [`${s.year_range[0]}–${s.year_range[1]}`, "published"],
     [fmt(s.flagged), "flagged, kept visible"],
-  ].map(([v, k]) => `<div class="stat"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  ].map(([v, k], i) => `<div class="stat" style="--i:${i}"><div class="v">${esc(v)}</div>
+      <div class="k">${esc(k)}</div></div>`).join("");
   const setN = (id, v) => { const el = $(id); if (el) el.textContent = v; };
   setN("n-con", fmt(DATA.concepts.length));
   setN("n-ev", fmt(s.evidence_rows));
   setN("n-calc", (DATA.calculators || []).length);
   setN("n-pap", fmt(s.papers));
-  $("chips").innerHTML = CHIPS.map((q) => `<button data-q="${esc(q)}">${esc(q)}</button>`).join("");
+  $("chips").innerHTML = CHIPS.map((q, i) =>
+    `<button style="--i:${i}" data-q="${esc(q)}">${esc(q)}</button>`).join("");
   $("chips").addEventListener("click", (e) => { const b = e.target.closest("button");
     if (b) ask(b.dataset.q); });
   paintFacets(); head(); loadNotes();
