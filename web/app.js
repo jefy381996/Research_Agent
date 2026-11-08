@@ -330,8 +330,8 @@ function paintExplore(q = "") {
   }
   const groups = {};
   list.forEach((c) => { (groups[c.category] = groups[c.category] || []).push(c); });
-  $("exgrid").innerHTML = Object.entries(groups).map(([cat, items]) => `
-    <div class="exgroup"><h3>${esc(cat)} \u00b7 ${items.length}</h3>
+  $("exgrid").innerHTML = Object.entries(groups).map(([cat, items], gi) => `
+    <div class="exgroup" style="--g:${gi}"><h3>${esc(cat)} \u00b7 ${items.length}</h3>
     <div class="excards">${items.map((c, i) => `<button class="excard" style="--i:${i}" data-concept="${esc(c.slug)}">
       <b>${esc(c.title)}</b>${c.description ? `<i>${esc(c.description)}</i>` : ""}
       <p>${esc((c.summary || "").slice(0, 190))}</p></button>`).join("")}</div></div>`).join("");
@@ -1389,10 +1389,10 @@ function buildCalcs(filter = "") {
     || c.group.toLowerCase().includes(t));
   const groups = {};
   list.forEach((c) => { (groups[c.group] = groups[c.group] || []).push(c); });
-  $("calcs").innerHTML = Object.entries(groups).map(([g, items]) => `
-    <div class="cgroup"><h3>${esc(g)} \u00b7 ${items.length}</h3>
-    <div class="calcs">${items.map((c) => `
-      <div class="calc" data-n="${esc(c.name)}">
+  $("calcs").innerHTML = Object.entries(groups).map(([g, items], gi) => `
+    <div class="cgroup" style="--g:${gi}"><h3>${esc(g)} \u00b7 ${items.length}</h3>
+    <div class="calcs">${items.map((c, ci) => `
+      <div class="calc" style="--i:${ci}" data-n="${esc(c.name)}">
         <h3>${esc(c.label)}</h3><div class="d">${esc(c.description)}</div>
         <code class="fx">${esc(c.formula)}</code>
         <div class="ci">${c.inputs.map((i) => `<label class="fld">
@@ -1496,6 +1496,8 @@ $("nbs").addEventListener("click", (e) => {
 try { const s = localStorage.getItem("gba.theme"); if (s) document.documentElement.dataset.theme = s; }
 catch (e) {}
 $("theme").addEventListener("click", () => {
+  document.documentElement.classList.add("theming");
+  setTimeout(() => document.documentElement.classList.remove("theming"), 480);
   const dark = getComputedStyle(document.body).backgroundColor.replace(/\s/g, "") === "rgb(7,9,16)";
   const next = dark ? "light" : "dark";
   document.documentElement.dataset.theme = next;
@@ -1568,12 +1570,20 @@ async function loadData() {
 }
 
 (async function start() {
+  const scroll = $("scroll");
+  if (scroll) scroll.insertAdjacentHTML("afterbegin",
+    `<div class="skel" id="skel"><i class="a"></i><i class="b"></i><i class="c"></i>
+      <i class="d"></i><i class="e"></i>
+      <div class="skel-note">loading the library\u2026</div></div>`);
+  const hideSkel = () => { const el = $("skel"); if (el) el.remove(); };
   try { await loadData(); }
   catch (e) {
+    hideSkel();
     $("thread").innerHTML = `<div class="refusal"><h3>The library could not be loaded</h3>
       <p>Reload the page. If it keeps failing the data file is missing from the deployment.</p></div>`;
     return;
   }
+  hideSkel();
   const s = DATA.stats;
   document.title = `Graphene Battery Research Agent · ${fmt(s.evidence_rows)} measurements`;
   $("strip").innerHTML = [
