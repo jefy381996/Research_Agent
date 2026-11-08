@@ -116,12 +116,19 @@ def bundle():
                 row["flags"] = []
             rows.append(row)
 
-        passages = [{"i": r["openalex_id"], "t": r["title"], "y": r["year"],
-                     "j": r["journal"], "d": r["doi"], "x": (r["abstract"] or "")[:1800]}
-                    for r in conn.execute(
-                        "SELECT openalex_id, title, year, journal, doi, abstract"
-                        " FROM papers WHERE abstract IS NOT NULL AND abstract != ''"
-                        " ORDER BY citations_per_year DESC")]
+        # Every paper behind a measurement is kept; the most-cited of the rest
+        # fill a budget, so the payload stays a few megabytes rather than twenty.
+        cited = {r["openalex_id"] for r in rows}
+        passages, budget = [], int(os.environ.get("PASSAGE_BUDGET", "6000"))
+        for r in conn.execute(
+                "SELECT openalex_id, title, year, journal, doi, abstract FROM papers"
+                " WHERE abstract IS NOT NULL AND abstract != ''"
+                " ORDER BY citations_per_year DESC"):
+            if len(passages) >= budget and r["openalex_id"] not in cited:
+                continue
+            passages.append({"i": r["openalex_id"], "t": r["title"], "y": r["year"],
+                             "j": r["journal"], "d": r["doi"],
+                             "x": (r["abstract"] or "")[:1200]})
 
         def facet(column):
             return [{"value": r[0], "count": r[1]} for r in conn.execute(
@@ -129,9 +136,18 @@ def bundle():
                 f" WHERE {column} IS NOT NULL AND {column} != ''"
                 f" GROUP BY 1 ORDER BY 2 DESC LIMIT 40")]
 
+        concepts = [dict(r) for r in conn.execute(
+            "SELECT slug, title, category, summary, description, url, source,"
+            " licence FROM concepts ORDER BY category, title")]
+        compounds = [dict(r) for r in conn.execute(
+            "SELECT cid, name, formula, molecular_weight, smiles, iupac_name,"
+            " url FROM compounds ORDER BY name")]
         return {
             "rows": rows,
             "passages": passages,
+            "concepts": concepts,
+            "compounds": compounds,
+            "calculators": calculators.catalogue(),
             "facets": {k: facet(k) for k in ("confidence", "battery_type",
                                              "graphene_form", "electrode_role",
                                              "material_system")},
@@ -141,16 +157,23 @@ def bundle():
         conn.close()
 
 
-@app.get("/app.js", include_in_schema=False)
-def app_js():
-    return FileResponse(os.path.join(STATIC_DIR, "app.js"),
-                        media_type="application/javascript")
+STATIC_SUFFIXES = {".js": "application/javascript", ".css": "text/css",
+                   ".svg": "image/svg+xml", ".png": "image/png",
+                   ".webmanifest": "application/manifest+json",
+                   ".ico": "image/x-icon"}
 
 
-@app.get("/app.css", include_in_schema=False)
-def app_css():
-    return FileResponse(os.path.join(STATIC_DIR, "app.css"),
-                        media_type="text/css")
+@app.get("/{filename}", include_in_schema=False)
+def static_file(filename: str):
+    """Serve the interface's own files, and nothing outside web/."""
+    suffix = os.path.splitext(filename)[1].lower()
+    if suffix not in STATIC_SUFFIXES:
+        raise HTTPException(status_code=404, detail="not found")
+    path = os.path.normpath(os.path.join(STATIC_DIR, filename))
+    if not path.startswith(os.path.abspath(STATIC_DIR) + os.sep) \
+            or not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="not found")
+    return FileResponse(path, media_type=STATIC_SUFFIXES[suffix])
 
 
 # --- evidence ---------------------------------------------------------------
@@ -289,6 +312,9 @@ def get_stats():
                 "SELECT min(year), max(year) FROM papers WHERE year IS NOT NULL"
             ).fetchone()),
             "chunks": one("SELECT count(*) FROM chunks"),
+            "concepts": one("SELECT count(*) FROM concepts"),
+            "compounds": one("SELECT count(*) FROM compounds"),
+            "calculators": len(calculators.REGISTRY),
             "user_documents": one("SELECT count(*) FROM user_documents"),
             "checks": {
                 "capacity_hard_max_mah_g": plausibility.CAPACITY_HARD_MAX,
@@ -388,24 +414,48 @@ def get_search(q: str, limit: int = Query(10, ge=1, le=50)):
 
 # --- calculators and units --------------------------------------------------
 
-@app.get("/api/calculators", summary="Available calculators and their inputs")
+@app.get("/api/calculators", summary="Every calculator, with inputs and notes")
 def get_calculators():
-    import inspect
-    out = []
-    for name, fn in calculators.REGISTRY.items():
-        signature = inspect.signature(fn)
-        out.append({
-            "name": name,
-            "description": (fn.__doc__ or "").strip().split("\n")[0],
-            "inputs": [{"name": p.name,
-                        "required": p.default is inspect.Parameter.empty,
-                        "default": None if p.default is inspect.Parameter.empty
-                                   else p.default}
-                       for p in signature.parameters.values()],
-        })
-    return {"calculators": out,
+    return {"calculators": calculators.catalogue(),
+            "groups": list(calculators.GROUPS),
             "capacity_units": units.ALL_CAPACITY_UNITS,
             "current_units": units.ALL_CURRENT_UNITS}
+
+
+@app.get("/api/concepts", summary="Reference entries, searchable")
+def get_concepts(q: str | None = None, category: str | None = None,
+                 limit: int = Query(300, ge=1, le=1000)):
+    conn = _conn()
+    try:
+        clauses, params = ["1=1"], []
+        if category:
+            clauses.append("category = ?"); params.append(category)
+        if q:
+            clauses.append("(lower(title) LIKE ? OR lower(summary) LIKE ?)")
+            params += [f"%{q.lower()}%"] * 2
+        rows = conn.execute(
+            f"SELECT slug, title, category, summary, description, url, source,"
+            f" licence FROM concepts WHERE {' AND '.join(clauses)}"
+            f" ORDER BY category, title LIMIT ?", params + [limit]).fetchall()
+        return {"total": len(rows), "rows": [dict(r) for r in rows]}
+    finally:
+        conn.close()
+
+
+@app.get("/api/compounds", summary="Chemical identity and properties")
+def get_compounds(q: str | None = None):
+    conn = _conn()
+    try:
+        if q:
+            rows = conn.execute(
+                "SELECT * FROM compounds WHERE lower(name) LIKE ?"
+                " OR lower(formula) LIKE ? ORDER BY name",
+                [f"%{q.lower()}%"] * 2).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM compounds ORDER BY name").fetchall()
+        return {"total": len(rows), "rows": [dict(r) for r in rows]}
+    finally:
+        conn.close()
 
 
 @app.post("/api/calculate", summary="Run a calculator")

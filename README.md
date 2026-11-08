@@ -1,14 +1,12 @@
-# Graphene Battery Evidence Workbench
+# Graphene Battery Research Agent
 
-Researchers cannot compare performance numbers across papers today, because
-every paper reports under different conditions and in different units. This
-tool collects those numbers from the graphene battery literature, makes them
-comparable, and shows the exact sentence each one came from.
+A research workbench for graphene batteries. It answers from three kinds of
+stored data and nothing else: reference entries for the fundamentals,
+measurements pulled out of published papers, and calculators you can audit.
 
-**1,849 measurements, from 6,575 papers published 2019 onward.** Every stored
-number is attached to the sentence that states it. An empty cell means the
-paper did not report that value; nothing is estimated, averaged, or converted
-from a figure a paper did not give.
+**179 reference entries · 2,743 measurements · 23,400 papers · 34 compounds ·
+28 calculators.** No model runs at question time. The same question always
+gives the same answer, and every number is traceable to its source.
 
 ## Run it
 
@@ -55,11 +53,25 @@ A published copy is at <https://claude.ai/artifact/QuP8gNZpF5guDB4NvsjFoW>. It
 is private until it is shared from the page's Share menu, so share it before
 sending the link to anyone.
 
+## Where the data comes from
+
+| Source | What it gives | Licence |
+|---|---|---|
+| [OpenAlex](https://openalex.org) | 23,400 paper records and abstracts, 2019 onward | CC0 |
+| [Wikipedia](https://en.wikipedia.org) | 179 reference entries, stored verbatim with a link to each original | CC BY-SA 4.0 |
+| [PubChem](https://pubchem.ncbi.nlm.nih.gov) | 34 compounds: formula, mass, structure | public domain |
+| This repository | 2,743 measurements extracted from the abstracts, and 28 calculators | the repository's licence |
+
+All of it is open and checkable. Nothing is paid for, and nothing is behind a
+login. Every reference entry shows which source it came from and links to it,
+so a reader can go and disagree with it.
+
 ## How it works
 
 | Stage | Script | What it does |
 |---|---|---|
-| Collect | `collect_papers.py` | Ten title-anchored OpenAlex searches, unioned and de-duplicated on the work id |
+| Collect papers | `collect_papers.py` | 22 title-anchored OpenAlex searches across applications, fundamentals and characterisation, unioned and de-duplicated on the work id |
+| Collect knowledge | `collect_knowledge.py` | Reference entries from Wikipedia and compound data from PubChem, paced and retried |
 | Load | `load_papers.py` | CSV into SQLite, matched on the work id |
 | Full text | `fetch_text.py` | Downloads, extracts and **deletes** PDFs for papers whose licence permits it |
 | Extract | `extract_evidence.py` | Reads measurements out of sentences |
@@ -113,6 +125,20 @@ No battery chemist has reviewed this data. Every row carries `verified`,
 `flagged` or `unverified`, flagged rows are visible from the filter rail rather
 than hidden, and each one says why it was flagged.
 
+## What it answers
+
+Five shapes of question, decided by rules rather than by a model:
+
+| Ask | Example | What comes back |
+|---|---|---|
+| A definition | *What is graphene?* | The reference entry, its source, and papers and measurements that touch it |
+| A number | *What capacity do silicon graphene anodes reach?* | The median and spread across matching measurements, a distribution chart, and the sentence behind each figure |
+| A comparison | *Compare material systems on capacity* | Ranked medians per material system |
+| A trend | *How has capacity changed by year?* | Median by publication year |
+| A calculation | *1200 mAh/g at 3.7 V, what energy density?* | The formula, the inputs, the result, and where it sits against the library |
+
+Anything else is refused, and it says what it searched.
+
 ## Asking questions
 
 The answering engine reports the spread of real measurements and cites the
@@ -121,8 +147,30 @@ what it could not find, and stops. It will not answer from outside the stored
 papers, and it declines questions about advice, prices, companies and
 predictions, which measurements cannot answer however well the words match.
 
-`scorecard.py` runs 30 fixed questions, 15 that must be answered and 15 that
-must be refused, and fails the build on drift in either direction.
+Two scorecards run in CI, because the API and the interface each have an
+engine and only one of them is what a visitor meets:
+
+- `scorecard.py` — 30 fixed questions against the API's engine, 15 that must be
+  answered and 15 that must be refused.
+- `tests/scorecard_ui.js` — 25 questions driven through the real page in a real
+  browser, covering definitions, numbers, comparisons, trends, calculations,
+  quoted passages and refusals.
+
+Both fail the build on drift in either direction.
+
+### Where the lines are drawn
+
+Three rules stop the tool answering questions it only appears to cover, each
+added after it got one wrong:
+
+- **Whole-word matching.** "The melting point of tungsten" once matched the
+  entry for tin, because *tin* sits inside *mel**tin**g*.
+- **Proximity.** Terms must appear near each other, not merely somewhere in the
+  same abstract. A paper can mention nuclear magnetic resonance in one sentence
+  and a CVD reactor in another without being about nuclear reactors.
+- **A coverage floor.** A term must appear in at least 0.8% of passages before
+  the library claims to cover it. *Nuclear* and *reactor* appear in under half
+  a percent; *separator* and *Raman* in several percent.
 
 ## CSV columns
 

@@ -3,7 +3,8 @@
    the same question always produces the same answer, and every number it shows
    was read out of a sentence in a paper. */
 
-let DATA = { rows: [], passages: [], facets: {}, stats: {} };
+let DATA = { rows: [], passages: [], concepts: [], compounds: [],
+             calculators: [], facets: {}, stats: {} };
 let API = false;
 
 const $ = (id) => document.getElementById(id);
@@ -68,6 +69,43 @@ const OUT_OF_REMIT = [
   [/\b(?:buy|purchase|cheapest|price)\b/, "asks about commerce"],
 ];
 
+// Share of passages a term must appear in before the library claims coverage.
+const COVERAGE_FLOOR = 0.008;
+// How much of the question an entry's title must account for before the
+// knowledge base answers rather than the papers. 560 is roughly 60 % coverage.
+const CONCEPT_FLOOR = 560;
+
+/* Researchers and papers often use different words for the same thing. A
+   paper writes "rate capability" or "at 1 C" where the question says
+   "C-rate"; it writes "solid electrolyte interphase" where the question says
+   "SEI". Expanding a term to its field variants finds the passage that was
+   always there. Nothing is invented: the quote is still the paper's own. */
+const SYNONYM = {
+  "c-rate": ["c rate", "rate capability", "rate performance"],
+  "crate": ["c rate", "rate capability"],
+  "sei": ["solid electrolyte interphase", "solid-electrolyte interphase"],
+  "interphase": ["interphase", "sei"],
+  "ice": ["initial coulombic efficiency", "first-cycle coulombic efficiency"],
+  "rgo": ["reduced graphene oxide"],
+  "go": ["graphene oxide"],
+  "lib": ["lithium-ion battery", "lithium ion battery"],
+  "sib": ["sodium-ion battery", "sodium ion battery"],
+  "cnt": ["carbon nanotube"],
+  "cvd": ["chemical vapour deposition", "chemical vapor deposition"],
+  "xrd": ["x-ray diffraction"],
+  "xps": ["x-ray photoelectron"],
+  "sem": ["scanning electron"],
+  "tem": ["transmission electron"],
+  "eis": ["impedance spectroscopy"],
+  "cv": ["cyclic voltammetry"],
+  "bet": ["specific surface area", "brunauer"],
+  "cyclability": ["cycle life", "cycling stability"],
+  "lifetime": ["cycle life"],
+  "conductivity": ["conductivity", "conductive"],
+};
+const variants = (t) => [t].concat(SYNONYM[t] || []);
+const anyIn = (low, t) => variants(t).some((v) => low.includes(v));
+
 const GENERIC = new Set(("point high low good better performance material materials study "
   + "result results value values work paper show shows shown using used use new novel effect "
   + "effects based via well also more most than between during after before when where while "
@@ -114,6 +152,95 @@ function pick(f) {
   });
 }
 
+/* ── reference entries ──────────────────────────────────── */
+const DEFINITIONAL = [
+  /\bwhat\s+(?:is|are|was|were)\b/, /\bwhat'?s\b/, /^\s*define\b/i,
+  /\bexplain\b/, /\bmeaning\s+of\b/, /\btell\s+me\s+about\b/,
+  /\bwhat\s+does\b.*\bmean\b/, /\bhow\s+does\b.*\bwork\b/,
+  /\bintroduction\s+to\b/, /\boverview\s+of\b/, /\bdifference\s+between\b/,
+];
+const isDefinitional = (q) => DEFINITIONAL.some((re) => re.test(q.toLowerCase()));
+
+const STRIP = /^(?:what|whats|what's|who|define|explain|tell me about|the|a|an|is|are|does|do|meaning of|overview of|introduction to)\s+/i;
+
+function conceptQuery(q) {
+  let t = String(q).toLowerCase().replace(/[?.!]+\s*$/, "").trim();
+  for (let i = 0; i < 4; i++) t = t.replace(STRIP, "").trim();
+  return t;
+}
+
+/* Whole-word containment. Plain substring matching made "melting point of
+   tungsten" look like a question about tin, because "tin" sits inside
+   "melting". */
+const wordRe = new Map();
+function hasWord(haystack, needle) {
+  if (!needle) return false;
+  let re = wordRe.get(needle);
+  if (!re) {
+    re = new RegExp(`(?:^|[^a-z0-9])${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[^a-z0-9]|$)`, "i");
+    wordRe.set(needle, re);
+  }
+  return re.test(haystack);
+}
+
+function findConcepts(question, limit = 5) {
+  if (!DATA.concepts.length) return [];
+  const q = conceptQuery(question);
+  const qt = terms(q);
+  if (!q) return [];
+  const scored = [];
+  for (const c of DATA.concepts) {
+    const title = c.title.toLowerCase();
+    const tt = terms(title);
+    let score = 0;
+    // Containment alone is far too loose: "what capacity do silicon graphene
+    // anodes reach" contains "silicon", but it is not asking what silicon is.
+    // Score by how much of the question the entry's title actually accounts for.
+    if (title === q) score = 1000;
+    else if (hasWord(q, title))
+      score = 200 + Math.round((title.length / Math.max(q.length, 1)) * 650);
+    else if (hasWord(title, q))
+      score = 150 + Math.round((q.length / Math.max(title.length, 1)) * 500);
+    if (!score && tt.length) {
+      const hit = tt.filter((w) => qt.includes(w)).length;
+      if (hit === tt.length) score = 300 + hit * 10;
+      else if (hit) score = hit * 40 - Math.abs(tt.length - hit) * 5;
+    }
+    if (!score && qt.length) {
+      const sum = (c.summary || "").toLowerCase();
+      const hit = qt.filter((w) => sum.includes(w)).length;
+      if (hit === qt.length && qt.length >= 2) score = 60;
+    }
+    if (score > 0) scored.push({ c, score });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, limit).map((x) => ({ ...x.c, _score: x.score }));
+}
+
+function papersAbout(text, n = 5) {
+  const t = terms(text);
+  if (!t.length) return [];
+  const out = [];
+  for (const p of DATA.passages) {
+    const title = (p.t || "").toLowerCase();
+    const hit = t.filter((w) => title.includes(w)).length;
+    if (hit >= Math.min(2, t.length)) out.push({ p, hit });
+    if (out.length > 400) break;
+  }
+  out.sort((a, b) => b.hit - a.hit);
+  return out.slice(0, n).map((x) => x.p);
+}
+
+function measurementsAbout(text, n = 4) {
+  const t = terms(text);
+  if (!t.length) return [];
+  return DATA.rows.filter((r) => {
+    const hay = `${r.material_system} ${r.graphene_form} ${r.battery_type} ${r.electrode_role}`.toLowerCase();
+    return t.some((w) => hay.includes(w));
+  }).sort((a, b) => (b.confidence === "verified") - (a.confidence === "verified")
+      || (b.specific_capacity_mah_g || 0) - (a.specific_capacity_mah_g || 0)).slice(0, n);
+}
+
 /* ── question understanding ─────────────────────────────── */
 const NUMUNIT = new RegExp(
   "(\\d+(?:[.,]\\d+)?)\\s*(mah\\s*\\/?\\s*g|mah\\s*g-?1|ah\\s*\\/?\\s*kg|a\\s*\\/?\\s*g|"
@@ -152,6 +279,89 @@ function understand(question) {
   return { facets, metrics, blocked: blocked ? blocked[1] : null, compare, trend,
     quantities, wantsCalc, low };
 }
+
+/* ── knowledge browser ──────────────────────────────────── */
+let exCat = null;
+function paintExplore(q = "") {
+  const cats = [...new Set(DATA.concepts.map((c) => c.category))];
+  $("excats").innerHTML = [`<button data-c="" aria-pressed="${!exCat}">All ${DATA.concepts.length}</button>`]
+    .concat(cats.map((c) => `<button data-c="${esc(c)}" aria-pressed="${exCat === c}">${esc(c)}
+      <span class="dim">${DATA.concepts.filter((x) => x.category === c).length}</span></button>`)).join("");
+  const t = q.toLowerCase().trim();
+  const list = DATA.concepts.filter((c) =>
+    (!exCat || c.category === exCat)
+    && (!t || c.title.toLowerCase().includes(t) || (c.summary || "").toLowerCase().includes(t)
+        || (c.description || "").toLowerCase().includes(t)));
+  $("exempty").hidden = list.length > 0;
+  if (!list.length) {
+    $("exgrid").innerHTML = "";
+    $("exempty").innerHTML = `<strong>No entry matches that.</strong>
+      The knowledge base covers graphene, carbon materials, batteries and the
+      techniques used to measure them. Try a broader word.`;
+    return;
+  }
+  const groups = {};
+  list.forEach((c) => { (groups[c.category] = groups[c.category] || []).push(c); });
+  $("exgrid").innerHTML = Object.entries(groups).map(([cat, items]) => `
+    <div class="exgroup"><h3>${esc(cat)} \u00b7 ${items.length}</h3>
+    <div class="excards">${items.map((c) => `<button class="excard" data-concept="${esc(c.slug)}">
+      <b>${esc(c.title)}</b>${c.description ? `<i>${esc(c.description)}</i>` : ""}
+      <p>${esc((c.summary || "").slice(0, 190))}</p></button>`).join("")}</div></div>`).join("");
+}
+$("exq").addEventListener("input", deb((e) => paintExplore(e.target.value)));
+$("excats").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  exCat = b.dataset.c || null; paintExplore($("exq").value);
+});
+
+function openConcept(slug) {
+  const c = DATA.concepts.find((x) => x.slug === slug);
+  if (!c) return;
+  const papers = papersAbout(c.title, 6);
+  const rows = measurementsAbout(c.title, 5);
+  const related = DATA.concepts.filter((x) => x.slug !== c.slug && x.category === c.category)
+    .slice(0, 10);
+  const calcs = (DATA.calculators || []).filter((k) =>
+    terms(c.title).some((w) => `${k.label} ${k.description}`.toLowerCase().includes(w))).slice(0, 6);
+  $("conceptbody").innerHTML = `<div class="cpage">
+    <button class="btn cback" data-back><svg class="ic" viewBox="0 0 22 22" style="transform:rotate(180deg)"><use href="#i-arrow"/></svg>Knowledge base</button>
+    <div class="ckicker">${esc(c.category || "")}</div>
+    <h1 class="ctitle">${esc(c.title)}</h1>
+    ${c.description ? `<p class="cdesc">${esc(c.description)}</p>` : ""}
+    <div class="cbody">${esc(c.summary)}</div>
+    <div class="cattr">From ${esc(c.source === "wikipedia" ? "Wikipedia" : c.source || "an open source")},
+      licensed ${esc(c.licence || "")}. Stored verbatim so you can check it against the original.
+      <a href="${esc(c.url)}" target="_blank" rel="noopener">Open the source</a>.</div>
+    ${rows.length ? `<div class="csec"><h3>Measurements involving this</h3>
+      <div class="srcs">${rows.map((r, i) => srcCard(r, i + 1)).join("")}</div></div>` : ""}
+    ${papers.length ? `<div class="csec"><h3>Papers in the library</h3>
+      ${papers.map((p) => `<button class="cpaper" data-pass="${esc(p.i)}">
+        <b>${esc(p.t || "")}</b><span>${esc(p.j || "")} \u00b7 ${p.y || ""}</span></button>`).join("")}</div>` : ""}
+    ${calcs.length ? `<div class="csec"><h3>Calculators</h3><div class="crel">
+      ${calcs.map((k) => `<button data-calc="${esc(k.name)}">${esc(k.label)}</button>`).join("")}</div></div>` : ""}
+    ${related.length ? `<div class="csec"><h3>More in ${esc(c.category || "this area")}</h3>
+      <div class="crel">${related.map((r) => `<button data-concept="${esc(r.slug)}">${esc(r.title)}</button>`).join("")}</div></div>` : ""}
+    <div class="csec"><h3>Ask about it</h3><div class="crel">
+      <button data-ask="What is ${esc(c.title)}?">What is ${esc(c.title)}?</button>
+      <button data-ask="${esc(c.title)} capacity">Measurements for ${esc(c.title)}</button>
+    </div></div></div>`;
+  show("concept");
+  document.querySelector(".view[data-view=concept] .mid").scrollTop = 0;
+}
+
+document.addEventListener("click", (e) => {
+  const c = e.target.closest("[data-concept]");
+  if (c) { openConcept(c.dataset.concept); return; }
+  const back = e.target.closest("[data-back]");
+  if (back) { show("explore"); return; }
+  const k = e.target.closest("[data-calc]");
+  if (k) { show("calculator"); setTimeout(() => {
+    const card = document.querySelector(`.calc[data-n="${k.dataset.calc}"]`);
+    if (card) { card.scrollIntoView({ block: "center" });
+      card.style.borderColor = "var(--acc)"; } }, 60); return; }
+  const q = e.target.closest("[data-ask]");
+  if (q) { show("ask"); ask(q.dataset.ask); }
+});
 
 /* ── calculators ────────────────────────────────────────── */
 const CALCS = [
@@ -307,6 +517,26 @@ function groupBy(rows, key, field, minN = 3) {
     .sort((a, b) => b.median - a.median);
 }
 
+/* Enough of these terms close together, not merely present somewhere. A
+   graphene paper can mention nuclear magnetic resonance in one sentence and a
+   CVD reactor in another; that is not an answer about nuclear reactors. */
+function coversInWindow(text, needed, window = 240) {
+  const low = text.toLowerCase();
+  const hits = [];
+  for (const term of needed) {
+    let at = low.indexOf(term);
+    while (at >= 0) { hits.push([at, term]); at = low.indexOf(term, at + Math.max(1, term.length)); }
+  }
+  if (!hits.length) return 0;
+  hits.sort((a, b) => a[0] - b[0]);
+  let best = 0, left = 0;
+  for (let right = 0; right < hits.length; right++) {
+    while (hits[right][0] - hits[left][0] > window) left++;
+    best = Math.max(best, new Set(hits.slice(left, right + 1).map((h) => h[1])).size);
+  }
+  return best;
+}
+
 function build(question) {
   const u = understand(question);
 
@@ -334,6 +564,29 @@ function build(question) {
     }
     if (calc && calc.error) return { kind: "refused", question, reason: "could not be computed",
       why: calc.error + ". Give the numbers with their units, for example “1200 mAh/g at 3.7 V”." };
+  }
+
+  /* a definition, before anything numeric */
+  const defQ = isDefinitional(question);
+  const hits = findConcepts(question);
+  // A question that names a performance quantity wants the numbers, even when
+  // it also names a material the knowledge base happens to have an entry for.
+  const wantsNumber = u.metrics.length > 0 || u.compare || u.trend || u.wantsCalc;
+  // A definitional question still needs the entry to account for most of what
+  // was asked. "Solid electrolyte interphase" contains "electrolyte", but
+  // answering with the entry for electrolytes would be the wrong answer stated
+  // confidently; better to fall through and quote papers that are about it.
+  const strongEnough = hits.length && hits[0]._score >= CONCEPT_FLOOR;
+  if (strongEnough && ((defQ && !u.wantsCalc) || !wantsNumber)) {
+    const c = hits[0];
+    return { kind: "concept", question, concept: c,
+      related: hits.slice(1, 5),
+      papers: papersAbout(c.title, 4),
+      measurements: measurementsAbout(c.title, 4),
+      calculators: (DATA.calculators || []).filter((k) => {
+        const hay = `${k.label} ${k.description}`.toLowerCase();
+        return terms(c.title).some((w) => hay.includes(w));
+      }).slice(0, 4) };
   }
 
   const hasFacet = Object.values(u.facets).some(Boolean);
@@ -394,24 +647,46 @@ function build(question) {
 
   /* a mechanism question: quote what the papers say */
   const t = terms(question);
-  if (t.length >= 2) {
+  // One term is enough when it is distinctive and the library demonstrably
+  // covers it. "C-rate" is a single word, and a fundamental one.
+  if (t.length >= 2 || (t.length === 1 && t[0].length >= 4)) {
     const freq = {};
     t.forEach((x) => { freq[x] = 0; });
     const hits = [];
     for (const p of DATA.passages) {
       const low = p.x.toLowerCase();
-      const got = t.filter((x) => low.includes(x));
+      const got = t.filter((x) => anyIn(low, x));
       got.forEach((x) => { freq[x] += 1; });
-      if (got.length >= 2 && got.length / t.length >= .6) hits.push({ p, n: got.length });
+      // Enough of the question's terms, and close enough together to be about
+      // it: a paper can mention nuclear magnetic resonance in one sentence and
+      // a CVD reactor in another without being about nuclear reactors.
+      if (got.length >= Math.min(2, t.length)
+          && got.length / t.length >= .6
+          && coversInWindow(p.x, t.flatMap(variants)) >= Math.min(2, t.length))
+        hits.push({ p, n: got.length });
       if (hits.length > 300) break;
     }
-    if (t.every((x) => freq[x] > 0)) {
+    // The library must demonstrably cover the subject, not merely contain the
+    // word. "Nuclear" and "reactor" each appear in under half a percent of
+    // passages, as stray mentions of NMR and CVD reactors; "separator" and
+    // "Raman" appear in several percent, because the field is actually about
+    // them. Below the floor the honest answer is that we do not cover it.
+    const floor = Math.max(8, Math.round(DATA.passages.length * COVERAGE_FLOOR));
+    if (t.every((x) => freq[x] > 0)
+        && Math.min(...t.map((x) => freq[x])) >= floor) {
       const rarest = t.reduce((a, b) => (freq[a] <= freq[b] ? a : b));
-      const strong = hits.filter(({ p }) => p.x.toLowerCase().includes(rarest))
+      const strong = hits.filter(({ p }) => anyIn(p.x.toLowerCase(), rarest))
         .sort((a, b) => b.n - a.n).slice(0, 6);
       if (strong.length >= 2)
         return { kind: "passages", question, facets: u.facets, passages: strong.map((h) => h.p) };
     }
+  }
+
+  if (hits.length && hits[0]._score >= 320) {
+    const c = hits[0];
+    return { kind: "concept", question, concept: c, related: hits.slice(1, 5),
+      papers: papersAbout(c.title, 4), measurements: measurementsAbout(c.title, 4),
+      calculators: [] };
   }
 
   return { kind: "refused", question, reason: "is not covered by the stored papers",
@@ -495,6 +770,38 @@ function renderAnswer(a) {
         questions about capacity, retention, cycle life, rate and efficiency for a named
         material and chemistry — and nothing else.</p></div>`);
     return { html: blocks.join(""), refs: [] };
+  }
+
+  if (a.kind === "concept") {
+    const c = a.concept;
+    blocks.push(`<div class="defcard"><div class="k">reference entry \u00b7 ${esc(c.category || "")}</div>
+      <h3>${esc(c.title)}</h3>
+      ${c.description ? `<p class="dim" style="font-size:13.5px;margin-bottom:10px">${esc(c.description)}</p>` : ""}
+      <p>${esc(c.summary)}</p>
+      <div class="src2">From ${esc(c.source === "wikipedia" ? "Wikipedia" : c.source || "an open source")},
+        ${esc(c.licence || "")} \u00b7
+        <a href="${esc(c.url)}" target="_blank" rel="noopener">read the full entry</a></div></div>`);
+
+    if (a.measurements.length) {
+      blocks.push(`<div class="card"><h3>What the measurements say about this</h3>
+        <div class="srcs">${a.measurements.map((r) => srcCard(r, refFor(r))).join("")}</div></div>`);
+    }
+    if (a.papers.length) {
+      blocks.push(`<div class="csec"><h3>Papers in the library on this</h3>
+        ${a.papers.map((p) => `<button class="cpaper" data-pass="${esc(p.i)}">
+          <b>${esc(p.t || "")}</b><span>${esc(p.j || "")} \u00b7 ${p.y || ""}</span></button>`).join("")}</div>`);
+    }
+    if (a.calculators.length) {
+      blocks.push(`<div class="csec"><h3>Related calculators</h3><div class="crel">
+        ${a.calculators.map((k) => `<button data-calc="${esc(k.name)}">${esc(k.label)}</button>`).join("")}
+        </div></div>`);
+    }
+    if (a.related.length) {
+      blocks.push(`<div class="csec"><h3>Related entries</h3><div class="crel">
+        ${a.related.map((r) => `<button data-concept="${esc(r.slug)}">${esc(r.title)}</button>`).join("")}
+        </div></div>`);
+    }
+    return { html: blocks.join(""), refs: refSeq };
   }
 
   if (a.kind === "calculation") {
@@ -621,15 +928,17 @@ function gapBlock(a, papers, flagged, years) {
 
 /* ── views ──────────────────────────────────────────────── */
 function show(v) {
-  document.querySelectorAll(".tab").forEach((t) =>
-    t.setAttribute("aria-selected", String(t.dataset.view === v)));
+  document.querySelectorAll(".sitem").forEach((t) =>
+    t.setAttribute("aria-selected", String(t.dataset.view === v
+      || (v === "concept" && t.dataset.view === "explore"))));
   document.querySelectorAll(".view").forEach((s) => { s.hidden = s.dataset.view !== v; });
-  if (v === "calculator") buildCalcs();
+  if (v === "calculator" && !calcsBuilt) buildCalcs($("calcq").value);
+  if (v === "explore") paintExplore($("exq").value);
   if (v === "notebook") paintNotebook();
   if (v === "sources" && !$("sb").children.length) paintSources();
   if (v === "evidence" && !$("gb").children.length) reload();
 }
-document.querySelectorAll(".tab").forEach((t) =>
+document.querySelectorAll(".sitem").forEach((t) =>
   t.addEventListener("click", () => show(t.dataset.view)));
 
 /* ── ask flow ───────────────────────────────────────────── */
@@ -640,6 +949,10 @@ function traceFor(a) {
     .map(([, v]) => v).join(", ") || "no material named", ""]);
   if (a.kind === "refused" && a.reason !== "is not covered by the stored papers")
     s.push(["Checking scope", "outside what measurements can answer", ""]);
+  else if (a.kind === "concept")
+    s.push(["Searching the knowledge base", a.concept.title, "match"],
+      ["Linking papers and measurements", "",
+        `${a.papers.length + a.measurements.length}`]);
   else if (a.kind === "calculation")
     s.push(["Running the calculation", a.calc.name.replace(/_/g, " "),
       `${fmt(a.calc.result, 2)} ${a.calc.unit}`]);
@@ -728,11 +1041,13 @@ $("form").addEventListener("submit", (e) => {
 });
 
 const CHIPS = [
+  "What is graphene?",
+  "What is the solid electrolyte interphase?",
   "What capacity do silicon graphene anodes reach in lithium-ion batteries?",
   "Compare material systems on capacity in lithium-ion anodes",
-  "Capacity retention of sulfur rGO cathodes in lithium-sulfur",
+  "Explain chemical vapor deposition",
+  "An electrode at 1200 mAh/g and 3.7 V \u2014 what is the energy density?",
   "How has capacity changed by year for graphene anodes?",
-  "An electrode at 1200 mAh/g and 3.7 V — what is the energy density?",
   "Do graphene separators suppress lithium dendrites?",
 ];
 
@@ -932,7 +1247,8 @@ function paintFacets() {
   }));
 }
 
-const deb = (fn, ms = 240) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+// declared as a function so listeners registered earlier in the file can use it
+function deb(fn, ms = 240) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 [["fq", "q"], ["fcmin", "capacity_min", Number], ["fcmax", "capacity_max", Number],
  ["fcyc", "cycles_min", Number], ["fymin", "year_min", Number], ["fymax", "year_max", Number]]
   .forEach(([id, p, cast = (v) => v]) => {
@@ -986,42 +1302,61 @@ $("more").addEventListener("click", () => {
 
 /* ── calculators ────────────────────────────────────────── */
 let calcsBuilt = false;
-function buildCalcs() {
-  if (calcsBuilt) return; calcsBuilt = true;
-  $("calcs").innerHTML = CALCS.map(([name, desc, ins]) => `
-    <div class="calc" data-n="${esc(name)}">
-      <h3>${esc(name.replace(/_/g, " "))}</h3><div class="d">${esc(desc)}</div>
-      <div class="ci">${ins.map((k) => `<label class="fld"><span>${esc(k.replace(/_/g, " "))}</span>
-        <input type="number" step="any" data-i="${esc(k)}"${k === "pack_fraction" ? ' value="0.75"' : ""}></label>`).join("")}
-        <button class="btn pri" data-run>Calculate</button></div>
-      <div class="co"></div></div>`).join("");
-  $("calcs").addEventListener("click", (e) => {
-    const b = e.target.closest("[data-run]"); if (!b) return;
-    const card = b.closest(".calc"), out = card.querySelector(".co");
-    const inputs = {};
-    card.querySelectorAll("[data-i]").forEach((el) => { inputs[el.dataset.i] = el.value; });
-    out.classList.add("on");
-    let res;
-    try { res = runCalc(card.dataset.n, inputs); }
-    catch (err) { out.innerHTML = `<div class="f">${esc(err.message)}</div>`; return; }
-    let cmp = "";
-    if (res.name === "energy_density" || res.name === "specific_capacity") {
-      const all = DATA.rows.filter((r) => r.specific_capacity_mah_g !== null && r.confidence !== "unverified")
-        .map((r) => Number(r.specific_capacity_mah_g));
-      const target = res.name === "specific_capacity" ? res.result : res.inputs.capacity_mah_g;
-      if (all.length && target) {
-        const below = all.filter((v) => v <= target).length / all.length * 100;
-        cmp = `<div class="cmp">A capacity of ${fmt(target, 0)} mAh/g sits above
-          <b>${fmt(below, 0)}%</b> of the ${fmt(all.length)} measurements in the library
-          (median ${fmt(spread(all).median, 0)} mAh/g).</div>`;
-      }
-    }
-    out.innerHTML = `<div class="f">${esc(res.formula)}</div>
-      <div class="r">${fmt(res.result, 4)}<u>${esc(res.unit)}</u></div>
-      <div class="cmp dim">${Object.entries(res.inputs).map(([k, v]) =>
-        `${esc(k.replace(/_/g, " "))} = ${fmt(v, 3)}`).join("  &middot;  ")}</div>${cmp}`;
-  });
+function buildCalcs(filter = "") {
+  const all = DATA.calculators || [];
+  const t = filter.toLowerCase().trim();
+  const list = all.filter((c) => !t
+    || c.label.toLowerCase().includes(t) || c.description.toLowerCase().includes(t)
+    || c.group.toLowerCase().includes(t));
+  const groups = {};
+  list.forEach((c) => { (groups[c.group] = groups[c.group] || []).push(c); });
+  $("calcs").innerHTML = Object.entries(groups).map(([g, items]) => `
+    <div class="cgroup"><h3>${esc(g)} \u00b7 ${items.length}</h3>
+    <div class="calcs">${items.map((c) => `
+      <div class="calc" data-n="${esc(c.name)}">
+        <h3>${esc(c.label)}</h3><div class="d">${esc(c.description)}</div>
+        <code class="fx">${esc(c.formula)}</code>
+        <div class="ci">${c.inputs.map((i) => `<label class="fld">
+          <span>${esc(i.label)}</span>
+          <input type="number" step="any" data-i="${esc(i.name)}"
+            value="${i.sample !== null && i.sample !== undefined ? esc(i.sample) : ""}"></label>`).join("")}
+          <button class="btn pri" data-run>Calculate</button></div>
+        <div class="co"></div>
+        ${c.note ? `<div class="note2">${esc(c.note)}</div>` : ""}
+      </div>`).join("")}</div></div>`).join("")
+    || `<div class="empty"><strong>No calculator matches that.</strong>
+        Try "capacity", "energy", "Raman" or "cell".</div>`;
+  calcsBuilt = true;
 }
+$("calcq").addEventListener("input", deb((e) => buildCalcs(e.target.value)));
+$("calcs").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-run]"); if (!b) return;
+  const card = b.closest(".calc"), out = card.querySelector(".co");
+  const spec = (DATA.calculators || []).find((c) => c.name === card.dataset.n);
+  if (!spec) return;
+  const raw = {};
+  card.querySelectorAll("[data-i]").forEach((el) => { raw[el.dataset.i] = el.value; });
+  out.classList.add("on");
+  let res;
+  try { res = calcRun(spec.name, raw, spec); }
+  catch (err) { out.innerHTML = `<div class="f">${esc(err.message)}</div>`; return; }
+  let cmp = "";
+  const capLike = ["theoretical_capacity", "specific_capacity"].includes(res.name)
+    ? res.result : (res.inputs.capacity_mah_g || null);
+  if (capLike) {
+    const all = DATA.rows.filter((r) => r.specific_capacity_mah_g !== null
+      && r.confidence !== "unverified").map((r) => Number(r.specific_capacity_mah_g));
+    if (all.length) {
+      const below = all.filter((v) => v <= capLike).length / all.length * 100;
+      cmp = `<div class="cmp">${fmt(capLike, 0)} mAh/g sits above <b>${fmt(below, 0)}%</b>
+        of the ${fmt(all.length)} measurements in the library
+        (median ${fmt(spread(all).median, 0)} mAh/g).</div>`;
+    }
+  }
+  out.innerHTML = `<div class="r">${fmt(res.result, 4)}<u>${esc(res.unit)}</u></div>
+    <div class="cmp dim">${Object.entries(res.inputs).map(([k, v]) =>
+      `${esc(k.replace(/_/g, " "))} = ${fmt(v, 4)}`).join("  &middot;  ")}</div>${cmp}`;
+});
 
 /* ── sources ────────────────────────────────────────────── */
 function paintSources(q = "") {
@@ -1096,6 +1431,7 @@ function paintPal(term) {
   const t = term.toLowerCase();
   const base = [
     ["Ask the agent", "section", () => show("ask")],
+    ["Knowledge base", "section", () => show("explore")],
     ["Evidence table", "section", () => show("evidence")],
     ["Calculators", "section", () => show("calculator")],
     ["Notebook", "section", () => show("notebook")],
@@ -1106,6 +1442,14 @@ function paintPal(term) {
     ["Export the current view", "export", () => $("csv").click()],
   ].filter(([l]) => !t || l.toLowerCase().includes(t));
   palItems = base.map(([label, hint, run]) => ({ label, hint, run }));
+  if (term.trim().length > 1) {
+    DATA.concepts.filter((c) => c.title.toLowerCase().includes(t)).slice(0, 6)
+      .forEach((c) => palItems.unshift({ label: c.title, hint: "entry",
+        run: () => openConcept(c.slug) }));
+    (DATA.calculators || []).filter((c) => c.label.toLowerCase().includes(t)).slice(0, 4)
+      .forEach((c) => palItems.push({ label: c.label, hint: "calculator",
+        run: () => { show("calculator"); } }));
+  }
   if (term.trim().length > 2) {
     palItems.unshift({ label: `Filter evidence for "${term}"`, hint: "filter",
       run: () => { T.filters = { ...T.filters, q: term }; $("fq").value = term; show("evidence"); reload(); } });
@@ -1158,8 +1502,15 @@ async function loadData() {
     [`${s.year_range[0]}–${s.year_range[1]}`, "published"],
     [fmt(s.flagged), "flagged, kept visible"],
   ].map(([v, k]) => `<div class="stat"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  const setN = (id, v) => { const el = $(id); if (el) el.textContent = v; };
+  setN("n-con", fmt(DATA.concepts.length));
+  setN("n-ev", fmt(s.evidence_rows));
+  setN("n-calc", (DATA.calculators || []).length);
+  setN("n-pap", fmt(s.papers));
   $("chips").innerHTML = CHIPS.map((q) => `<button data-q="${esc(q)}">${esc(q)}</button>`).join("");
   $("chips").addEventListener("click", (e) => { const b = e.target.closest("button");
     if (b) ask(b.dataset.q); });
   paintFacets(); head(); loadNotes();
+  // Exposed so tests/scorecard_ui.js can drive the shipped engine directly.
+  window.DATA = DATA; window.build = build;
 })();

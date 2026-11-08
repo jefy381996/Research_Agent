@@ -41,14 +41,17 @@ jobs:
           PY
           )
           echo "collected rows: $rows"
-          if [ "$rows" -lt 3000 ]; then
-            echo "::error::Only $rows papers collected; expected at least 3000."
+          if [ "$rows" -lt 15000 ]; then
+            echo "::error::Only $rows papers collected; expected at least 15000."
             echo "Refusing to commit a short dataset."
             exit 1
           fi
 
       - name: Load into the database
         run: python load_papers.py
+
+      - name: Refresh the knowledge base
+        run: python collect_knowledge.py
 
       - name: Fetch full text where the licence allows it
         env:
@@ -72,6 +75,21 @@ jobs:
       - name: Scorecard, answering and refusal
         run: python scorecard.py --out data/scorecard.csv
 
+      - name: Rebuild the browser bundle
+        run: python build_demo.py --out web/data.json
+
+      - name: Scorecard against the interface a visitor actually gets
+        run: |
+          npm --yes exec playwright install-deps chromium >/dev/null 2>&1 || true
+          npm --yes exec --package=playwright -- node -e "require('playwright')" \
+            >/dev/null 2>&1 || npm --yes install playwright >/dev/null 2>&1
+          npx --yes playwright install chromium
+          python -m uvicorn api:app --host 127.0.0.1 --port 8099 &
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8099/api/health >/dev/null && break; sleep 2;
+          done
+          node tests/scorecard_ui.js http://127.0.0.1:8099/
+
       - name: Refuse to continue on an empty evidence table
         run: |
           rows=$(python - <<'PY'
@@ -80,8 +98,8 @@ jobs:
           PY
           )
           echo "evidence rows: $rows"
-          if [ "$rows" -lt 800 ]; then
-            echo "::error::Only $rows evidence rows; expected at least 800."
+          if [ "$rows" -lt 2000 ]; then
+            echo "::error::Only $rows evidence rows; expected at least 2000."
             exit 1
           fi
 

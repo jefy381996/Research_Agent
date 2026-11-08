@@ -4,59 +4,89 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Graphene Battery Research Agent</title>
-<meta name="description" content="Ask about graphene batteries and get an answer built from real measurements, with the sentence behind every number.">
+<meta name="description" content="A research workbench for graphene batteries: definitions, measurements, calculations and sources, all traceable.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;450;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;450;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-<a class="skip" href="#main">Skip to the agent</a>
+<a class="skip" href="#main">Skip to content</a>
 
-<header class="topbar">
-  <div class="brand">
-    <span class="mark" aria-hidden="true"></span>
-    <span><b>Graphene Battery Agent</b><span>evidence-grounded</span></span>
-  </div>
-  <nav class="tabs" role="tablist" aria-label="Sections">
-    <button role="tab" class="tab" data-view="ask" aria-selected="true">Ask</button>
-    <button role="tab" class="tab" data-view="evidence" aria-selected="false">Evidence</button>
-    <button role="tab" class="tab" data-view="calculator" aria-selected="false">Calculator</button>
-    <button role="tab" class="tab" data-view="notebook" aria-selected="false">Notebook<span class="pill" id="nbn" hidden>0</span></button>
-    <button role="tab" class="tab" data-view="sources" aria-selected="false">Sources</button>
-  </nav>
-  <span class="spacer"></span>
-  <button class="btn" id="pal-open" aria-keyshortcuts="Meta+K Control+K"><span class="kbd">&#8984;K</span>Jump</button>
-  <button class="btn icon" id="theme" aria-label="Switch between light and dark">&#9790;</button>
-</header>
+<svg style="display:none" aria-hidden="true"><defs>
+<g id="i-ask"><path d="M3 11.5a8 8 0 1 1 3.1 6.3L3 19l1.2-3.2A7.9 7.9 0 0 1 3 11.5Z"/></g>
+<g id="i-explore"><circle cx="11" cy="11" r="8"/><path d="m14.2 7.8-1.8 4.6-4.6 1.8 1.8-4.6z"/></g>
+<g id="i-grid"><path d="M3 5h16M3 11h16M3 17h16M8 5v12M14 5v12"/></g>
+<g id="i-calc"><rect x="4" y="3" width="14" height="17" rx="2"/><path d="M7.5 7.5h7M7.5 12h2M7.5 15.5h2M12.5 12h2M12.5 15.5h2"/></g>
+<g id="i-book"><path d="M4 4.5A2 2 0 0 1 6 3h11v15H6a2 2 0 0 0-2 2z"/><path d="M4 18.5A2 2 0 0 1 6 17h11"/></g>
+<g id="i-note"><path d="M6 3h7l5 5v12H6z"/><path d="M13 3v5h5"/><path d="M9 12h6M9 15.5h4"/></g>
+<g id="i-sun"><circle cx="11" cy="11" r="4"/><path d="M11 2v2M11 18v2M2 11h2M18 11h2M4.6 4.6l1.4 1.4M16 16l1.4 1.4M17.4 4.6 16 6M6 16l-1.4 1.4"/></g>
+<g id="i-arrow"><path d="M4 11h13M12 6l5 5-5 5"/></g>
+</defs></svg>
 
-<main id="main">
+<div class="shell">
+  <aside class="side" id="side">
+    <div class="sbrand">
+      <span class="mark" aria-hidden="true"></span>
+      <span class="sname"><b>Graphene Battery</b><em>Research Agent</em></span>
+    </div>
+    <nav class="snav" role="tablist" aria-label="Sections">
+      <button role="tab" class="sitem" data-view="ask" aria-selected="true"><svg class="ic" viewBox="0 0 22 22"><use href="#i-ask"/></svg>Ask</button>
+      <button role="tab" class="sitem" data-view="explore" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-explore"/></svg>Knowledge<span class="scount" id="n-con"></span></button>
+      <button role="tab" class="sitem" data-view="evidence" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-grid"/></svg>Measurements<span class="scount" id="n-ev"></span></button>
+      <button role="tab" class="sitem" data-view="calculator" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-calc"/></svg>Calculators<span class="scount" id="n-calc"></span></button>
+      <button role="tab" class="sitem" data-view="sources" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-book"/></svg>Papers<span class="scount" id="n-pap"></span></button>
+      <button role="tab" class="sitem" data-view="notebook" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-note"/></svg>Notebook<span class="scount" id="nbn"></span></button>
+    </nav>
+    <div class="sfoot">
+      <button class="btn wide" id="pal-open"><span class="kbd">&#8984;K</span>Search everything</button>
+      <button class="btn wide" id="theme"><svg class="ic" viewBox="0 0 22 22"><use href="#i-sun"/></svg>Theme</button>
+      <p class="snote">Answers come from stored papers and open reference data. Nothing is generated.</p>
+    </div>
+  </aside>
+
+  <main id="main">
 
   <section class="view askview" data-view="ask" aria-label="Ask">
     <div class="scroll" id="scroll"><div class="wrap">
       <div class="hero" id="hero">
-        <span class="badge"><i></i> Runs entirely on its own data &mdash; nothing is sent anywhere</span>
-        <h1>Ask about graphene batteries. Every number traced to a paper.</h1>
-        <p>It searches real measurements, runs the arithmetic itself, and shows you the
-           sentence each figure came from. When the library has no answer, it says so.</p>
+        <span class="badge"><i></i>Runs on its own data &mdash; nothing is sent anywhere</span>
+        <h1>Ask anything about graphene batteries.<br>Every answer is traceable.</h1>
+        <p>Definitions from open reference sources, measurements pulled out of
+           published papers, and calculations you can audit line by line.</p>
         <div class="statstrip" id="strip"></div>
       </div>
       <div class="thread" id="thread"></div>
       <div class="chips" id="chips"></div>
     </div></div>
-    <form class="composer" id="form">
-      <div class="inner">
-        <div class="cbox">
-          <textarea id="ask" rows="1" aria-label="Your question"
-            placeholder="What capacity do silicon graphene anodes reach in lithium-ion cells?"></textarea>
-          <button type="submit" class="btn pri" id="send">Ask</button>
-        </div>
-        <div class="chint"><span id="hint">Try naming a material and a chemistry &mdash; &ldquo;silicon graphene anode in lithium-ion&rdquo;.</span></div>
+    <form class="composer" id="form"><div class="inner">
+      <div class="cbox">
+        <textarea id="ask" rows="1" aria-label="Your question"
+          placeholder="What is graphene? &nbsp;·&nbsp; What capacity do silicon graphene anodes reach?"></textarea>
+        <button type="submit" class="btn pri" id="send">Ask<svg class="ic" viewBox="0 0 22 22"><use href="#i-arrow"/></svg></button>
       </div>
-    </form>
+      <div class="chint"><span id="hint">Ask for a definition, a number, a comparison, a trend, or a calculation.</span></div>
+    </div></form>
   </section>
 
-  <section class="view" data-view="evidence" hidden aria-label="Evidence table">
+  <section class="view" data-view="explore" hidden aria-label="Knowledge">
+    <div class="mid">
+      <div class="phead">
+        <div><h2 class="h2">Knowledge base</h2>
+          <p class="sub" id="ex-sub">Reference entries covering the field from fundamentals to technique.</p></div>
+        <input type="search" id="exq" placeholder="Search entries" aria-label="Search entries" style="width:260px">
+      </div>
+      <div class="exfilters" id="excats"></div>
+      <div id="exgrid" class="exgrid"></div>
+      <div id="exempty" class="empty" hidden></div>
+    </div>
+  </section>
+
+  <section class="view" data-view="concept" hidden aria-label="Entry">
+    <div class="mid" id="conceptbody"></div>
+  </section>
+
+  <section class="view" data-view="evidence" hidden aria-label="Measurements">
     <aside class="rail" aria-label="Filters">
       <h4>Filters<button class="lnk" id="clear">Clear</button></h4>
       <label class="fld"><span>Find in title, quote or material</span>
@@ -66,24 +96,22 @@
       <div id="f-graphene_form" class="facet"></div>
       <div id="f-electrode_role" class="facet"></div>
       <div id="f-material_system" class="facet"></div>
-      <div class="facet">
-        <h3>Capacity, mAh/g</h3>
+      <div class="facet"><h3>Capacity, mAh/g</h3>
         <div class="range"><input type="number" id="fcmin" placeholder="min" aria-label="Minimum capacity">
           <input type="number" id="fcmax" placeholder="max" aria-label="Maximum capacity"></div>
         <h3>Minimum cycles</h3>
         <div class="range"><input type="number" id="fcyc" placeholder="e.g. 500" aria-label="Minimum cycles"></div>
         <h3>Year</h3>
         <div class="range"><input type="number" id="fymin" placeholder="2019" aria-label="Earliest year">
-          <input type="number" id="fymax" placeholder="2026" aria-label="Latest year"></div>
-      </div>
+          <input type="number" id="fymax" placeholder="2026" aria-label="Latest year"></div></div>
     </aside>
     <div class="pane">
       <div class="pane-h">
         <div class="cnt"><b id="rc">&mdash;</b><span id="rd"></span></div>
         <div class="pane-a">
           <select id="preset" aria-label="Saved views">
-            <option value="default">Verified measurements, highest capacity first</option>
-            <option value="all">All evidence, including flagged</option>
+            <option value="default">Verified, highest capacity first</option>
+            <option value="all">All measurements, including flagged</option>
             <option value="flagged">Flagged only</option>
             <option value="longlife">Long cycle life, 500+ cycles</option>
             <option value="silicon">Silicon anodes</option>
@@ -96,7 +124,7 @@
       <div class="note" id="mnote">Every number was read from one sentence of one paper, and
         that sentence is attached to it. An empty cell means the paper did not state the value.
         <button class="lnk" id="more">What the checks do and do not cover</button></div>
-      <div class="gw" id="gw" tabindex="0" role="region" aria-label="Evidence rows">
+      <div class="gw" id="gw" tabindex="0" role="region" aria-label="Measurement rows">
         <table class="g"><thead><tr id="gh"></tr></thead><tbody id="gb"></tbody></table>
         <div id="ge" class="empty" hidden></div>
       </div>
@@ -105,10 +133,26 @@
 
   <section class="view" data-view="calculator" hidden aria-label="Calculators">
     <div class="mid">
-      <h2 class="h2">Calculators</h2>
-      <p class="sub">Each one shows its formula and its inputs, and compares the result against
-        what the library actually reports, so a number is never produced without context.</p>
-      <div id="calcs" class="calcs"></div>
+      <div class="phead">
+        <div><h2 class="h2">Calculators</h2>
+          <p class="sub">Every one shows its formula, its inputs and a note on what the
+            result means. Values are worked examples &mdash; replace them with yours.</p></div>
+        <input type="search" id="calcq" placeholder="Find a calculator" aria-label="Find a calculator" style="width:240px">
+      </div>
+      <div id="calcs"></div>
+    </div>
+  </section>
+
+  <section class="view" data-view="sources" hidden aria-label="Papers">
+    <div class="pane">
+      <div class="pane-h">
+        <div class="cnt"><b id="sc">&mdash;</b><span>papers contributing measurements</span></div>
+        <input type="search" id="sq" placeholder="Find a paper or journal" style="width:280px" aria-label="Find a paper">
+      </div>
+      <div class="gw"><table class="g"><thead><tr>
+        <th>Paper</th><th class="num">Year</th><th>Journal</th><th>Read from</th>
+        <th>Confidence</th><th class="num">Measurements</th><th>DOI</th>
+      </tr></thead><tbody id="sb"></tbody></table></div>
     </div>
   </section>
 
@@ -119,22 +163,8 @@
       <div id="nbs" class="nbs"></div>
     </div>
   </section>
-
-  <section class="view" data-view="sources" hidden aria-label="Sources">
-    <div class="pane">
-      <div class="pane-h">
-        <div class="cnt"><b id="sc">&mdash;</b><span>papers contributing measurements</span></div>
-        <input type="search" id="sq" placeholder="Find a paper or journal" style="width:280px" aria-label="Find a paper">
-      </div>
-      <div class="gw">
-        <table class="g"><thead><tr>
-          <th>Paper</th><th class="num">Year</th><th>Journal</th><th>Read from</th>
-          <th>Confidence</th><th class="num">Measurements</th><th>DOI</th>
-        </tr></thead><tbody id="sb"></tbody></table>
-      </div>
-    </div>
-  </section>
-</main>
+  </main>
+</div>
 
 <div class="bd" id="bd" hidden></div>
 <aside class="drawer" id="drawer" hidden role="dialog" aria-modal="true" aria-labelledby="dt">
@@ -144,11 +174,12 @@
 </aside>
 
 <div class="bd" id="palbd" hidden></div>
-<div class="pal" id="pal" hidden role="dialog" aria-modal="true" aria-label="Jump to">
-  <input type="text" id="palin" placeholder="Jump to a section, a material, or ask a question" autocomplete="off">
+<div class="pal" id="pal" hidden role="dialog" aria-modal="true" aria-label="Search everything">
+  <input type="text" id="palin" placeholder="Search entries, materials, calculators, or ask a question" autocomplete="off">
   <ul id="pall" role="listbox"></ul>
 </div>
 
+<script src="calc.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

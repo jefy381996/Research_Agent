@@ -31,6 +31,9 @@ MIN_CHUNK_COVERAGE = 0.6
 MIN_CONTENT_TERMS = 2
 MIN_CHUNKS = 2
 MAX_CITATIONS = 8
+# Share of chunks a term must appear in before the library claims coverage of
+# it. A word that turns up in a fraction of a percent is an incidental mention.
+COVERAGE_FLOOR = 0.008
 
 # Words common enough in this corpus that matching one says nothing about
 # whether the library actually addresses the question.
@@ -137,6 +140,35 @@ def content_terms(question: str) -> list[str]:
     return out
 
 
+def covers_in_window(text, needed, window=240):
+    """Do enough of these terms appear close together, not merely somewhere?
+
+    Scattered matches are how "how do I build a nuclear reactor" slipped
+    through: a graphene paper can mention nuclear magnetic resonance in one
+    sentence and a CVD reactor in another. Requiring the terms inside one
+    window makes the passage be about the question.
+    """
+    low = text.lower()
+    hits = []
+    for term in needed:
+        start = 0
+        while True:
+            at = low.find(term, start)
+            if at < 0:
+                break
+            hits.append((at, term))
+            start = at + max(1, len(term))
+    if not hits:
+        return 0
+    hits.sort()
+    best, left = 0, 0
+    for right in range(len(hits)):
+        while hits[right][0] - hits[left][0] > window:
+            left += 1
+        best = max(best, len({t for _, t in hits[left:right + 1]}))
+    return best
+
+
 def _grounded_chunks(question, chunks, conn):
     """Chunks that genuinely address the question, not merely share a word.
 
@@ -144,7 +176,10 @@ def _grounded_chunks(question, chunks, conn):
     the rarest of them, measured against the corpus rather than guessed.
     """
     terms = content_terms(question)
-    if len(terms) < MIN_CONTENT_TERMS:
+    # One term is enough when it is distinctive and well covered; "C-rate" is a
+    # single word and a fundamental one.
+    if not terms or (len(terms) < MIN_CONTENT_TERMS
+                     and not (len(terms) == 1 and len(terms[0]) >= 4)):
         return []
 
     frequency = {}
@@ -157,14 +192,19 @@ def _grounded_chunks(question, chunks, conn):
             frequency[term] = 0
     if any(f == 0 for f in frequency.values()):
         return []                      # a term the corpus never uses at all
+    total = conn.execute("SELECT count(*) FROM chunks").fetchone()[0] or 1
+    if min(frequency.values()) < max(8, round(total * COVERAGE_FLOOR)):
+        return []                      # present, but not a subject we cover
     rarest = min(frequency, key=frequency.get)
 
     strong = []
     for chunk in chunks:
         low = chunk["text"].lower()
         hits = [t for t in terms if t in low]
-        if (len(hits) >= MIN_CONTENT_TERMS
+        near = covers_in_window(chunk["text"], terms)
+        if (len(hits) >= min(MIN_CONTENT_TERMS, len(terms))
                 and len(hits) / len(terms) >= MIN_CHUNK_COVERAGE
+                and near / len(terms) >= MIN_CHUNK_COVERAGE
                 and rarest in low):
             strong.append(chunk)
     return strong

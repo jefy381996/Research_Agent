@@ -32,17 +32,39 @@ BASE_FILTERS = ("from_publication_date:2019-01-01", "type:article")
 # Ten searches. Each requires a graphene-family term in the title, so a paper
 # that merely mentions graphene in passing is not pulled in.
 SEARCHES = [
-    ("battery",        'title.search:graphene AND (battery OR batteries)'),
-    ("anode",          'title.search:graphene AND (anode OR anodes)'),
-    ("cathode",        'title.search:graphene AND (cathode OR cathodes)'),
-    ("graphene-oxide", 'title.search:"graphene oxide" AND (battery OR anode OR cathode)'),
-    ("rgo",            'title.search:("reduced graphene oxide" OR rGO) AND (battery OR anode OR cathode)'),
-    ("lithium-ion",    'title.search:graphene AND ("lithium-ion" OR "lithium ion" OR "Li-ion")'),
-    ("sodium-ion",     'title.search:graphene AND ("sodium-ion" OR "sodium ion" OR "Na-ion")'),
-    ("lithium-sulfur", 'title.search:graphene AND ("lithium-sulfur" OR "lithium sulfur" OR "Li-S")'),
-    ("solid-state",    'title.search:graphene AND ("solid-state" OR "solid state") AND (battery OR electrolyte)'),
-    ("silicon",        'title.search:graphene AND (silicon OR Si) AND (anode OR battery)'),
+    # Application: graphene in batteries, by sub-domain.
+    ("battery",        'title.search:graphene AND (battery OR batteries)', None),
+    ("anode",          'title.search:graphene AND (anode OR anodes)', None),
+    ("cathode",        'title.search:graphene AND (cathode OR cathodes)', None),
+    ("electrode",      'title.search:graphene AND (electrode OR electrodes)', 2500),
+    ("graphene-oxide", 'title.search:"graphene oxide" AND (battery OR anode OR cathode)', None),
+    ("rgo",            'title.search:("reduced graphene oxide" OR rGO) AND (battery OR anode OR cathode)', None),
+    ("lithium-ion",    'title.search:graphene AND ("lithium-ion" OR "lithium ion" OR "Li-ion")', None),
+    ("sodium-ion",     'title.search:graphene AND ("sodium-ion" OR "sodium ion" OR "Na-ion")', None),
+    ("lithium-sulfur", 'title.search:graphene AND ("lithium-sulfur" OR "lithium sulfur" OR "Li-S")', None),
+    ("solid-state",    'title.search:graphene AND ("solid-state" OR "solid state") AND (battery OR electrolyte)', None),
+    ("silicon",        'title.search:graphene AND (silicon OR Si) AND (anode OR battery)', None),
+    ("supercapacitor", 'title.search:graphene AND (supercapacitor OR supercapacitors OR "energy storage")', 2000),
+    ("separator",      'title.search:graphene AND (separator OR interlayer OR "current collector")', None),
+
+    # Fundamentals: what graphene is, how it is made, how it is measured.
+    ("synthesis",      'title.search:graphene AND (synthesis OR fabrication OR production OR preparation OR growth)', 2500),
+    ("cvd",            'title.search:graphene AND ("chemical vapor deposition" OR CVD OR exfoliation)', None),
+    ("properties",     'title.search:graphene AND (properties OR conductivity OR mechanical OR thermal OR electronic)', 2500),
+    ("characterisation", 'title.search:graphene AND (Raman OR XPS OR "X-ray diffraction" OR microscopy OR spectroscopy)', None),
+    ("reduction",      'title.search:"graphene oxide" AND (reduction OR reduced OR functionalization OR doping)', 2000),
+    ("structure",      'title.search:graphene AND (structure OR defects OR edge OR layer OR nanoribbon)', 2000),
+    ("review",         'title.search:graphene AND (review OR advances OR progress OR perspective) AND (energy OR battery OR storage)', None),
+
+    # Battery fundamentals, so the library can explain the field graphene sits in.
+    ("battery-basics", 'title.search:("lithium-ion battery" OR "lithium ion battery") AND (mechanism OR fundamentals OR review OR degradation OR "solid electrolyte interphase")', 1500),
+    ("beyond-lithium", 'title.search:("sodium-ion" OR "potassium-ion" OR "zinc-ion" OR "magnesium") AND (battery OR batteries) AND (anode OR cathode OR electrolyte)', 1500),
 ]
+
+# Broad fundamentals searches are capped. OpenAlex returns most-cited first,
+# so a cap keeps the papers the field actually reads and drops the long tail,
+# which would otherwise triple the corpus for little gain.
+SORT = "cited_by_count:desc"
 
 SELECT = (
     "id,doi,title,publication_year,publication_date,type,primary_location,"
@@ -184,6 +206,7 @@ def fetch_page(session, query_filter, cursor, key):
     params = {
         "filter": query_filter,
         "select": SELECT,
+        "sort": SORT,
         "per-page": str(PER_PAGE),
         "cursor": cursor,
     }
@@ -252,14 +275,16 @@ def write_atomic(path, rows):
         raise
 
 
-def run_search(session, label, search, key, current_year, retrieved_at,
+def run_search(session, label, search, cap, key, current_year, retrieved_at,
                collected, dry_run):
     query_filter = ",".join(BASE_FILTERS + (search,))
     page = fetch_page(session, query_filter, "*", key)
     total = page.get("meta", {}).get("count", 0)
-    print(f"  [{label}] OpenAlex reports {total} works")
+    limit = min(total, cap) if cap else total
+    note = f" (taking the {cap} most cited)" if cap and total > cap else ""
+    print(f"  [{label}] OpenAlex reports {total} works{note}")
     if dry_run:
-        return total, 0
+        return limit, 0
 
     pages, skipped, cursor = 0, 0, "*"
     while True:
@@ -285,7 +310,7 @@ def run_search(session, label, search, key, current_year, retrieved_at,
             else:
                 collected[wid] = row
         cursor = page.get("meta", {}).get("next_cursor")
-        if not cursor or not results:
+        if not cursor or not results or (cap and pages * PER_PAGE >= cap):
             break
     print(f"    {pages} pages, union now {len(collected)}", flush=True)
     return total, skipped
@@ -316,11 +341,11 @@ def main():
     print()
 
     session = requests.Session()
-    session.headers["User-Agent"] = "research-agent/0.2 (graphene battery evidence)"
+    session.headers["User-Agent"] = "research-agent/0.3 (graphene battery evidence)"
 
     collected, skipped_total, reported = {}, 0, 0
-    for label, search in SEARCHES:
-        total, skipped = run_search(session, label, search, key, current_year,
+    for label, search, cap in SEARCHES:
+        total, skipped = run_search(session, label, search, cap, key, current_year,
                                     retrieved_at, collected, args.dry_run)
         reported += total
         skipped_total += skipped

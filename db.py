@@ -106,6 +106,40 @@ CREATE INDEX IF NOT EXISTS idx_ev_mat   ON evidence(material_system);
 CREATE INDEX IF NOT EXISTS idx_ev_type  ON evidence(battery_type);
 CREATE INDEX IF NOT EXISTS idx_ev_cap   ON evidence(specific_capacity_mah_g DESC);
 
+CREATE TABLE IF NOT EXISTS concepts (
+    slug        TEXT PRIMARY KEY,
+    title       TEXT NOT NULL,
+    category    TEXT,
+    summary     TEXT NOT NULL,
+    description TEXT,
+    url         TEXT,
+    source      TEXT,
+    licence     TEXT,
+    fetched_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_concepts_cat ON concepts(category);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS concepts_fts USING fts5(
+    title, summary, content='concepts', content_rowid='rowid',
+    tokenize='unicode61 remove_diacritics 2'
+);
+
+CREATE TABLE IF NOT EXISTS compounds (
+    cid              INTEGER PRIMARY KEY,
+    name             TEXT NOT NULL,
+    formula          TEXT,
+    molecular_weight REAL,
+    smiles           TEXT,
+    iupac_name       TEXT,
+    exact_mass       REAL,
+    charge           INTEGER,
+    url              TEXT,
+    source           TEXT,
+    licence          TEXT,
+    fetched_at       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_compounds_name ON compounds(name);
+
 CREATE TABLE IF NOT EXISTS mp_reference (
     material_id        TEXT PRIMARY KEY,
     formula            TEXT,
@@ -145,6 +179,20 @@ END;
 CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks BEGIN
     INSERT INTO chunks_fts(chunks_fts, rowid, text) VALUES ('delete', old.id, old.text);
 END;
+CREATE TRIGGER IF NOT EXISTS concepts_ai AFTER INSERT ON concepts BEGIN
+    INSERT INTO concepts_fts(rowid, title, summary)
+    VALUES (new.rowid, new.title, new.summary);
+END;
+CREATE TRIGGER IF NOT EXISTS concepts_ad AFTER DELETE ON concepts BEGIN
+    INSERT INTO concepts_fts(concepts_fts, rowid, title, summary)
+    VALUES ('delete', old.rowid, old.title, old.summary);
+END;
+CREATE TRIGGER IF NOT EXISTS concepts_au AFTER UPDATE ON concepts BEGIN
+    INSERT INTO concepts_fts(concepts_fts, rowid, title, summary)
+    VALUES ('delete', old.rowid, old.title, old.summary);
+    INSERT INTO concepts_fts(rowid, title, summary)
+    VALUES (new.rowid, new.title, new.summary);
+END;
 CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
     INSERT INTO chunks_fts(chunks_fts, rowid, text) VALUES ('delete', old.id, old.text);
     INSERT INTO chunks_fts(rowid, text) VALUES (new.id, new.text);
@@ -156,9 +204,12 @@ def connect(path: str | None = None) -> sqlite3.Connection:
     path = path or DB_PATH
     parent = os.path.dirname(os.path.abspath(path))
     os.makedirs(parent, exist_ok=True)
-    conn = sqlite3.connect(path, timeout=30)
+    conn = sqlite3.connect(path, timeout=60)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # Wait for a busy writer rather than failing the run outright. Collection
+    # and extraction are routinely in flight at the same time.
+    conn.execute("PRAGMA busy_timeout = 60000")
     return conn
 
 

@@ -113,21 +113,68 @@ class TestCalculators(unittest.TestCase):
                 calculators.energy_density(voltage_v=bad, capacity_mah_g=1000)
 
     def test_every_registered_calculator_shows_its_working(self):
-        samples = {
-            "energy_density": dict(voltage_v=3.7, capacity_mah_g=1000),
-            "specific_capacity": dict(current_ma=100, time_h=2, mass_g=0.5),
-            "c_rate": dict(current_ma_g=186, capacity_mah_g=372),
-            "coulombic_efficiency": dict(discharge_mah_g=950, charge_mah_g=1000),
-            "capacity_fade_per_cycle": dict(initial_mah_g=1000, final_mah_g=800,
-                                            cycles=500),
-            "capacity_retention": dict(initial_mah_g=1000, final_mah_g=820),
-            "cell_to_pack": dict(cell_wh_kg=250),
-        }
-        self.assertEqual(set(samples), set(calculators.REGISTRY))
-        for name, kwargs in samples.items():
-            out = calculators.REGISTRY[name](**kwargs)
+        """Driven by the module's own sample inputs, so a new calculator is
+        covered the moment it is added rather than when someone remembers."""
+        samples = calculators._SAMPLES
+        self.assertEqual(set(samples), set(calculators.REGISTRY),
+                         "every calculator needs an entry in _SAMPLES")
+        for name, fn in calculators.REGISTRY.items():
+            out = fn(**samples[name])
             for key in ("formula", "inputs", "result", "unit"):
                 self.assertIn(key, out, f"{name} is missing {key}")
+            self.assertTrue(out["formula"], f"{name} has an empty formula")
+            self.assertIsInstance(out["result"], (int, float), name)
+
+    def test_every_calculator_is_in_exactly_one_group(self):
+        grouped = [n for names in calculators.GROUPS.values() for n in names]
+        self.assertEqual(sorted(grouped), sorted(calculators.REGISTRY),
+                         "a calculator is missing from GROUPS, or listed twice")
+
+
+class TestKnownValues(unittest.TestCase):
+    """Textbook values a battery scientist would check first."""
+
+    def assertClose(self, got, want, tol=0.005):
+        self.assertLess(abs(got - want) / want, tol, f"{got} is not ~{want}")
+
+    def test_theoretical_capacities_match_the_literature(self):
+        cases = [
+            ("graphite as LiC6", 1, 72.06, 372),
+            ("silicon as Li15Si4", 3.75, 28.085, 3579),
+            ("lithium metal", 1, 6.941, 3861),
+            ("sulfur to Li2S", 2, 32.06, 1672),
+            ("LiFePO4", 1, 157.76, 170),
+            ("sodium metal", 1, 22.99, 1166),
+        ]
+        for label, n, mass, expected in cases:
+            with self.subTest(material=label):
+                self.assertClose(
+                    calculators.theoretical_capacity(n, mass)["result"], expected)
+
+    def test_nernst_prefactor_is_25_7_mv_at_room_temperature(self):
+        shift = (calculators.nernst_potential(0.0, 1, 1)["result"]
+                 - calculators.nernst_potential(0.0, 1, 10)["result"])
+        self.assertClose(shift * 1000, 59.16, tol=0.01)   # one decade
+
+    def test_scherrer_on_a_known_peak(self):
+        self.assertClose(
+            calculators.scherrer_crystallite(0.15406, 0.5, 13.0)["result"], 16.3, 0.01)
+
+    def test_four_point_probe_geometric_factor(self):
+        self.assertClose(
+            calculators.sheet_resistance(1.0, 1.0)["result"], 4.5324, 0.001)
+
+    def test_c_rate_round_trip(self):
+        current = calculators.current_from_c_rate(0.5, 372)["result"]
+        self.assertClose(calculators.c_rate(current, 372)["result"], 0.5)
+
+    def test_cycles_to_threshold_agrees_with_the_fade_it_came_from(self):
+        fade = calculators.capacity_fade_per_cycle(1000, 800, 500)["result"]
+        self.assertClose(
+            calculators.cycles_to_threshold(1000, fade, 80.0)["result"], 500)
+
+    def test_areal_capacity_is_in_the_commercial_range(self):
+        self.assertClose(calculators.areal_capacity(350, 10)["result"], 3.5)
 
 
 if __name__ == "__main__":
