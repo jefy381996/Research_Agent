@@ -59,6 +59,29 @@ SEARCHES = [
     # Battery fundamentals, so the library can explain the field graphene sits in.
     ("battery-basics", 'title.search:("lithium-ion battery" OR "lithium ion battery") AND (mechanism OR fundamentals OR review OR degradation OR "solid electrolyte interphase")', 1500),
     ("beyond-lithium", 'title.search:("sodium-ion" OR "potassium-ion" OR "zinc-ion" OR "magnesium") AND (battery OR batteries) AND (anode OR cathode OR electrolyte)', 1500),
+
+    # Graphene beyond energy storage. The tool is about graphene, not only
+    # graphene in batteries, so every major application domain is represented.
+    ("electronics",    'title.search:graphene AND (transistor OR electronics OR "field-effect" OR circuit OR interconnect)', 1400),
+    ("sensors",        'title.search:graphene AND (sensor OR sensors OR sensing OR biosensor OR detection)', 1400),
+    ("membranes",      'title.search:graphene AND (membrane OR filtration OR desalination OR "water treatment" OR separation)', 1400),
+    ("composites",     'title.search:graphene AND (composite OR composites OR polymer OR reinforcement OR nanocomposite)', 1400),
+    ("coatings",       'title.search:graphene AND (coating OR corrosion OR barrier OR anti-corrosion OR tribolog)', 1200),
+    ("thermal",        'title.search:graphene AND ("thermal conductivity" OR "heat dissipation" OR "thermal management" OR phonon)', 1200),
+    ("photonics",      'title.search:graphene AND (photonic OR optoelectronic OR photodetector OR laser OR plasmonic OR modulator)', 1400),
+    ("solar",          'title.search:graphene AND (solar OR photovoltaic OR "perovskite solar" OR "dye-sensitized")', 1200),
+    ("catalysis",      'title.search:graphene AND (catalysis OR catalyst OR electrocatalysis OR "oxygen reduction" OR "hydrogen evolution")', 1400),
+    ("hydrogen",       'title.search:graphene AND ("hydrogen storage" OR "gas storage" OR adsorption OR "CO2 capture")', 1200),
+    ("biomedical",     'title.search:graphene AND (biomedical OR "drug delivery" OR tissue OR antibacterial OR bioimaging OR therapy)', 1400),
+    ("toxicity",       'title.search:graphene AND (toxicity OR cytotoxicity OR biocompatibility OR safety OR "environmental impact")', 1000),
+    ("mechanical",     'title.search:graphene AND (mechanical OR strength OR elastic OR fracture OR stiffness OR "Young modulus")', 1200),
+    ("spintronics",    'title.search:graphene AND (spintronics OR magnetic OR magnetism OR valleytronics OR "spin transport")', 1000),
+    ("quantum",        'title.search:graphene AND (quantum OR "quantum Hall" OR superconduct OR topological OR "Dirac fermion")', 1200),
+    ("fuelcell",       'title.search:graphene AND ("fuel cell" OR "proton exchange" OR electrolyser OR electrolyzer)', 1000),
+    ("shielding",      'title.search:graphene AND ("EMI shielding" OR "electromagnetic" OR microwave OR absorption)', 1000),
+    ("printing",       'title.search:graphene AND (ink OR printing OR printable OR flexible OR wearable OR stretchable)', 1200),
+    ("production",     'title.search:graphene AND ("large-scale" OR "mass production" OR scalable OR industrial OR "roll-to-roll")', 1000),
+    ("metrology",      'title.search:graphene AND (metrology OR standard OR "quality control" OR classification OR characterization)', 1000),
 ]
 
 # Broad fundamentals searches are capped. OpenAlex returns most-cited first,
@@ -341,7 +364,7 @@ def main():
     print()
 
     session = requests.Session()
-    session.headers["User-Agent"] = "research-agent/0.3 (graphene battery evidence)"
+    session.headers["User-Agent"] = "research-agent/0.4 (graphene battery evidence)"
 
     collected, skipped_total, reported = {}, 0, 0
     for label, search, cap in SEARCHES:

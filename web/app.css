@@ -1093,3 +1093,54 @@ body{background:
   .chips button{padding:8px 14px;font-size:12.5px}
   .chips button:nth-child(n+5){display:none}
 }
+
+/* ═══════════ while the agent is researching ═══════════ */
+.research{position:relative;height:190px;border:1px solid var(--line);
+  border-radius:var(--r-m);background:
+    radial-gradient(420px 180px at 50% 50%,var(--acc-soft),transparent 72%),
+    var(--surf);overflow:hidden;display:grid;place-items:center;
+  animation:rise-in 420ms var(--e-out) both;
+  transition:opacity 600ms var(--e-out),height 600ms var(--e-out),
+             margin 600ms var(--e-out)}
+.research.settled{opacity:0;height:0;margin:0;border-width:0}
+.rcanvas{position:absolute;inset:0;width:100%;height:100%}
+.rlabel{position:relative;display:flex;align-items:center;gap:9px;
+  padding:6px 14px;border-radius:999px;background:color-mix(in srgb,var(--surf) 82%,transparent);
+  backdrop-filter:blur(6px);border:1px solid var(--line);
+  font:500 11.5px var(--sans);color:var(--ink-2);letter-spacing:.01em}
+.rdot{width:6px;height:6px;border-radius:50%;background:var(--acc);
+  box-shadow:0 0 10px var(--acc-glow);animation:beat 1.1s var(--e-io) infinite}
+@media(max-width:780px){.research{height:150px}}
+@media(prefers-reduced-motion:reduce){.research{transition:none}}
+
+/* ═══════════ measurements, made readable ═══════════ */
+.mcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));
+  gap:14px;padding:18px}
+.mcard{background:var(--surf);border:1px solid var(--line);border-radius:var(--r-m);
+  padding:16px 18px;cursor:pointer;text-align:left;appearance:none;font:inherit;
+  color:inherit;position:relative;overflow:hidden;
+  animation:rise-in 380ms var(--e-out) both;
+  animation-delay:calc(var(--i,0) * 22ms);
+  transition:border-color var(--t-fast) var(--e-out),transform var(--t) var(--e-out),
+             box-shadow var(--t) var(--e-out)}
+.mcard:hover{border-color:var(--acc);transform:translateY(-3px);box-shadow:var(--sh-2)}
+.mcard.fl{border-left:2px solid var(--flag)}
+.mcard .mhead{display:flex;align-items:baseline;gap:9px;margin-bottom:12px}
+.mcard .mmat{font:500 15px var(--display);letter-spacing:-.005em}
+.mcard .mchem{font:450 11px var(--mono);color:var(--ink-3)}
+.mcard .mbig{font:500 30px var(--mono);letter-spacing:-.03em;line-height:1;
+  display:flex;align-items:baseline;gap:6px}
+.mcard .mbig u{font:450 11px var(--mono);color:var(--ink-3);text-decoration:none}
+.mcard .mcond{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.mcard .mchip{font:450 10.5px var(--mono);color:var(--ink-2);background:var(--surf-2);
+  border:1px solid var(--line);border-radius:999px;padding:3px 9px;white-space:nowrap}
+.mcard .mpaper{margin-top:12px;padding-top:11px;border-top:1px solid var(--line);
+  font-size:12px;line-height:1.45;color:var(--ink-2);
+  display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden}
+.mcard .mmeta{margin-top:7px;font:450 10.5px var(--mono);color:var(--ink-3);
+  display:flex;gap:9px;align-items:center}
+.mcard .mflag{color:var(--flag)}
+.pane-a .modes{flex:0 0 auto}
+.pane-a .mode{padding:5px 13px;font-size:11.5px}
+@media(max-width:780px){.mcards{grid-template-columns:1fr;padding:14px;gap:11px}}

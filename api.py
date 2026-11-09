@@ -9,6 +9,8 @@ from __future__ import annotations
 import io
 import json
 import os
+import time
+from contextlib import asynccontextmanager
 import tempfile
 from datetime import datetime, timezone
 
@@ -25,7 +27,51 @@ import plausibility
 import search as search_engine
 import units
 
+def _ensure_index() -> None:
+    """Rebuild the search index if it is not there.
+
+    The chunk and section tables hold a second and third copy of every
+    abstract, which trebles the shipped database and pushes it past what a git
+    host will take. They are derived, and rebuild from the abstracts in a few
+    seconds, so the repository carries the source and the service builds the
+    rest on first boot.
+    """
+    try:
+        conn = db.init()
+    except Exception as exc:
+        print(f"[startup] database unavailable: {exc}", flush=True)
+        return
+    try:
+        chunks = conn.execute("SELECT count(*) FROM chunks").fetchone()[0]
+        papers = conn.execute(
+            "SELECT count(*) FROM papers WHERE abstract IS NOT NULL"
+            " AND abstract != ''").fetchone()[0]
+    finally:
+        conn.close()
+    if chunks or not papers:
+        return
+    print(f"[startup] building the search index over {papers} abstracts...", flush=True)
+    started = time.time()
+    try:
+        import build_index, sys as _sys
+        argv, _sys.argv = _sys.argv, ["build_index"]
+        try:
+            build_index.main()
+        finally:
+            _sys.argv = argv
+        print(f"[startup] index ready in {time.time() - started:.1f}s", flush=True)
+    except Exception as exc:
+        print(f"[startup] index build failed: {type(exc).__name__}: {exc}", flush=True)
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    _ensure_index()
+    yield
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title="Graphene Battery Evidence Workbench",
     description=("Comparable performance figures extracted from the graphene "
                  "battery literature, each carrying the sentence it came from."),

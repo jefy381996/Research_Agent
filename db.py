@@ -160,6 +160,18 @@ CREATE TABLE IF NOT EXISTS user_documents (
     char_count  INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS agent_cache (
+    qhash       TEXT PRIMARY KEY,
+    question    TEXT NOT NULL,
+    provider    TEXT,
+    model       TEXT,
+    events_json TEXT NOT NULL,
+    created_at  TEXT,
+    hits        INTEGER DEFAULT 0,
+    last_hit    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_cache_created ON agent_cache(created_at DESC);
+
 CREATE TABLE IF NOT EXISTS run_log (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     run_type       TEXT NOT NULL,

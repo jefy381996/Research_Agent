@@ -29,7 +29,9 @@ const CASES = [
   ["An electrode at 1200 mAh/g and 3.7 V, what is the energy density?", "number"],
   // mechanism, and terms papers write differently from the way people ask
   ["Do graphene separators suppress lithium dendrites?", "sources"],
-  ["What is the solid electrolyte interphase?", "sources"],
+  // Answered from the knowledge base now that the entry exists; it fell back
+  // to quoted papers before the reference collection reached it.
+  ["What is the solid electrolyte interphase?", "concept"],
   ["What is C-rate?", "sources"],
   ["How is graphene made?", "sources"],
   // must refuse

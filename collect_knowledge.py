@@ -107,6 +107,63 @@ TOPICS = {
         "Fatigue (material)", "Creep (deformation)", "Self-discharge",
         "Memory effect",
     ],
+    "Electronics and devices": [
+        "Field-effect transistor", "Semiconductor", "Transistor", "Integrated circuit",
+        "Thin-film transistor", "Schottky barrier", "Ohmic contact", "Ballistic conduction",
+        "Electron mobility", "Flexible electronics", "Printed electronics",
+        "Transparent conducting film", "Indium tin oxide", "Touchscreen",
+        "Radio-frequency engineering", "Interconnect", "Moore's law",
+    ],
+    "Sensing and detection": [
+        "Biosensor", "Chemical sensor", "Gas detector", "Photodetector",
+        "Strain gauge", "Surface plasmon resonance", "Electrochemical sensor",
+        "Wearable technology", "Limit of detection", "Selectivity (chemistry)",
+    ],
+    "Membranes and separation": [
+        "Membrane technology", "Reverse osmosis", "Desalination", "Water purification",
+        "Nanofiltration", "Gas separation", "Adsorption", "Carbon capture and storage",
+        "Molecular sieve", "Osmosis",
+    ],
+    "Composites and coatings": [
+        "Composite material", "Polymer", "Epoxy", "Nanocomposite",
+        "Corrosion inhibitor", "Coating", "Tribology", "Lubricant",
+        "Reinforcement (composite)", "Percolation theory", "Rheology",
+    ],
+    "Photonics and optics": [
+        "Photonics", "Optoelectronics", "Plasmon", "Saturable absorber",
+        "Mode locking", "Nonlinear optics", "Terahertz radiation",
+        "Optical modulator", "Light-emitting diode", "Absorbance",
+    ],
+    "Energy conversion": [
+        "Solar cell", "Perovskite solar cell", "Dye-sensitized solar cell",
+        "Photocatalysis", "Electrocatalyst", "Oxygen reduction reaction",
+        "Hydrogen evolution reaction", "Water splitting", "Fuel cell",
+        "Proton-exchange membrane fuel cell", "Thermoelectric effect",
+        "Hydrogen storage", "Electrolysis of water",
+    ],
+    "Biomedical and safety": [
+        "Drug delivery", "Tissue engineering", "Biocompatibility", "Cytotoxicity",
+        "Antimicrobial", "Photothermal therapy", "Bioimaging", "Nanotoxicology",
+        "Reactive oxygen species", "Biodegradation", "Nanoparticle",
+    ],
+    "Mechanics and structure": [
+        "Elastic modulus", "Fracture toughness", "Stress (mechanics)",
+        "Strain (mechanics)", "Buckling", "Crystallographic defect",
+        "Grain boundary", "Dislocation", "Wrinkle", "Surface energy",
+        "Thermal expansion",
+    ],
+    "Quantum and magnetism": [
+        "Quantum Hall effect", "Superconductivity", "Topological insulator",
+        "Spintronics", "Magnetoresistance", "Berry phase", "Landau quantization",
+        "Weak localization", "Moire pattern", "Twistronics", "Fermi level",
+        "Brillouin zone", "Graphene nanoribbon",
+    ],
+    "Manufacturing and scale": [
+        "Roll-to-roll processing", "Scalability", "Quality control",
+        "Chemical vapor deposition", "Screen printing", "Inkjet printing",
+        "Spray coating", "Supply chain", "Technology readiness level",
+        "Life-cycle assessment",
+    ],
     "Measuring and characterisation": [
         "X-ray crystallography", "Raman spectroscopy",
         "Scanning electron microscope", "Transmission electron microscopy",

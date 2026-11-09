@@ -1246,7 +1246,8 @@ const FHUE = { rGO: "var(--c1)", "graphene oxide": "var(--c2)", graphene: "var(-
 const hue = (m, k) => m[k] || "var(--c0)";
 
 const T = { filters: { confidence: "verified" }, sort: "specific_capacity_mah_g",
-  dir: "desc", rows: [], total: 0, off: 0, lim: 150, capMax: 1, loading: false };
+  dir: "desc", rows: [], total: 0, off: 0, lim: 60, capMax: 1, loading: false,
+  layout: "cards" };
 
 const COLS = [
   ["material_system", "Material", "", (r) =>
@@ -1313,7 +1314,60 @@ const sorted = (rows) => rows.slice().sort((a, b) => {
   return typeof x === "string" ? d * x.localeCompare(y) : d * (x - y);
 });
 
-function reload() { T.off = 0; T.rows = []; $("gb").innerHTML = ""; head(); more(); }
+function reload() {
+  T.off = 0; T.rows = [];
+  $("gb").innerHTML = ""; $("mcards").innerHTML = "";
+  head(); more();
+}
+
+/* One measurement as something a person can read, rather than a row of cells.
+   The dense table is still a click away for anyone who wants it. */
+function mcard(r, i) {
+  const cond = [];
+  if (r.current_density_ma_g !== null) cond.push(`${fmt(r.current_density_ma_g, 0)} mA/g`);
+  if (r.c_rate !== null) cond.push(`${fmt(r.c_rate, 2)} C`);
+  if (r.cycle_count !== null) cond.push(`${fmt(r.cycle_count)} cycles`);
+  if (r.capacity_retention_pct !== null) cond.push(`${fmt(r.capacity_retention_pct, 0)}% kept`);
+  if (r.first_cycle_ce_pct !== null) cond.push(`${fmt(r.first_cycle_ce_pct, 0)}% first cycle`);
+  const headline = r.specific_capacity_mah_g !== null
+    ? `${fmt(r.specific_capacity_mah_g, 0)}<u>mAh/g</u>`
+    : (r.capacity_retention_pct !== null
+        ? `${fmt(r.capacity_retention_pct, 0)}<u>% retained</u>` : `<span class="nr">no headline figure</span>`);
+  return `<button class="mcard ${r.confidence === "flagged" ? "fl" : ""}"
+      style="--i:${i}" data-id="${r.id}">
+    <div class="mhead"><span class="mmat">${esc(r.material_system || "unnamed")}</span>
+      <span class="mchem">${esc(r.battery_type || "chemistry not stated")}${
+        r.electrode_role ? " \u00b7 " + esc(r.electrode_role) : ""}</span></div>
+    <div class="mbig">${headline}</div>
+    ${cond.length ? `<div class="mcond">${cond.map((c) =>
+      `<span class="mchip">${esc(c)}</span>`).join("")}</div>` : ""}
+    <div class="mpaper">${esc(r.title || "")}</div>
+    <div class="mmeta"><span>${esc(r.journal || "")}</span><span>${r.year || ""}</span>
+      ${r.confidence === "flagged"
+        ? `<span class="mflag">&#9873; flagged</span>` : `<span>verified</span>`}</div>
+  </button>`;
+}
+
+function setLayout(mode) {
+  T.layout = mode;
+  document.querySelectorAll("[data-grid]").forEach((b) =>
+    b.setAttribute("aria-checked", String(b.dataset.grid === mode)));
+  $("mcards").hidden = mode !== "cards";
+  $("mtable").hidden = mode !== "table";
+  $("mnote").innerHTML = mode === "cards"
+    ? `Each card is one measurement, taken from one sentence of one paper. Click it
+       to read that sentence. <button class="lnk" id="more">What the checks cover</button>`
+    : `Every number was read from one sentence of one paper. An empty cell means the
+       paper did not state the value.
+       <button class="lnk" id="more">What the checks cover</button>`;
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-grid]");
+  if (b) setLayout(b.dataset.grid);
+  const card = e.target.closest(".mcard");
+  if (card) { const r = DATA.rows.find((x) => String(x.id) === card.dataset.id);
+    if (r) openRow(r); }
+});
 
 function more() {
   if (T.loading) return; T.loading = true;
@@ -1323,12 +1377,15 @@ function more() {
     T.capMax = Math.max(400, top ? Number(top.specific_capacity_mah_g) : 400); }
   const page = all.slice(T.off, T.off + T.lim);
   T.rows.push(...page); T.off += page.length;
+  $("mcards").insertAdjacentHTML("beforeend", page.map((r, i) => mcard(r, i)).join(""));
   $("gb").insertAdjacentHTML("beforeend", page.map((r) =>
     `<tr class="${r.confidence === "flagged" ? "fl" : ""}" data-id="${r.id}" tabindex="0">${
       COLS.map(([, , c, f]) => `<td class="${c}">${f(r)}</td>`).join("")}</tr>`).join(""));
   $("rc").textContent = `${T.total.toLocaleString("en-GB")} measurement${T.total === 1 ? "" : "s"}`;
   $("rd").textContent = `showing ${T.rows.length.toLocaleString("en-GB")}`;
   $("ge").hidden = T.total !== 0;
+  $("mtable").hidden = T.layout !== "table";
+  $("mcards").hidden = T.layout !== "cards";
   if (!T.total) $("ge").innerHTML = `<strong>No measurements match these filters.</strong>
     Clear the narrowest one first — capacity range and minimum cycles exclude the most rows,
     because many papers do not state them.`;
@@ -1789,6 +1846,10 @@ async function askAgent(question) {
   const turn = document.createElement("div");
   turn.className = "turn";
   turn.innerHTML = `<div class="q"><div class="av">You</div><div class="t">${esc(question)}</div></div>
+    <div class="research" aria-hidden="true">
+      <canvas class="rcanvas"></canvas>
+      <div class="rlabel"><span class="rdot"></span><span class="rtext">Reading the library</span></div>
+    </div>
     <details class="steps" open><summary><span class="sdot live"></span>
       <span class="slabel">Thinking</span>
       <svg class="ic" viewBox="0 0 22 22"><use href="#i-chev"/></svg></summary>
@@ -1799,6 +1860,26 @@ async function askAgent(question) {
 
   const body = turn.querySelector(".steps .body");
   const label = turn.querySelector(".slabel");
+  const stage = turn.querySelector(".research");
+  const rtext = turn.querySelector(".rtext");
+  const anim = window.ResearchAnim
+    ? ResearchAnim.create(turn.querySelector(".rcanvas"), { side: 19 })
+    : { step() {}, done() {}, stop() {} };
+  const SAYS = {
+    describe_library: "Checking what the library holds",
+    search_measurements: "Searching the measurements",
+    compare_materials: "Ranking material systems",
+    trend_by_year: "Tracking change by year",
+    search_literature: "Reading the papers",
+    knowledge_lookup: "Looking up the fundamentals",
+    compound_lookup: "Checking the chemistry",
+    calculate: "Running the calculation",
+    convert_units: "Converting units",
+    sql_query: "Querying the library directly",
+    live_search: "Fetching new work from OpenAlex",
+    extract_from_text: "Reading the text you gave it",
+    run_analysis: "Running its own analysis",
+  };
   const out = turn.querySelector(".out");
   const figures = [];
   const step = (what, detail, result) => {
@@ -1833,14 +1914,24 @@ async function askAgent(question) {
           t.className = "think"; t.textContent = ev.text.slice(0, 260) + "…";
           body.appendChild(t);
         }
-        else if (ev.type === "tool_call") step("Calling", ev.name, "");
+        else if (ev.type === "tool_call") {
+          step("Calling", ev.name, "");
+          anim.step();
+          if (rtext) rtext.textContent = SAYS[ev.name] || "Working";
+        }
         else if (ev.type === "tool_result") {
           const last = body.querySelector(".step2:last-of-type .r");
           if (last) last.textContent = ev.summary || "";
         }
-        else if (ev.type === "correcting")
+        else if (ev.type === "correcting") {
           step("Checking its own citations", "rewriting", "failed first pass");
+          anim.step();
+          if (rtext) rtext.textContent = "Checking its own citations";
+        }
         else if (ev.type === "answer") {
+          anim.done();
+          if (stage) { stage.classList.add("settled");
+            setTimeout(() => stage.remove(), 700); }
           const v = ev.verification || {};
           const refs = agentRefs(ev.text);
           const clean = v.clean;
@@ -1852,6 +1943,7 @@ async function askAgent(question) {
             + agentSources(refs)
             + `<div class="acts">
                  <button class="btn" data-save>Save to notebook</button>
+                 ${ev.replayed ? `<span class="badge-v">Replayed, identical to before</span>` : ""}
                  <span class="badge-v ${clean ? "ok" : "warn"}">${clean
                    ? "Every figure traced to a source"
                    : `${(v.numbers_unsupported || []).length} figure(s) unverified`}</span>
@@ -1866,6 +1958,7 @@ async function askAgent(question) {
           });
         }
         else if (ev.type === "error") {
+          anim.stop(); if (stage) stage.remove();
           turn.querySelector(".sdot").classList.remove("live");
           label.textContent = "Could not finish";
           out.innerHTML = `<div class="refusal"><h3>The agent could not answer</h3>
@@ -1875,6 +1968,7 @@ async function askAgent(question) {
       }
     }
   } catch (err) {
+    anim.stop(); if (stage) stage.remove();
     out.innerHTML = `<div class="refusal"><h3>The agent could not be reached</h3>
       <p>${esc(String(err.message || err))}</p></div>`;
   } finally {

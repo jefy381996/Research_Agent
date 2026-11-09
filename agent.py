@@ -13,6 +13,7 @@ import json
 import re
 import time
 
+import agent_cache
 import agent_tools
 import llm
 
@@ -65,12 +66,22 @@ Give the spread, not just the middle. Say how many measurements and how many \
 papers. Say when most rows do not report a field. Say how many are flagged and \
 why. Never present a flagged number as settled.
 
-FORMAT
-Markdown, and brief: under 120 words unless more is asked for. Lead with the \
-answer in one sentence. Then at most three short bullets of conditions or \
-caveats. A table only when comparing three or more things. No headings, no \
-restating the question, no closing summary. A scientist will ask a follow-up \
-if they want more; they will not thank you for a wall of text."""
+FORMAT - match the depth to the question
+Markdown. Always lead with the answer in one sentence, cited.
+
+A simple question ("what is X", "median capacity of Y") gets that sentence and \
+at most three short bullets. Under 120 words. No headings.
+
+A technical or multi-part question - comparisons, trade-offs, mechanisms, \
+anything asking why or how, anything needing a calculation - gets the full \
+working, in this order and nothing else:
+
+  1. The answer, one sentence, cited.
+  2. A markdown table of the numbers, with their conditions and ids.
+  3. Any calculation, as the formula the tool returned, its inputs, its result.
+  4. What the evidence does not settle: missing fields, flagged rows, spread.
+
+Never restate the question. Never add a closing summary. Never pad."""
 
 
 def _tool_text(result: dict) -> str:
@@ -163,14 +174,33 @@ def verify(answer: str, tool_outputs: list[str], valid_ids: set[str]) -> dict:
             "clean": not unsupported and not invented and not uncited}
 
 
-def run(question: str, history: list[dict] | None = None, max_rounds: int = MAX_ROUNDS):
-    """Drive one question to an answer, yielding events as it goes."""
+def run(question: str, history: list[dict] | None = None,
+        max_rounds: int = MAX_ROUNDS, fresh: bool = False):
+    """Drive one question to an answer, yielding events as it goes.
+
+    A question asked before replays its stored run exactly, unless `fresh` is
+    set. Replay costs nothing and, more importantly, means two people asking
+    the same thing see the same answer.
+    """
     if not llm.configured():
         yield {"type": "error", "code": "no_model",
                "message": ("No model is configured, so the agent cannot reason. "
                            f"Set {llm.status()['key_variable']} on the server.")}
         return
 
+    # Only a standalone question is cacheable: a follow-up means something
+    # different depending on what came before it.
+    cacheable = not history
+    if cacheable and not fresh:
+        stored = agent_cache.get(question, llm.provider_name(), llm.model_name())
+        if stored:
+            for event in stored:
+                if event.get("type") == "answer":
+                    event = dict(event, replayed=True)
+                yield event
+            return
+
+    captured: list[dict] = []
     messages = [{"role": "system", "content": SYSTEM}]
     for turn in (history or [])[-6:]:
         if turn.get("role") in ("user", "assistant") and turn.get("content"):
@@ -182,22 +212,27 @@ def run(question: str, history: list[dict] | None = None, max_rounds: int = MAX_
     corrected = False
     started, usage_in, usage_out = time.time(), 0, 0
 
-    yield {"type": "start", "provider": llm.provider_name(), "model": llm.model_name()}
+    def emit(event):
+        captured.append(event)
+        return event
+
+    yield emit({"type": "start", "provider": llm.provider_name(),
+                "model": llm.model_name()})
 
     for round_no in range(1, max_rounds + 1):
         _trim(messages)
         try:
             reply = llm.chat(messages, tools=tools)
         except llm.LLMUnavailable as exc:
-            yield {"type": "error", "code": "model_unavailable", "message": str(exc)}
+            yield emit({"type": "error", "code": "model_unavailable", "message": str(exc)})
             return
         usage = reply.get("usage") or {}
         usage_in += usage.get("prompt_tokens") or 0
         usage_out += usage.get("completion_tokens") or 0
 
         if reply.get("reasoning"):
-            yield {"type": "thinking", "round": round_no,
-                   "text": reply["reasoning"][:900]}
+            yield emit({"type": "thinking", "round": round_no,
+                        "text": reply["reasoning"][:900]})
 
         calls = reply.get("tool_calls") or []
         if not calls:
@@ -220,7 +255,8 @@ def run(question: str, history: list[dict] | None = None, max_rounds: int = MAX_
                 if report["sentences_with_numbers_uncited"]:
                     problems.append("These sentences state a number with no id: "
                                     + " | ".join(report["sentences_with_numbers_uncited"][:4]))
-                yield {"type": "correcting", "round": round_no, "problems": problems}
+                yield emit({"type": "correcting", "round": round_no,
+                            "problems": problems})
                 messages.append({"role": "assistant", "content": final})
                 messages.append({"role": "user", "content":
                     "Your answer failed the citation check.\n- "
@@ -231,10 +267,15 @@ def run(question: str, history: list[dict] | None = None, max_rounds: int = MAX_
                       "corrected answer only."})
                 continue
 
-            yield {"type": "answer", "text": report["answer"], "verification": report,
-                   "figures": figures, "rounds": round_no,
-                   "seconds": round(time.time() - started, 1),
-                   "tokens": {"in": usage_in, "out": usage_out}}
+            answer_event = emit({
+                "type": "answer", "text": report["answer"], "verification": report,
+                "figures": figures, "rounds": round_no,
+                "seconds": round(time.time() - started, 1),
+                "tokens": {"in": usage_in, "out": usage_out}})
+            if cacheable:
+                agent_cache.put(question, llm.provider_name(), llm.model_name(),
+                                captured)
+            yield answer_event
             return
 
         messages.append({"role": "assistant", "content": reply.get("text") or "",
@@ -243,8 +284,8 @@ def run(question: str, history: list[dict] | None = None, max_rounds: int = MAX_
                                                       "arguments": json.dumps(c["arguments"])}}
                                         for c in calls]})
         for call in calls:
-            yield {"type": "tool_call", "round": round_no, "name": call["name"],
-                   "arguments": call["arguments"]}
+            yield emit({"type": "tool_call", "round": round_no,
+                        "name": call["name"], "arguments": call["arguments"]})
             result = agent_tools.run_tool(call["name"], call["arguments"])
             text, figs = _tool_text(result if isinstance(result, dict) else {"result": result})
             if figs:
@@ -254,14 +295,16 @@ def run(question: str, history: list[dict] | None = None, max_rounds: int = MAX_
                 valid_ids.add(found)
             for found in re.findall(r'"openalex_id":\s*"(W\d+)"', text):
                 valid_ids.add("P" + found)
-            yield {"type": "tool_result", "round": round_no, "name": call["name"],
-                   "summary": _summary(call["name"], result), "bytes": len(text)}
+            yield emit({"type": "tool_result", "round": round_no,
+                        "name": call["name"],
+                        "summary": _summary(call["name"], result),
+                        "bytes": len(text)})
             messages.append({"role": "tool", "tool_call_id": call["id"],
                              "name": call["name"], "content": text})
 
-    yield {"type": "error", "code": "too_many_rounds",
-           "message": (f"The agent used all {max_rounds} rounds without settling on "
-                       "an answer. Ask something narrower.")}
+    yield emit({"type": "error", "code": "too_many_rounds",
+                "message": (f"The agent used all {max_rounds} rounds without "
+                            "settling on an answer. Ask something narrower.")})
 
 
 def _trim(messages: list[dict]) -> None:

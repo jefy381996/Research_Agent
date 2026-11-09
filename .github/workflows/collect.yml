@@ -41,8 +41,8 @@ jobs:
           PY
           )
           echo "collected rows: $rows"
-          if [ "$rows" -lt 15000 ]; then
-            echo "::error::Only $rows papers collected; expected at least 15000."
+          if [ "$rows" -lt 25000 ]; then
+            echo "::error::Only $rows papers collected; expected at least 25000."
             echo "Refusing to commit a short dataset."
             exit 1
           fi
@@ -102,6 +102,9 @@ jobs:
             echo "::error::Only $rows evidence rows; expected at least 2000."
             exit 1
           fi
+
+      - name: Strip the derived tables before committing
+        run: python make_shippable.py
 
       - name: Commit only if something actually changed
         run: |

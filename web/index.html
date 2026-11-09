@@ -121,6 +121,10 @@
       <div class="pane-h">
         <div class="cnt"><b id="rc">&mdash;</b><span id="rd"></span></div>
         <div class="pane-a">
+          <div class="modes" role="radiogroup" aria-label="How to show the measurements">
+            <button type="button" class="mode" data-grid="cards" role="radio" aria-checked="true">Readable</button>
+            <button type="button" class="mode" data-grid="table" role="radio" aria-checked="false">Table</button>
+          </div>
           <select id="preset" aria-label="Saved views">
             <option value="default">Verified, highest capacity first</option>
             <option value="all">All measurements, including flagged</option>
@@ -133,11 +137,12 @@
           <button class="btn" id="csv">Export CSV</button>
         </div>
       </div>
-      <div class="note" id="mnote">Every number was read from one sentence of one paper, and
-        that sentence is attached to it. An empty cell means the paper did not state the value.
+      <div class="note" id="mnote">Each card is one measurement, taken from one sentence of
+        one paper. Click it to read that sentence.
         <button class="lnk" id="more">What the checks do and do not cover</button></div>
       <div class="gw" id="gw" tabindex="0" role="region" aria-label="Measurement rows">
-        <table class="g"><thead><tr id="gh"></tr></thead><tbody id="gb"></tbody></table>
+        <div id="mcards" class="mcards"></div>
+        <table class="g" id="mtable" hidden><thead><tr id="gh"></tr></thead><tbody id="gb"></tbody></table>
         <div id="ge" class="empty" hidden></div>
       </div>
     </div>
@@ -192,6 +197,7 @@
 </div>
 
 <script src="lattice.js"></script>
+<script src="research-anim.js"></script>
 <script src="calc.js"></script>
 <script src="app.js"></script>
 </body>
