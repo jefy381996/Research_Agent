@@ -1,10 +1,10 @@
-/* Graphene Battery Research Agent
+/* Graphene Research Agent
    Runs entirely on its own data. No model, no network call at question time:
    the same question always produces the same answer, and every number it shows
    was read out of a sentence in a paper. */
 
-let DATA = { rows: [], passages: [], concepts: [], compounds: [],
-             calculators: [], facets: {}, stats: {} };
+let DATA = { rows: [], properties: [], property_families: [], passages: [],
+             concepts: [], compounds: [], calculators: [], facets: {}, stats: {} };
 let API = false;
 
 const $ = (id) => document.getElementById(id);
@@ -13,6 +13,20 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
 const fmt = (v, d = 0) => (v === null || v === undefined || v === "")
   ? null : Number(v).toLocaleString("en-GB", { maximumFractionDigits: d });
 const NR = '<span class="nr">not reported</span>';
+
+/* A property can run from 0.004 to 5,300 in the same column. Rounding the
+   whole column to the median's precision printed the minimum as "0", which
+   reads as "none" rather than "very small", so each figure keeps three
+   significant digits of its own. */
+const sig = (v, figs = 3) => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  if (n === 0) return "0";
+  const mag = Math.floor(Math.log10(Math.abs(n)));
+  const places = Math.max(0, Math.min(6, figs - 1 - mag));
+  return n.toLocaleString("en-GB", { maximumFractionDigits: places,
+                                     minimumFractionDigits: 0 });
+};
 
 /* Give each child an index the stylesheet turns into a delay, so a list
    arrives in sequence rather than all at once. */
@@ -370,6 +384,84 @@ $("excats").addEventListener("click", (e) => {
   exCat = b.dataset.c || null; paintExplore($("exq").value);
 });
 
+/* ── properties view ────────────────────────────────────── */
+let prFam = null;
+
+function prCard(r, i) {
+  const cond = [r.application, r.graphene_form].filter(Boolean);
+  return `<button class="mcard ${r.confidence === "flagged" ? "fl" : ""}"
+      style="--i:${i}" data-prid="${r.id}">
+    <div class="mhead"><span class="mmat">${esc(r.property_label)}</span>
+      <span class="mchem">${esc(r.material || "graphene")}</span></div>
+    <div class="mbig">${sig(r.value)}<u>${esc(r.unit)}</u></div>
+    ${cond.length ? `<div class="mcond">${cond.map((c) =>
+      `<span class="mchip">${esc(c)}</span>`).join("")}</div>` : ""}
+    <div class="mpaper">${esc(r.title || "")}</div>
+    <div class="mmeta"><span>${esc(r.journal || "")}</span><span>${r.year || ""}</span>
+      ${r.confidence === "flagged"
+        ? `<span class="mflag">&#9873; flagged</span>` : `<span>verified</span>`}</div>
+  </button>`;
+}
+
+function paintProps(q = "") {
+  const all = DATA.properties || [];
+  const fams = DATA.property_families || [];
+  const count = (k) => all.filter((r) => r.property_key === k).length;
+  $("prfams").innerHTML = [`<button data-f="" aria-pressed="${!prFam}">All <span class="dim">${fmt(all.length)}</span></button>`]
+    .concat(fams.filter((f) => count(f.key)).map((f) =>
+      `<button data-f="${esc(f.key)}" aria-pressed="${prFam === f.key}">${esc(f.label)}
+        <span class="dim">${count(f.key)}</span></button>`)).join("");
+
+  const term = q.toLowerCase().trim();
+  const list = all.filter((r) =>
+    (!prFam || r.property_key === prFam)
+    && (!term || (r.material || "").toLowerCase().includes(term)
+        || (r.title || "").toLowerCase().includes(term)
+        || (r.application || "").toLowerCase().includes(term)
+        || (r.property_label || "").toLowerCase().includes(term)));
+
+  const fam = prFam ? fams.find((f) => f.key === prFam) : null;
+  if (fam && list.length >= 2) {
+    const s = spread(list.filter((r) => r.confidence === "verified")
+      .map((r) => Number(r.value)));
+    $("prstat").innerHTML = `<div class="pstat">
+      <div><b>${sig(s.median)}</b><u>${esc(fam.unit)}</u><span>median of ${s.n} verified</span></div>
+      <div><b>${sig(s.p25)}&ndash;${sig(s.p75)}</b><u>${esc(fam.unit)}</u><span>middle half</span></div>
+      <div><b>${sig(s.min)}&ndash;${sig(s.max)}</b><u>${esc(fam.unit)}</u><span>full range</span></div>
+    </div>`;
+  } else {
+    $("prstat").innerHTML = "";
+  }
+
+  $("prempty").hidden = list.length > 0;
+  if (!list.length) {
+    $("prgrid").innerHTML = "";
+    $("prempty").innerHTML = `<strong>No measurement matches that.</strong>
+      Try a graphene form, an application, or clear the filter.`;
+    return;
+  }
+  const CAP = 120;
+  const shown = Math.min(CAP, list.length);
+  const what = prFam
+    ? `${fmt(list.length)} measurements of ${fam.label.toLowerCase()}`
+    : `${fmt(list.length)} measurements across ${fams.filter((f) => count(f.key)).length} properties`;
+  $("pr-sub").textContent = list.length > CAP
+    ? `${what}, highest first. Showing the top ${shown} \u2014 narrow with the search box.`
+    : `${what}, each read from one sentence of one paper.`;
+  $("prgrid").innerHTML = list.slice(0, CAP).map((r, i) => prCard(r, i)).join("");
+}
+
+$("prq").addEventListener("input", deb((e) => paintProps(e.target.value)));
+$("prfams").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  prFam = b.dataset.f || null; paintProps($("prq").value);
+});
+$("prgrid").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-prid]"); if (!b) return;
+  const r = (DATA.properties || []).find((x) => String(x.id) === b.dataset.prid);
+  if (r) openProp(r);
+});
+
 function openConcept(slug) {
   const c = DATA.concepts.find((x) => x.slug === slug);
   if (!c) return;
@@ -485,6 +577,17 @@ function tip(html, x, y) {
   tipEl.style.top = Math.max(8, y - r.height - 12) + "px";
 }
 const untip = () => { if (tipEl) tipEl.hidden = true; };
+
+/* One extreme value flattens a histogram into a single bar and tells the
+   reader nothing. Drop the outer 5% at each end for the picture only; the
+   headline figure above it still states the real minimum and maximum. */
+function trimTails(values, frac = 0.05) {
+  const v = values.filter(Number.isFinite).sort((x, y) => x - y);
+  if (v.length < 20) return v;
+  const k = Math.floor(v.length * frac);
+  const cut = v.slice(k, v.length - k);
+  return cut.length >= 5 ? cut : v;
+}
 
 function histogram(values, unit, label) {
   const W = 560, H = 170, P = { t: 14, r: 12, b: 30, l: 12 };
@@ -613,6 +716,75 @@ function coversInWindow(text, needed, window = 240) {
   return best;
 }
 
+/* ── physical properties ────────────────────────────────── */
+/* The battery table answers "how much charge". A researcher asking about
+   graphene as a material wants the thermal conductivity, the sheet resistance,
+   the modulus. Those live in their own table with their own units, so the
+   question has to say which property before a number can mean anything. */
+const APP_WORDS = [
+  ["composite", ["composite", "nanocomposite", "epoxy", "polymer", "filler", "matrix"]],
+  ["membrane", ["membrane", "desalination", "filtration", "nanofiltration", "water"]],
+  ["thermal management", ["thermal management", "heat dissipation", "heat spreader",
+                          "thermal interface"]],
+  ["supercapacitor", ["supercapacitor", "edlc", "pseudocapacit"]],
+  ["transparent electrode", ["transparent", "touch screen", "flexible electrode"]],
+  ["EMI shielding", ["shielding", "emi", "electromagnetic"]],
+  ["sensor", ["sensor", "sensing", "biosensor"]],
+  ["transistor", ["transistor", "fet", "device"]],
+  ["coating", ["coating", "corrosion", "barrier"]],
+];
+
+function matchProperty(low) {
+  const fams = DATA.property_families || [];
+  let best = null;
+  for (const f of fams) {
+    for (const a of f.aliases) {
+      const at = low.indexOf(a);
+      // Longest alias wins: "ionic conductivity" must beat "conductivity".
+      if (at >= 0 && (!best || a.length > best.len)) best = { fam: f, len: a.length };
+    }
+  }
+  return best ? best.fam : null;
+}
+
+function propertyAnswer(question, low, fam) {
+  let rows = (DATA.properties || []).filter((r) => r.property_key === fam.key);
+  if (!rows.length) return null;
+
+  // Narrow by what the question is about, but never to nothing: a filter that
+  // empties the set tells the reader less than the whole set does.
+  let application = null;
+  for (const [name, words] of APP_WORDS) {
+    if (words.some((w) => low.includes(w))) {
+      const sub = rows.filter((r) => r.application === name);
+      if (sub.length >= 3) { rows = sub; application = name; }
+      break;
+    }
+  }
+  let material = null;
+  const form = (DATA.facets.graphene_form || []).map((f) => f.value)
+    .find((v) => v && low.includes(v.toLowerCase()));
+  if (form) {
+    const sub = rows.filter((r) => r.graphene_form === form);
+    if (sub.length >= 3) { rows = sub; material = form; }
+  }
+
+  const verified = rows.filter((r) => r.confidence === "verified");
+  const used = verified.length >= 3 ? verified : rows;
+  const stats = metricStats(used, "value");
+  if (!stats) return null;
+  const byApp = groupBy(used, "application", "value", 3).slice(0, 7);
+  const sorted = [...used].sort((a, b) => b.value - a.value);
+  return {
+    kind: "property", question, family: fam, application, material,
+    stats, byApp,
+    rows: sorted,
+    top: sorted.slice(0, 6),
+    flagged: rows.length - verified.length,
+    papers: new Set(used.map((r) => r.openalex_id)).size,
+  };
+}
+
 function build(question) {
   const u = understand(question);
 
@@ -653,9 +825,14 @@ function build(question) {
   // answering with the entry for electrolytes would be the wrong answer stated
   // confidently; better to fall through and quote papers that are about it.
   const strongEnough = hits.length && hits[0]._score >= CONCEPT_FLOOR;
+  const fam = matchProperty(u.low);
   if (strongEnough && ((defQ && !u.wantsCalc) || !wantsNumber)) {
     const c = hits[0];
+    // A term the library also measures gets its numbers alongside the
+    // definition: "what is thermal conductivity" deserves both.
+    const famForConcept = fam || matchProperty(c.title.toLowerCase());
     return { kind: "concept", question, concept: c,
+      property: famForConcept ? propertyAnswer(question, u.low, famForConcept) : null,
       related: hits.slice(1, 5),
       papers: papersAbout(c.title, 4),
       measurements: measurementsAbout(c.title, 4),
@@ -663,6 +840,12 @@ function build(question) {
         const hay = `${k.label} ${k.description}`.toLowerCase();
         return terms(c.title).some((w) => hay.includes(w));
       }).slice(0, 4) };
+  }
+
+  /* a physical property the library holds numbers for */
+  if (fam) {
+    const pa = propertyAnswer(question, u.low, fam);
+    if (pa) return pa;
   }
 
   const hasFacet = Object.values(u.facets).some(Boolean);
@@ -777,10 +960,33 @@ function refFor(row) {
   if (i < 0) { refSeq.push({ kind: "e", row }); i = refSeq.length - 1; }
   return i + 1;
 }
+function refForProp(row) {
+  let i = refSeq.findIndex((r) => r.kind === "r" && r.row.id === row.id);
+  if (i < 0) { refSeq.push({ kind: "r", row }); i = refSeq.length - 1; }
+  return i + 1;
+}
 function refForPassage(p) {
   let i = refSeq.findIndex((r) => r.kind === "p" && r.p.i === p.i);
   if (i < 0) { refSeq.push({ kind: "p", p }); i = refSeq.length - 1; }
   return i + 1;
+}
+
+/* Mark the figures a row claims, so the eye lands on them inside the
+   sentence rather than hunting for them. */
+function highlightText(quote, strings) {
+  const needles = [];
+  (strings || []).forEach((s) => {
+    if (!s) return;
+    String(s).split(/\s+/).forEach((tk) => { if (/^[\d.,]/.test(tk)) needles.push(tk.replace(/[^\d.,]/g, "")); });
+  });
+  const uniq = [...new Set(needles.filter((n) => n && n.length > 1))]
+    .sort((a, b) => b.length - a.length);
+  let html = esc(quote);
+  uniq.forEach((n) => {
+    const safe = n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    html = html.replace(new RegExp(`(?<![\\d.])${safe}(?![\\d])`, "g"), (m) => `\u0001${m}\u0002`);
+  });
+  return html.replace(/\u0001/g, "<mark>").replace(/\u0002/g, "</mark>");
 }
 
 function highlight(quote, row) {
@@ -815,6 +1021,48 @@ function srcCard(row, n) {
     </div></div>`;
 }
 
+function propCard(r, n) {
+  return `<div class="src ${r.confidence === "flagged" ? "flagged" : ""}" data-prow="${r.id}">
+    <div class="n">${n}</div><div>
+      <div class="t">${esc(r.title || "")}</div>
+      <div class="m"><span>${esc(r.journal || "")}</span><span>${r.year || ""}</span>
+        <span>${esc(r.material || r.graphene_form || "graphene")}</span>
+        <span>${esc(r.confidence)}</span></div>
+      <div class="qt">${highlightText((r.source_quote || "").slice(0, 320),
+                                      [r.value_as_reported])}</div>
+      ${r.flags ? `<div class="fl">&#9873; ${esc(String(r.flags).split(";")[0].replace(/_/g, " "))}</div>` : ""}
+    </div></div>`;
+}
+
+function openProp(r) {
+  const vals = [
+    ["Property", r.property_label, 1], ["Value", `${fmt(r.value, r.value < 10 ? 3 : 1)} ${r.unit}`, 1],
+    ["As the paper wrote it", r.value_as_reported],
+    ["Material", r.material], ["Graphene form", r.graphene_form],
+    ["Where it is used", r.application],
+  ];
+  openDrawer("Source", `
+    <div class="m dim" style="font:450 12px var(--mono)">${esc(r.journal || "")}${r.year ? ` &middot; ${r.year}` : ""}
+      ${r.doi ? ` &middot; <a href="https://doi.org/${esc(r.doi)}" target="_blank" rel="noopener">${esc(r.doi)}</a>` : ""}</div>
+    <div style="font:500 15px/1.45 var(--sans);margin:8px 0 0;max-width:58ch">${esc(r.title || "")}</div>
+    <h3>The sentence this row came from</h3>
+    <blockquote class="quote">${highlightText(r.source_quote || "", [r.value_as_reported])}</blockquote>
+    <p class="sub" style="font-size:12.5px">Read from the <b>abstract</b>.
+      Confidence <b>${esc(r.confidence)}</b>. ${r.confidence === "verified"
+        ? "The figure above appears in this sentence and sits inside the range this property occupies."
+        : "The figure above appears in this sentence. A check flagged it; the reason is below."}</p>
+    ${r.flags ? `<h3>Why it is flagged</h3><ul class="fls">${
+      String(r.flags).split(";").map((f) => `<li>${esc(f.replace(/_/g, " "))}</li>`).join("")}</ul>` : ""}
+    <h3>Extracted values</h3>
+    <dl class="kv">${vals.filter(([, v]) => v !== null && v !== undefined && v !== "")
+      .map(([k, v, s]) => `<dt>${esc(k)}</dt><dd class="${s ? "s" : ""}">${esc(v)}</dd>`).join("")}</dl>
+    <h3>What this does and does not tell you</h3>
+    <p class="sub" style="font-size:12.5px">One sentence of one paper, nothing averaged and nothing
+      inferred. A property measured on a suspended single sheet and the same property measured on a
+      polymer composite differ by three orders of magnitude and both are correct; the sentence is
+      there so you can see which one you are reading.</p>`);
+}
+
 function passageCard(p, n) {
   return `<div class="src" data-pass="${esc(p.i)}"><div class="n">${n}</div><div>
     <div class="t">${esc(p.t || "")}</div>
@@ -842,9 +1090,10 @@ function renderAnswer(a) {
     blocks.push(`<div class="refusal"><h3>Not in the library</h3>
       <p>This question ${esc(a.reason)}. ${esc(a.why)}</p>
       <p class="dim">The library holds ${fmt(DATA.stats.evidence_rows)} measurements from
-        ${fmt(DATA.stats.papers)} papers on graphene batteries, 2019 onward. It answers
-        questions about capacity, retention, cycle life, rate and efficiency for a named
-        material and chemistry — and nothing else.</p></div>`);
+        ${fmt(DATA.stats.papers)} papers across graphene — batteries, electronics, sensors,
+        membranes, composites, biomedicine and more — plus ${fmt(DATA.stats.concepts)} reference
+        entries. Instant mode answers definitions and performance figures by rule. For a
+        question that needs reasoning across several of those, switch to Agent.</p></div>`);
     return { html: blocks.join(""), refs: [] };
   }
 
@@ -858,6 +1107,24 @@ function renderAnswer(a) {
         ${esc(c.licence || "")} \u00b7
         <a href="${esc(c.url)}" target="_blank" rel="noopener">read the full entry</a></div></div>`);
 
+    if (a.property) {
+      const pr = a.property, f = pr.family, s = pr.stats;
+      blocks.push(`<div class="card"><h3>What this library measures it at</h3>
+        <div class="pstat"><div><b>${sig(s.median)}</b><u>${esc(f.unit)}</u>
+            <span>median of ${s.n} measurements</span></div>
+          <div><b>${sig(s.p25)}&ndash;${sig(s.p75)}</b><u>${esc(f.unit)}</u>
+            <span>middle half</span></div>
+          <div><b>${sig(s.min)}&ndash;${sig(s.max)}</b><u>${esc(f.unit)}</u>
+            <span>full range, ${pr.papers} papers</span></div></div>
+        ${pr.byApp.length >= 2 ? hbars(pr.byApp.map((g, i) => ({ name: g.name,
+            value: g.median, n: g.n, p25: g.p25, p75: g.p75,
+            q: i === 0 ? "q4" : i < 3 ? "q3" : "q2" })), f.unit,
+            `Median ${f.label} by application`) : ""}
+        <div class="srcs" style="margin-top:14px">${pr.top.slice(0, 3)
+          .map((r) => propCard(r, refForProp(r))).join("")}</div>
+        <p class="sub" style="margin:12px 0 0">Measured on very different things. A suspended
+          sheet and a polymer composite are both graphene and sit orders of magnitude apart.</p></div>`);
+    }
     if (a.measurements.length) {
       blocks.push(`<div class="card"><h3>What the measurements say about this</h3>
         <div class="srcs">${a.measurements.map((r) => srcCard(r, refFor(r))).join("")}</div></div>`);
@@ -951,6 +1218,52 @@ function renderAnswer(a) {
     return { html: blocks.join(""), refs: refSeq };
   }
 
+  if (a.kind === "property") {
+    const f = a.family, s = a.stats;
+    const scope = a.application ? ` in ${a.application}s` : a.material ? ` for ${a.material}` : "";
+    blocks.push(`<div class="headline"><div class="lbl">median ${esc(f.label.toLowerCase())}${esc(scope)}</div>
+      <div class="big">${sig(s.median)}<u>${esc(f.unit)}</u></div>
+      <div class="sub">from <b>${s.n}</b> measurements across <b>${a.papers}</b> papers
+        &middot; middle half <b>${sig(s.p25)}&ndash;${sig(s.p75)}</b>
+        &middot; full range ${sig(s.min)}&ndash;${sig(s.max)} ${esc(f.unit)}</div></div>`);
+
+    const right = a.byApp.length >= 2
+      ? `<div class="card"><h3>By what it was measured on</h3>
+          ${hbars(a.byApp.map((g, i) => ({ name: g.name, value: g.median, n: g.n,
+             p25: g.p25, p75: g.p75, q: i === 0 ? "q4" : i < 3 ? "q3" : "q2" })),
+             f.unit, `Median ${f.label} by application`)}
+          <p class="sub" style="margin:12px 0 0">A single suspended sheet and the same material
+            in a polymer sit orders of magnitude apart. Group before comparing.</p></div>`
+      : `<div class="card"><h3>The highest reported</h3>
+          <table class="mini"><tbody>${a.top.map((r) => `<tr>
+            <th>${esc((r.title || r.material || "graphene").slice(0, 58))}${
+              (r.title || "").length > 58 ? "&hellip;" : ""}
+              <span class="dim" style="display:block;font:450 10.5px var(--mono)">${
+                esc([r.material, r.application, r.year].filter(Boolean).join(" \u00b7 "))}</span></th>
+            <td class="num">${sig(r.value)}
+            <span class="dim">${esc(f.unit)}</span></td></tr>`).join("")}</tbody></table></div>`;
+
+    blocks.push(`<div class="grid2">
+      <div class="card"><h3>How those ${s.n} measurements are spread</h3>
+        ${histogram(trimTails(a.rows.map((r) => Number(r.value))), f.unit,
+                    `${f.label} distribution`)}
+        <p class="sub" style="margin:12px 0 0">Each bar counts measurements, not papers. A
+          property can span five orders of magnitude, so the highest and lowest 5% are left off
+          this chart to keep the rest readable &mdash; the full range is in the figure above, and
+          every measurement is under Measurements.</p></div>
+      ${right}</div>`);
+
+    blocks.push(`<div class="srcs">${a.top.slice(0, 4)
+      .map((r) => propCard(r, refForProp(r))).join("")}</div>`);
+    blocks.push(`<div class="gap"><h3>What this does not settle</h3><p>
+      ${a.flagged ? `${a.flagged} of these were flagged by a check and are excluded from the
+        figures above; they stay visible under Measurements. ` : ""}Every figure was read from one
+      sentence of one abstract, so the measurement conditions &mdash; temperature, sample
+      thickness, whether the sheet was suspended or supported &mdash; are only whatever that
+      sentence happened to state. Open any card to read it.</p></div>`);
+    return { html: blocks.join(""), refs: refSeq };
+  }
+
   /* quantitative */
   const p = a.primary;
   if (p) {
@@ -1041,6 +1354,7 @@ function show(v) {
   if (v === "notebook") paintNotebook();
   if (v === "sources" && !$("sb").children.length) paintSources();
   if (v === "evidence" && !$("gb").children.length) reload();
+  if (v === "properties") paintProps($("prq").value);
 }
 document.querySelectorAll(".sitem").forEach((t) =>
   t.addEventListener("click", () => show(t.dataset.view)));
@@ -1053,13 +1367,23 @@ function traceFor(a) {
     .map(([, v]) => v).join(", ") || "no material named", ""]);
   if (a.kind === "refused" && a.reason !== "is not covered by the stored papers")
     s.push(["Checking scope", "outside what measurements can answer", ""]);
-  else if (a.kind === "concept")
-    s.push(["Searching the knowledge base", a.concept.title, "match"],
-      ["Linking papers and measurements", "",
-        `${a.papers.length + a.measurements.length}`]);
+  else if (a.kind === "concept") {
+    s.push(["Searching the knowledge base", a.concept.title, "match"]);
+    if (a.property)
+      s.push(["Searching property measurements", a.property.family.label.toLowerCase(),
+        `${a.property.stats.n}`]);
+    s.push(["Linking papers and measurements", "",
+      `${a.papers.length + a.measurements.length}`]);
+  }
   else if (a.kind === "calculation")
     s.push(["Running the calculation", a.calc.name.replace(/_/g, " "),
       `${fmt(a.calc.result, 2)} ${a.calc.unit}`]);
+  else if (a.kind === "property")
+    s.push(["Identifying the property", a.family.label.toLowerCase(), a.family.unit],
+      ["Searching property measurements",
+        a.application || a.material || "all of graphene", `${a.stats.n}`],
+      ["Grouping before comparing", "median per application", `${a.byApp.length}`],
+      ["Collecting source sentences", "one per cited number", ""]);
   else if (a.kind === "passages")
     s.push(["Searching measurements", "no numeric match", "0"],
       ["Reading paper abstracts", "keyword match", `${a.passages.length}`]);
@@ -1131,6 +1455,9 @@ $("thread").addEventListener("click", (e) => {
   const r = e.target.closest("[data-row]");
   if (r) { const row = DATA.rows.find((x) => String(x.id) === r.dataset.row);
     if (row) openRow(row); return; }
+  const pr = e.target.closest("[data-prow]");
+  if (pr) { const row = (DATA.properties || []).find((x) => String(x.id) === pr.dataset.prow);
+    if (row) openProp(row); return; }
   const p = e.target.closest("[data-pass]");
   if (p) { const pa = DATA.passages.find((x) => x.i === p.dataset.pass);
     if (pa) openPassage(pa); }
@@ -1150,13 +1477,15 @@ $("form").addEventListener("submit", (e) => {
 
 const CHIPS = [
   "What is graphene?",
-  "What is the solid electrolyte interphase?",
+  "What thermal conductivity do graphene composites reach?",
   "What capacity do silicon graphene anodes reach in lithium-ion batteries?",
+  "Sheet resistance of graphene transparent electrodes",
+  "What is the Young's modulus of graphene?",
   "Compare material systems on capacity in lithium-ion anodes",
-  "Explain chemical vapor deposition",
+  "Water permeance of graphene oxide membranes",
   "An electrode at 1200 mAh/g and 3.7 V \u2014 what is the energy density?",
+  "Explain chemical vapor deposition",
   "How has capacity changed by year for graphene anodes?",
-  "Do graphene separators suppress lithium dendrites?",
 ];
 
 /* ── drawer ─────────────────────────────────────────────── */
@@ -1471,7 +1800,7 @@ $("csv").addEventListener("click", () => {
   const csv = [XCOLS.join(",")].concat(rows.map((r) => XCOLS.map((c) => cell(r[c])).join(","))).join("\n");
   const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
   const a = document.createElement("a"); a.href = url;
-  a.download = "graphene-battery-evidence.csv"; a.click(); URL.revokeObjectURL(url);
+  a.download = "graphene-evidence.csv"; a.click(); URL.revokeObjectURL(url);
 });
 $("more").addEventListener("click", () => {
   const c = DATA.stats.checks || {};
@@ -1692,17 +2021,19 @@ async function loadData() {
   }
   hideSkel();
   const s = DATA.stats;
-  document.title = `Graphene Battery Research Agent · ${fmt(s.evidence_rows)} measurements`;
+  document.title = `Graphene Research Agent · ${fmt(s.evidence_rows)} measurements`;
   $("strip").innerHTML = [
-    [fmt(s.evidence_rows), "measurements"], [fmt(s.papers), "papers"],
-    [s.material_systems, "material systems"],
+    [fmt((s.evidence_rows || 0) + (s.property_rows || 0)), "measurements"],
+    [fmt(s.papers), "papers"],
+    [fmt(s.property_families || 0), "properties measured"],
     [`${s.year_range[0]}–${s.year_range[1]}`, "published"],
-    [fmt(s.flagged), "flagged, kept visible"],
+    [fmt(DATA.concepts.length), "reference entries"],
   ].map(([v, k], i) => `<div class="stat" style="--i:${i}"><div class="v">${esc(v)}</div>
       <div class="k">${esc(k)}</div></div>`).join("");
   const setN = (id, v) => { const el = $(id); if (el) el.textContent = v; };
   setN("n-con", fmt(DATA.concepts.length));
   setN("n-ev", fmt(s.evidence_rows));
+  setN("n-prop", fmt((DATA.properties || []).length));
   setN("n-calc", (DATA.calculators || []).length);
   setN("n-pap", fmt(s.papers));
   $("chips").innerHTML = CHIPS.map((q, i) =>
@@ -1723,8 +2054,9 @@ let MODE = "instant";
 let AGENT = { available: false, provider: null, model: null, tools: 0 };
 
 async function probeAgent() {
-  if (!API) return;
-  try {
+  // The static copy has no server to reason with, so the button is disabled
+  // with a reason rather than left looking available and doing nothing.
+  if (API) try {
     const s = await fetch("api/agent/status").then((r) => r.json());
     AGENT = { available: !!s.configured, provider: s.provider,
               model: s.model, tools: s.tools || 0 };

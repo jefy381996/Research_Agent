@@ -19,6 +19,7 @@ import re
 import statistics
 
 import db
+import properties
 import search
 from extract_evidence import (BATTERY_TYPES, ELECTRODE_ROLES, GRAPHENE_FORMS,
                               PARTNERS, _first_match, normalise)
@@ -235,6 +236,10 @@ def answer(question: str, conn=None) -> dict:
         if remit:
             return _out_of_remit(question, facets, remit)
 
+        prop = _property_answer(question, conn)
+        if prop:
+            return prop
+
         rows = []
         if any(facets.values()):
             material = facets["partner"]
@@ -266,6 +271,93 @@ def answer(question: str, conn=None) -> dict:
     finally:
         if own:
             conn.close()
+
+
+def _match_property(question: str):
+    """The property family a question names, longest alias first.
+
+    "ionic conductivity" has to beat "conductivity", or an electrolyte
+    measurement answers a question about a graphene film.
+    """
+    low = (question or "").lower()
+    best = None
+    for fam in properties.FAMILIES:
+        for alias in fam["aliases"]:
+            if alias in low and (best is None or len(alias) > best[1]):
+                best = (fam, len(alias))
+    return best[0] if best else None
+
+
+def _property_answer(question: str, conn) -> dict | None:
+    fam = _match_property(question)
+    if not fam:
+        return None
+    rows = [dict(r) for r in conn.execute(
+        """SELECT r.*, p.title, p.year, p.journal, p.doi FROM properties r
+           JOIN papers p ON p.openalex_id = r.openalex_id
+           WHERE r.property_key = ? ORDER BY r.value DESC""", (fam["key"],))]
+    if len(rows) < MIN_EVIDENCE_ROWS:
+        return None
+
+    verified = [r for r in rows if r["confidence"] == "verified"]
+    used = verified if len(verified) >= MIN_EVIDENCE_ROWS else rows
+    s = _spread([float(r["value"]) for r in used])
+    papers = {r["openalex_id"] for r in used}
+    years = [r["year"] for r in used if r.get("year")]
+
+    by_app: dict[str, list[float]] = {}
+    for r in used:
+        if r.get("application"):
+            by_app.setdefault(r["application"], []).append(float(r["value"]))
+    groups = {k: _spread(v) for k, v in by_app.items() if len(v) >= 3}
+
+    summary = (
+        f"Across {s['n']} measurements from {len(papers)} papers, the reported "
+        f"{fam['label'].lower()} has a median of {s['median']:g} {fam['unit']} "
+        f"(range {s['min']:g} to {s['max']:g} {fam['unit']}). "
+        f"Half the values fall between {s['p25']:g} and {s['p75']:g} {fam['unit']}.")
+    if groups:
+        summary += (" These were measured on different things, so compare within "
+                    "a group rather than across the whole set.")
+
+    return {
+        "question": question,
+        "status": "answered",
+        "mode": "property",
+        "property": {"key": fam["key"], "label": fam["label"], "unit": fam["unit"]},
+        "summary": summary,
+        "statistics": {fam["label"]: dict(s, unit=fam["unit"], field="value")},
+        "by_application": groups,
+        "citations": [_property_citation(i, r)
+                      for i, r in enumerate(used[:MAX_CITATIONS], start=1)],
+        "coverage": {
+            "property_rows": len(rows),
+            "papers": len(papers),
+            "year_range": [min(years), max(years)] if years else None,
+            "flagged_rows": len(rows) - len(verified),
+            "facets_detected": {},
+            "not_reported": [],
+        },
+    }
+
+
+def _property_citation(n, row) -> dict:
+    return {
+        "n": n,
+        "property_id": row.get("id"),
+        "openalex_id": row["openalex_id"],
+        "title": row.get("title"),
+        "year": row.get("year"),
+        "journal": row.get("journal"),
+        "doi": row.get("doi"),
+        "quote": row.get("source_quote"),
+        "section": row.get("source_section"),
+        "confidence": row.get("confidence"),
+        "material_system": row.get("material"),
+        "values": {row["property_label"]: f"{float(row['value']):g} {row['unit']}"
+                   + (f" (reported as {row['value_as_reported']})"
+                      if row.get("value_as_reported") else "")},
+    }
 
 
 def _label(facets) -> str:

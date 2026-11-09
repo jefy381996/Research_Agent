@@ -1,12 +1,21 @@
-# Graphene Battery Research Agent
+# Graphene Research Agent
 
-A research workbench for graphene batteries. It answers from three kinds of
-stored data and nothing else: reference entries for the fundamentals,
-measurements pulled out of published papers, and calculators you can audit.
+A research workbench for graphene — batteries, electronics, sensors, membranes,
+composites, coatings, thermal transport, photonics, catalysis, biomedicine,
+toxicity and production. It answers from stored data and nothing else:
+reference entries for the fundamentals, measurements pulled out of published
+papers, and calculators you can audit.
 
-**179 reference entries · 2,743 measurements · 23,400 papers · 34 compounds ·
-28 calculators.** No model runs at question time. The same question always
-gives the same answer, and every number is traceable to its source.
+**285 reference entries · 4,745 measurements · 37,027 papers · 34 compounds ·
+28 calculators.** The measurements come in two halves: 2,794 battery
+performance figures — capacity, retention, cycle life, rate, efficiency — and
+1,951 material properties across twelve families, from thermal conductivity and
+sheet resistance to Young's modulus, surface area, optical transmittance, water
+permeance and EMI shielding. Two ways to ask. **Instant** runs on rules alone: no model,
+no network, the same answer every time. **Agent** gives a language model
+fifteen tools over the same data, checks every number and every citation it
+produces against what the tools actually returned, and makes it correct itself
+once before you see the answer.
 
 ## Run it
 
@@ -57,10 +66,10 @@ sending the link to anyone.
 
 | Source | What it gives | Licence |
 |---|---|---|
-| [OpenAlex](https://openalex.org) | 23,400 paper records and abstracts, 2019 onward | CC0 |
-| [Wikipedia](https://en.wikipedia.org) | 179 reference entries, stored verbatim with a link to each original | CC BY-SA 4.0 |
+| [OpenAlex](https://openalex.org) | 37,027 paper records and abstracts, 2019 onward | CC0 |
+| [Wikipedia](https://en.wikipedia.org) | 285 reference entries across 19 categories, stored verbatim with a link to each original | CC BY-SA 4.0 |
 | [PubChem](https://pubchem.ncbi.nlm.nih.gov) | 34 compounds: formula, mass, structure | public domain |
-| This repository | 2,743 measurements extracted from the abstracts, and 28 calculators | the repository's licence |
+| This repository | 4,745 measurements extracted from the abstracts (2,794 battery, 1,951 material property), and 28 calculators | the repository's licence |
 
 All of it is open and checkable. Nothing is paid for, and nothing is behind a
 login. Every reference entry shows which source it came from and links to it,
@@ -70,16 +79,27 @@ so a reader can go and disagree with it.
 
 | Stage | Script | What it does |
 |---|---|---|
-| Collect papers | `collect_papers.py` | 22 title-anchored OpenAlex searches across applications, fundamentals and characterisation, unioned and de-duplicated on the work id |
+| Collect papers | `collect_papers.py` | 42 title-anchored OpenAlex searches across applications, fundamentals and characterisation, unioned and de-duplicated on the work id |
 | Collect knowledge | `collect_knowledge.py` | Reference entries from Wikipedia and compound data from PubChem, paced and retried |
 | Load | `load_papers.py` | CSV into SQLite, matched on the work id |
 | Full text | `fetch_text.py` | Downloads, extracts and **deletes** PDFs for papers whose licence permits it |
-| Extract | `extract_evidence.py` | Reads measurements out of sentences |
+| Extract | `extract_evidence.py` | Reads battery performance figures out of sentences |
+| Extract | `extract_properties.py` | Reads the twelve material-property families out of the same sentences (`properties.py` holds the units and bounds) |
 | Check | `plausibility.py` | Physical bounds, internal arithmetic, group outliers, unit sanity |
 | Index | `build_index.py` | 500-word chunks with 50-word overlap, FTS5 |
 | Search | `search.py` | BM25 with domain synonym expansion. No AI in this file |
 | Answer | `answer.py` | Quantitative synthesis with citations, or refusal |
 | Serve | `api.py` | The API and the interface, as one deployable unit |
+
+The agent adds five more files, used only when **Agent** mode is on:
+
+| Part | File | What it does |
+|---|---|---|
+| Provider | `llm.py` | One interface over Groq, OpenAI, Anthropic and Gemini. Switching provider is one environment variable |
+| Tools | `agent_tools.py` | Fifteen read-only tools over the same database. Every limit is clamped server-side, and `sql_query` accepts a single read-only `SELECT` on a read-only connection |
+| Sandbox | `sandbox.py` | Runs analysis the agent writes itself, under CPU, memory, file-size and process limits, in its own session, as an unprivileged user, with no keys in the environment |
+| Loop | `agent.py` | Plans, calls tools, then checks its own answer: every number must appear in a tool result and every citation must be an id a tool issued. One round of self-correction, then the unsupported sentences are struck |
+| Cache | `agent_cache.py` | Stores whole runs keyed on the question, provider and model, so a demo question replays instantly and identically. A run containing an error is never cached |
 
 Every script is safe to re-run. A failure on one paper never stops a run, and
 every run writes to `run_log`.
@@ -110,6 +130,44 @@ An LLM pass is available behind `LLM_PROVIDER`, and may only rephrase text
 already retrieved. It cannot introduce a fact. The default path needs no model,
 no key and no network, and returns the same answer every time.
 
+## Properties, and why they needed their own rules
+
+A battery figure is unambiguous: `372 mAh/g` can only be a capacity. A material
+property often is not. `5 GPa` is a modulus or a strength depending on the
+words around it, `97%` is a transmittance only if the sentence says so, and
+`S/cm` is electronic conduction through a film or ionic conduction through an
+electrolyte — two different quantities sharing a unit.
+
+So families with a unit of their own (W/mK, Ω/sq, cm²/V·s, m²/g, F/g,
+L m⁻² h⁻¹ bar⁻¹) are matched on the unit alone. The rest must name the property
+in the same sentence, and the figure taken is the one nearest that mention. When
+a sentence names two properties that *share* a unit, neither is taken: there is
+nothing in the text that says which figure belongs to which. A sentence naming a
+strength and a conductivity still yields both, because those cannot be confused.
+
+Three further distinctions, each added after the extractor got one wrong:
+
+- **`dB` must end at `dB`.** `20906 dB cm² g⁻¹` is specific shielding
+  effectiveness — the same figure divided by density and thickness, and a
+  hundred times larger. Read as plain dB it put an impossible number at the top
+  of the table.
+- **Space-grouped thousands are one number.** `68 000 cm² V⁻¹ s⁻¹` matched
+  `000` and stored a carrier mobility of zero.
+- **A modelling word has to be near the figure.** "Theoretical calculations
+  confirmed…" at the start of a long sentence does not make a capacitance
+  measured at the end of it a simulation. The flag now needs the word within
+  ninety characters of the number.
+
+Known values come back out: graphene's thermal conductivity peaks near
+5,300 W/mK, its Young's modulus near 1 TPa, its transmittance at 97.7%, and
+carrier mobility reaches 250,000 cm² V⁻¹ s⁻¹ in encapsulated devices. Those are
+in the test suite, so if they stop appearing something upstream has broken.
+
+Medians, though, sit far below those peaks — thermal conductivity's median is
+about 10 W/mK — because most papers measure graphene *in* something: a polymer,
+a composite, a film. That is not an error. It is why the interface groups by
+application before it compares.
+
 ## What the checks cover, and what they cannot
 
 Covered: capacity above 5,000 mAh/g, retention above 100%, cycle counts above
@@ -127,11 +185,12 @@ than hidden, and each one says why it was flagged.
 
 ## What it answers
 
-Five shapes of question, decided by rules rather than by a model:
+Six shapes of question, decided by rules rather than by a model:
 
 | Ask | Example | What comes back |
 |---|---|---|
-| A definition | *What is graphene?* | The reference entry, its source, and papers and measurements that touch it |
+| A definition | *What is graphene?* | The reference entry, its source, and papers and measurements that touch it — and, where the library also measures the term, its median and spread |
+| A material property | *What thermal conductivity do graphene composites reach?* | Median and spread in the property's own unit, grouped by what it was measured on, with the sentence behind each figure |
 | A number | *What capacity do silicon graphene anodes reach?* | The median and spread across matching measurements, a distribution chart, and the sentence behind each figure |
 | A comparison | *Compare material systems on capacity* | Ranked medians per material system |
 | A trend | *How has capacity changed by year?* | Median by publication year |
@@ -152,9 +211,9 @@ engine and only one of them is what a visitor meets:
 
 - `scorecard.py` — 30 fixed questions against the API's engine, 15 that must be
   answered and 15 that must be refused.
-- `tests/scorecard_ui.js` — 25 questions driven through the real page in a real
-  browser, covering definitions, numbers, comparisons, trends, calculations,
-  quoted passages and refusals.
+- `tests/scorecard_ui.js` — 34 questions driven through the real page in a real
+  browser, covering definitions, battery numbers, material properties,
+  comparisons, trends, calculations, quoted passages and refusals.
 
 Both fail the build on drift in either direction.
 

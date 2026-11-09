@@ -111,3 +111,30 @@ class TestToolGuards(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPropertyCitations(unittest.TestCase):
+    """Property ids look like P123; paper ids like PW4388464547. The gate must
+    accept both and still reject one the tools never issued."""
+
+    def test_a_property_id_is_a_valid_citation(self):
+        report = agent.verify("Graphene composites reach 1791 W/mK [P412].",
+                              ['{"id": "P412", "value": 1791}'], {"P412"})
+        self.assertEqual(report["citations_invented"], [])
+        self.assertEqual(report["numbers_unsupported"], [])
+
+    def test_a_paper_id_still_works_beside_it(self):
+        report = agent.verify("Heat moves along the plane [PW4388464547].",
+                              ['{"openalex_id": "W4388464547"}'], {"PW4388464547"})
+        self.assertEqual(report["citations_invented"], [])
+
+    def test_an_unissued_property_id_is_struck(self):
+        report = agent.verify("Graphene reaches 5300 W/mK [P999].",
+                              ['{"id": "P412", "value": 5300}'], {"P412"})
+        self.assertEqual(report["citations_invented"], ["P999"])
+
+    def test_a_property_id_is_not_read_as_a_claimed_number(self):
+        """[P412] must not be heard as the agent asserting the number 412."""
+        report = agent.verify("Thermal conductivity is 1791 W/mK [P412].",
+                              ['{"value": 1791}'], {"P412"})
+        self.assertEqual(report["numbers_unsupported"], [])

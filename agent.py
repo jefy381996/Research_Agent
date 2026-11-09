@@ -26,21 +26,29 @@ MAX_ROUNDS = int(os.environ.get("AGENT_MAX_ROUNDS", "8"))
 MAX_TOOL_CHARS = int(os.environ.get("AGENT_TOOL_CHARS", "2600"))
 MAX_TRANSCRIPT_CHARS = int(os.environ.get("AGENT_CONTEXT_CHARS", "18000"))
 
-SYSTEM = """You are the research agent for a graphene battery library. You are \
+SYSTEM = """You are the research agent for a graphene library covering the whole \
+field: batteries, electronics, sensors, membranes, composites, coatings, thermal \
+transport, photonics, catalysis, biomedicine, toxicity and production. You are \
 talking to a working scientist. Be exact and brief. No flattery, no preamble, \
 no restating the question.
 
 WHAT YOU MAY SAY
 Only what a tool returned in THIS conversation. You have no knowledge of your \
-own here; anything you "remember" about batteries is not evidence. If the \
+own here; anything you "remember" about graphene is not evidence. If the \
 tools come back empty, say so plainly, say what you searched, and stop. Never \
 fill a gap.
 
 HOW TO WORK
 - Plan first, then call tools. Two to four rounds is normal. The moment you have enough to answer, ANSWER. Do not keep looking for more; an answer with its limits stated beats another search.
-- search_measurements for numbers; compare_materials to rank; trend_by_year for \
-change over time; search_literature for mechanism; knowledge_lookup for what a \
-term means; compound_lookup for chemical identity.
+- search_measurements for battery numbers - capacity, retention, cycles, rate, \
+efficiency; compare_materials to rank; trend_by_year for change over time.
+- search_properties for everything else measurable: thermal conductivity, \
+electrical and ionic conductivity, sheet resistance, carrier mobility, Young's \
+modulus, tensile strength, surface area, specific capacitance, transmittance, \
+water permeance, EMI shielding. Call list_properties first if unsure which key \
+to use. Its ids look like P123 and are cited exactly like E ids.
+- search_literature for mechanism; knowledge_lookup for what a term means; \
+compound_lookup for chemical identity.
 - sql_query for anything those cannot express. Call describe_library first so \
 you know the real columns and values.
 - run_analysis when the question needs statistics, correlation or a chart that \
@@ -55,6 +63,7 @@ brackets. Measurement ids look like E1234 and appear as "id" in rows and as \
 "example_ids" in groups; paper ids look like PW4388464547.
 
   Right:  Si/graphene nanosheets reach a median 1639 mAh/g [E8821][E9104].
+  Right:  Graphene composites reach 1791 W/mK [P412].
   Wrong:  Si/graphene nanosheets reach a median 1639 mAh/g [compare_materials].
   Wrong:  Si/graphene nanosheets reach a median 1639 mAh/g.
 
@@ -182,12 +191,11 @@ def run(question: str, history: list[dict] | None = None,
     set. Replay costs nothing and, more importantly, means two people asking
     the same thing see the same answer.
     """
-    if not llm.configured():
-        yield {"type": "error", "code": "no_model",
-               "message": ("No model is configured, so the agent cannot reason. "
-                           f"Set {llm.status()['key_variable']} on the server.")}
-        return
-
+    # The cache is consulted before the model gate on purpose. A stored run is
+    # a finished answer: replaying it needs no key, no network and no quota, so
+    # a question asked once still answers when the key is removed or its quota
+    # is spent. Only a question never asked before needs a working model.
+    #
     # Only a standalone question is cacheable: a follow-up means something
     # different depending on what came before it.
     cacheable = not history
@@ -199,6 +207,12 @@ def run(question: str, history: list[dict] | None = None,
                     event = dict(event, replayed=True)
                 yield event
             return
+
+    if not llm.configured():
+        yield {"type": "error", "code": "no_model",
+               "message": ("No model is configured, so the agent cannot reason. "
+                           f"Set {llm.status()['key_variable']} on the server.")}
+        return
 
     captured: list[dict] = []
     messages = [{"role": "system", "content": SYSTEM}]
@@ -350,6 +364,8 @@ def _summary(name: str, result) -> str:
         return f"{result['result']} {result.get('unit', '')}".strip()
     if "entries" in result:
         return f"{len(result['entries'])} entries"
+    if "properties" in result:
+        return f"{len(result['properties'])} properties available"
     if "ok" in result:
         return ("analysis ran" if result["ok"] else "analysis failed") + \
                (f", {result.get('figures_produced', 0)} figure(s)" if result.get("ok") else "")

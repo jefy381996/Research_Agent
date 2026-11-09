@@ -61,6 +61,9 @@ jobs:
       - name: Extract evidence and run the checks
         run: python extract_evidence.py
 
+      - name: Extract material properties
+        run: python extract_properties.py
+
       - name: Build the search index
         run: python build_index.py
 
@@ -100,6 +103,19 @@ jobs:
           echo "evidence rows: $rows"
           if [ "$rows" -lt 2000 ]; then
             echo "::error::Only $rows evidence rows; expected at least 2000."
+            exit 1
+          fi
+
+      - name: Refuse to continue on an empty properties table
+        run: |
+          rows=$(python - <<'PY'
+          import db
+          print(db.connect().execute("SELECT count(*) FROM properties").fetchone()[0])
+          PY
+          )
+          echo "property rows: $rows"
+          if [ "$rows" -lt 1200 ]; then
+            echo "::error::Only $rows property rows; expected at least 1200."
             exit 1
           fi
 

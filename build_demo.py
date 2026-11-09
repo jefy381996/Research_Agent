@@ -19,6 +19,7 @@ import os
 from collections import Counter
 
 import calculators
+import properties
 import db
 
 EVIDENCE_SQL = """
@@ -84,8 +85,18 @@ def main():
         "SELECT cid, name, formula, molecular_weight, smiles, iupac_name, url"
         " FROM compounds ORDER BY name")]
 
+    props = [dict(r) for r in conn.execute(
+        """SELECT r.id, r.property_key, r.property_label, r.value, r.unit,
+                  r.value_as_reported, r.material, r.graphene_form, r.application,
+                  r.confidence, r.flags, r.source_quote, r.openalex_id,
+                  p.title, p.year, p.journal, p.doi
+           FROM properties r JOIN papers p ON p.openalex_id = r.openalex_id
+           ORDER BY r.property_key, r.value DESC""")]
+
     payload = {
         "rows": rows,
+        "properties": props,
+        "property_families": properties.catalogue(),
         "passages": passages,
         "concepts": concepts,
         "compounds": compounds,
@@ -106,6 +117,9 @@ def main():
             "year_range": list(conn.execute(
                 "SELECT min(year), max(year) FROM papers WHERE year IS NOT NULL"
             ).fetchone()),
+            "property_rows": len(props),
+            "property_families": len({r["property_key"] for r in props}),
+            "property_verified": sum(1 for r in props if r["confidence"] == "verified"),
             "concepts": one("SELECT count(*) FROM concepts"),
             "compounds": one("SELECT count(*) FROM compounds"),
             "calculators": len(calculators.REGISTRY),
@@ -122,6 +136,7 @@ def main():
         json.dump(payload, handle, separators=(",", ":"), ensure_ascii=False)
     size = os.path.getsize(args.out) / 1_048_576
     print(f"Evidence rows embedded : {len(rows)}")
+    print(f"Property rows embedded : {len(props)}")
     print(f"Abstracts embedded     : {len(passages)}")
     print(f"Concepts embedded      : {len(concepts)}")
     print(f"Compounds embedded     : {len(compounds)}")

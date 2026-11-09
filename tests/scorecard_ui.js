@@ -27,6 +27,17 @@ const CASES = [
   ["How has capacity changed by year for graphene anodes?", "number"],
   // calculation
   ["An electrode at 1200 mAh/g and 3.7 V, what is the energy density?", "number"],
+  // physical properties: the half of graphene that is not a battery
+  ["What thermal conductivity do graphene composites reach?", "property"],
+  ["sheet resistance of graphene transparent electrodes", "property"],
+  ["carrier mobility of graphene", "property"],
+  ["specific surface area of reduced graphene oxide", "property"],
+  ["optical transmittance of graphene films", "property"],
+  ["water permeance of graphene oxide membranes", "property"],
+  ["EMI shielding effectiveness of graphene composites", "property"],
+  ["specific capacitance of rGO supercapacitors", "property"],
+  // a term the library both defines and measures answers with both
+  ["What is the Young's modulus of graphene?", "concept"],
   // mechanism, and terms papers write differently from the way people ask
   ["Do graphene separators suppress lithium dendrites?", "sources"],
   // Answered from the knowledge base now that the entry exists; it fell back
@@ -61,11 +72,14 @@ const CASES = [
     try {
       const a = build(q);
       kind = a.kind;
-      detail = a.kind === "concept" ? a.concept.title : "";
+      detail = a.kind === "concept"
+        ? a.concept.title + (a.property ? ` + ${a.property.stats.n} measurements` : "")
+        : a.kind === "property" ? `${a.family.label}, n=${a.stats.n}` : "";
     } catch (e) { detail = e.message; }
     const got = kind === "concept" ? "concept"
       : kind === "refused" ? "refused"
       : kind === "passages" ? "sources"
+      : kind === "property" ? "property"
       : ["quantitative", "comparison", "trend", "calculation"].includes(kind) ? "number"
       : kind;
     return { q, want, got, kind, detail };

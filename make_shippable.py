@@ -19,7 +19,8 @@ def main():
     conn = db.connect(path)
     try:
         kept = {t: conn.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
-                for t in ("papers", "evidence", "concepts", "compounds")}
+                for t in ("papers", "evidence", "properties", "concepts",
+                          "compounds", "agent_cache")}
         conn.execute("DELETE FROM chunks")
         conn.execute("DELETE FROM paper_sections")
         conn.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')")

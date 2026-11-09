@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Graphene Battery Research Agent</title>
-<meta name="description" content="A research workbench for graphene batteries: definitions, measurements, calculations and sources, all traceable.">
+<title>Graphene Research Agent</title>
+<meta name="description" content="A research workbench for graphene: definitions, measurements, calculations and sources across the whole field, all traceable.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;450;500;600&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
@@ -26,21 +26,23 @@
 <g id="i-bolt"><path d="M12 2 5 12.5h5L9.5 20 17 9.5h-5z"/></g>
 <g id="i-spark"><path d="M11 3l1.9 5.1L18 10l-5.1 1.9L11 17l-1.9-5.1L4 10l5.1-1.9z"/><path d="M17.5 14.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/></g>
 <g id="i-chev"><path d="M7 9l4 4 4-4"/></g>
+<g id="i-atom"><circle cx="11" cy="11" r="2"/><ellipse cx="11" cy="11" rx="8.5" ry="3.6"/><ellipse cx="11" cy="11" rx="8.5" ry="3.6" transform="rotate(60 11 11)"/><ellipse cx="11" cy="11" rx="8.5" ry="3.6" transform="rotate(120 11 11)"/></g>
 </defs></svg>
 
 <div class="shell">
   <aside class="side" id="side">
     <div class="sbrand">
       <span class="mark" aria-hidden="true"></span>
-      <span class="sname"><b>Graphene Battery</b><em>Research Agent</em></span>
+      <span class="sname"><b>Graphene</b><em>Research Agent</em></span>
     </div>
     <nav class="snav" role="tablist" aria-label="Sections">
-      <button role="tab" class="sitem" data-view="ask" aria-selected="true"><svg class="ic" viewBox="0 0 22 22"><use href="#i-ask"/></svg>Ask</button>
-      <button role="tab" class="sitem" data-view="explore" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-explore"/></svg>Knowledge<span class="scount" id="n-con"></span></button>
-      <button role="tab" class="sitem" data-view="evidence" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-grid"/></svg>Measurements<span class="scount" id="n-ev"></span></button>
-      <button role="tab" class="sitem" data-view="calculator" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-calc"/></svg>Calculators<span class="scount" id="n-calc"></span></button>
-      <button role="tab" class="sitem" data-view="sources" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-book"/></svg>Papers<span class="scount" id="n-pap"></span></button>
-      <button role="tab" class="sitem" data-view="notebook" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-note"/></svg>Notebook<span class="scount" id="nbn"></span></button>
+      <button role="tab" class="sitem" data-short="Ask" data-view="ask" aria-selected="true"><svg class="ic" viewBox="0 0 22 22"><use href="#i-ask"/></svg>Ask</button>
+      <button role="tab" class="sitem" data-short="Know" data-view="explore" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-explore"/></svg>Knowledge<span class="scount" id="n-con"></span></button>
+      <button role="tab" class="sitem" data-short="Battery" data-view="evidence" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-grid"/></svg>Measurements<span class="scount" id="n-ev"></span></button>
+      <button role="tab" class="sitem" data-short="Material" data-view="properties" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-atom"/></svg>Properties<span class="scount" id="n-prop"></span></button>
+      <button role="tab" class="sitem" data-short="Calc" data-view="calculator" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-calc"/></svg>Calculators<span class="scount" id="n-calc"></span></button>
+      <button role="tab" class="sitem" data-short="Papers" data-view="sources" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-book"/></svg>Papers<span class="scount" id="n-pap"></span></button>
+      <button role="tab" class="sitem" data-short="Notes" data-view="notebook" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-note"/></svg>Notebook<span class="scount" id="nbn"></span></button>
     </nav>
     <div class="sfoot">
       <button class="btn wide" id="pal-open"><span class="kbd">&#8984;K</span>Search everything</button>
@@ -55,8 +57,9 @@
     <div class="scroll" id="scroll"><div class="wrap">
       <div class="hero" id="hero">
         <span class="badge"><i></i>Runs on its own data &mdash; nothing is sent anywhere</span>
-        <h1>Ask anything about graphene batteries.<br>Every answer is traceable.</h1>
-        <p>Definitions from open reference sources, measurements pulled out of
+        <h1>Ask anything about graphene.<br>Every answer is traceable.</h1>
+        <p>Batteries, electronics, sensors, membranes, composites, biomedicine and more.
+           Definitions from open reference sources, measurements pulled out of
            published papers, and calculations you can audit line by line.</p>
         <div class="statstrip" id="strip"></div>
       </div>
@@ -145,6 +148,21 @@
         <table class="g" id="mtable" hidden><thead><tr id="gh"></tr></thead><tbody id="gb"></tbody></table>
         <div id="ge" class="empty" hidden></div>
       </div>
+    </div>
+  </section>
+
+  <section class="view" data-view="properties" hidden aria-label="Properties">
+    <div class="mid">
+      <div class="phead">
+        <div><h2 class="h2">Material properties</h2>
+          <p class="sub" id="pr-sub">What graphene measures at, outside the battery:
+            thermal, electrical, mechanical, optical, membrane and shielding.</p></div>
+        <input type="search" id="prq" placeholder="Search material or paper" aria-label="Search properties" style="width:260px">
+      </div>
+      <div class="exfilters" id="prfams"></div>
+      <div id="prstat" class="prstat"></div>
+      <div id="prgrid" class="mcards"></div>
+      <div id="prempty" class="empty" hidden></div>
     </div>
   </section>
 

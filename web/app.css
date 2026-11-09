@@ -1,4 +1,4 @@
-/* Graphene Battery Research Agent — design system */
+/* Graphene Research Agent — design system */
 
 :root{
   color-scheme:light;
@@ -1006,8 +1006,18 @@ body{background:
     background:color-mix(in srgb,var(--surf) 94%,transparent)}
   .sbrand,.sfoot .snote{display:none}
   .snav{display:flex;width:100%;justify-content:space-around;gap:0}
-  .sitem{flex-direction:column;gap:3px;font-size:9.5px;padding:7px 4px;
+  .sitem{flex-direction:column;gap:3px;font-size:9.5px;padding:7px 3px;
     border-radius:10px;min-width:0;letter-spacing:.01em}
+  /* Seven destinations and a theme switch do not fit a phone at full length,
+     and a clipped "easurement" is worse than a short word. The short form is
+     also the truer one: one tab holds battery performance, the other holds
+     material properties. */
+  .sitem[data-short]{font-size:0}
+  .sitem[data-short]::before{content:attr(data-short);display:block;position:static;
+    width:auto;height:auto;background:none;border-radius:0;inset:auto;order:2;
+    font:450 9.5px/1 var(--sans);letter-spacing:.01em}
+  .sitem[data-short] .ic{order:1}
+  .sitem[data-short][aria-selected="true"]::before{display:block;font-weight:600}
   .sitem .ic{width:19px;height:19px}
   .sitem[aria-selected="true"]::before{display:none}
   .sitem[aria-selected="true"]{background:var(--acc-soft)}
@@ -1144,3 +1154,24 @@ body{background:
 .pane-a .modes{flex:0 0 auto}
 .pane-a .mode{padding:5px 13px;font-size:11.5px}
 @media(max-width:780px){.mcards{grid-template-columns:1fr;padding:14px;gap:11px}}
+
+/* A small two-column table inside an answer card: a name and its figure. */
+.mini{width:100%;border-collapse:collapse;font:450 13px/1.5 var(--sans)}
+.mini th{text-align:left;font-weight:450;color:var(--ink-2);padding:7px 0;
+  border-bottom:1px solid var(--line)}
+.mini td{text-align:right;font:500 13px var(--mono);padding:7px 0;
+  border-bottom:1px solid var(--line);white-space:nowrap}
+.mini tr:last-child th,.mini tr:last-child td{border-bottom:0}
+
+/* Three figures side by side under a definition: the middle, the middle half,
+   and the whole range, because a median alone hides what a property does. */
+.pstat{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:0 0 16px}
+.pstat>div{padding:12px 14px;border:1px solid var(--line);border-radius:10px;
+  background:var(--surf-2)}
+.pstat b{display:block;font:600 19px/1.1 var(--mono);color:var(--ink);
+  letter-spacing:-.01em}
+.pstat u{display:inline-block;margin-top:3px;font:450 11px var(--mono);
+  color:var(--acc);text-decoration:none}
+.pstat span{display:block;margin-top:5px;font:450 11.5px/1.35 var(--sans);
+  color:var(--ink-3)}
+@media (max-width:640px){.pstat{grid-template-columns:1fr}}

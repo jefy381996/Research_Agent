@@ -18,6 +18,7 @@ import statistics
 
 import calculators
 import db
+import properties
 import extract_evidence as EX
 import plausibility
 import units
@@ -346,9 +347,107 @@ def run_analysis(code, **_):
     return result
 
 
+def _pdigest(row):
+    return {
+        "id": f"P{row['id']}", "property": row["property_label"],
+        "value": row["value"], "unit": row["unit"],
+        "reported_as": row["value_as_reported"],
+        "material": row["material"], "form": row["graphene_form"],
+        "application": row["application"], "confidence": row["confidence"],
+        "flags": row["flags"], "year": row["year"], "journal": row["journal"],
+        "title": (row["title"] or "")[:110],
+        "quote": (row["source_quote"] or "")[:QUOTE],
+    }
+
+
+def list_properties(**_):
+    """Which physical properties the library holds numbers for."""
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT property_key, property_label, unit, count(*) n,"
+            " sum(confidence='verified') v, min(value) lo, max(value) hi,"
+            " count(DISTINCT openalex_id) papers"
+            " FROM properties GROUP BY property_key ORDER BY n DESC").fetchall()
+        return {"properties": [
+            {"key": r["property_key"], "label": r["property_label"],
+             "unit": r["unit"], "measurements": r["n"], "verified": r["v"],
+             "papers": r["papers"], "range": [r["lo"], r["hi"]]}
+            for r in rows],
+            "note": "Call search_properties with one of these keys. Ids look "
+                    "like P123 and are cited the same way as E ids."}
+    finally:
+        conn.close()
+
+
+def search_properties(property_key=None, material=None, application=None,
+                      min_value=None, max_value=None, confidence=None,
+                      limit=MAX_ROWS, **_):
+    """Physical property measurements: thermal, electrical, mechanical, optical."""
+    clauses, params = ["1=1"], []
+
+    def like(col, val):
+        clauses.append(f"lower({col}) LIKE ?"); params.append(f"%{str(val).lower()}%")
+
+    if property_key:
+        key = str(property_key).strip().lower().replace(" ", "_")
+        known = set(properties.BY_KEY)
+        if key not in known:
+            # Accept a label or an alias as well as the key, because a model
+            # asked for "thermal conductivity" long before it asked for the key.
+            spoken = str(property_key).strip().lower()
+            for fam in properties.FAMILIES:
+                if spoken == fam["label"].lower() or spoken in fam["aliases"]:
+                    key = fam["key"]
+                    break
+            else:
+                return {"error": f"unknown property {property_key!r}",
+                        "known": sorted(known)}
+        clauses.append("r.property_key = ?"); params.append(key)
+    if material: like("r.material", material)
+    if application: like("r.application", application)
+    if confidence in ("verified", "flagged"):
+        clauses.append("r.confidence = ?"); params.append(confidence)
+    for val, op in ((min_value, ">="), (max_value, "<=")):
+        if val is not None:
+            try:
+                clauses.append(f"r.value {op} ?"); params.append(float(val))
+            except (TypeError, ValueError):
+                pass
+
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            f"SELECT r.*, p.year, p.journal, p.title, p.doi FROM properties r"
+            f" JOIN papers p ON p.openalex_id=r.openalex_id"
+            f" WHERE {' AND '.join(clauses)}"
+            f" ORDER BY (r.confidence='verified') DESC, r.value DESC",
+            params).fetchall()
+        if not rows:
+            return {"matched": 0,
+                    "note": "Nothing matches. Call list_properties to see which "
+                            "properties the library holds."}
+        out = {"matched": len(rows),
+               "papers": len({r["openalex_id"] for r in rows}),
+               "flagged": sum(1 for r in rows if r["confidence"] == "flagged")}
+        # One property at a time has a meaningful spread; a mixed set does not.
+        keys = {r["property_key"] for r in rows}
+        if len(keys) == 1:
+            vals = [float(r["value"]) for r in rows]
+            out["spread"] = dict(_spread(vals), unit=rows[0]["unit"])
+        else:
+            out["properties_present"] = sorted(keys)
+        out["rows"] = [_pdigest(r) for r in rows[:_cap(limit, MAX_ROWS, MAX_ROWS)]]
+        return out
+    finally:
+        conn.close()
+
+
 REGISTRY = {
     "describe_library": describe_library,
     "search_measurements": search_measurements,
+    "list_properties": list_properties,
+    "search_properties": search_properties,
     "compare_materials": compare_materials,
     "trend_by_year": trend_by_year,
     "search_literature": search_literature,
@@ -381,6 +480,22 @@ SCHEMAS = [
         confidence={"type": "string", "enum": ["verified", "flagged"]},
         min_capacity={"type": "number"}, max_capacity={"type": "number"},
         min_cycles={"type": "number"}, min_year={"type": "number"},
+        limit={"type": "number"})),
+    ("list_properties", "Which physical properties the library holds numbers "
+     "for - thermal conductivity, sheet resistance, Young's modulus, surface "
+     "area, transmittance and so on - with the unit, the count and the range of "
+     "each. Call this before search_properties when the question is not about "
+     "a battery.", _p()),
+    ("search_properties", "Search physical property measurements: thermal, "
+     "electrical, mechanical, optical, membrane and shielding. Returns the "
+     "spread and example rows with ids like P123 and the sentence each came "
+     "from. Cite those ids exactly as search_measurements' E ids.",
+     _p(property_key={"type": "string",
+                      "description": "a key from list_properties, e.g. "
+                                     "thermal_conductivity"},
+        material={"type": "string"}, application={"type": "string"},
+        min_value={"type": "number"}, max_value={"type": "number"},
+        confidence={"type": "string", "enum": ["verified", "flagged"]},
         limit={"type": "number"})),
     ("compare_materials", "Median and quartiles of one metric for each material "
      "system, ranked. Use for 'which is better' questions.",

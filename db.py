@@ -160,6 +160,30 @@ CREATE TABLE IF NOT EXISTS user_documents (
     char_count  INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS properties (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    openalex_id    TEXT NOT NULL,
+    property_key   TEXT NOT NULL,
+    property_label TEXT NOT NULL,
+    value          REAL NOT NULL,
+    unit           TEXT NOT NULL,
+    value_as_reported TEXT,
+    material       TEXT,
+    graphene_form  TEXT,
+    application    TEXT,
+    source_quote   TEXT NOT NULL,
+    source_section TEXT,
+    confidence     TEXT,
+    flags          TEXT,
+    extracted_at   TEXT,
+    row_hash       TEXT UNIQUE,
+    FOREIGN KEY (openalex_id) REFERENCES papers(openalex_id)
+);
+CREATE INDEX IF NOT EXISTS idx_prop_paper ON properties(openalex_id);
+CREATE INDEX IF NOT EXISTS idx_prop_key   ON properties(property_key);
+CREATE INDEX IF NOT EXISTS idx_prop_conf  ON properties(confidence);
+CREATE INDEX IF NOT EXISTS idx_prop_val   ON properties(property_key, value DESC);
+
 CREATE TABLE IF NOT EXISTS agent_cache (
     qhash       TEXT PRIMARY KEY,
     question    TEXT NOT NULL,

@@ -22,6 +22,7 @@ from fastapi.responses import (FileResponse, JSONResponse, StreamingResponse,
 import answer as answer_engine
 import build_index
 import calculators
+import properties as properties_mod
 import db
 import plausibility
 import search as search_engine
@@ -72,9 +73,10 @@ async def lifespan(_app):
 
 app = FastAPI(
     lifespan=lifespan,
-    title="Graphene Battery Evidence Workbench",
-    description=("Comparable performance figures extracted from the graphene "
-                 "battery literature, each carrying the sentence it came from."),
+    title="Graphene Research Agent",
+    description=("Comparable figures extracted from the graphene literature — "
+                 "batteries, electronics, sensors, membranes and more — each "
+                 "carrying the sentence it came from."),
     version="1.0.0",
 )
 
@@ -182,6 +184,14 @@ def bundle():
                 f" WHERE {column} IS NOT NULL AND {column} != ''"
                 f" GROUP BY 1 ORDER BY 2 DESC LIMIT 40")]
 
+        props = [dict(r) for r in conn.execute(
+            """SELECT r.id, r.property_key, r.property_label, r.value, r.unit,
+                      r.value_as_reported, r.material, r.graphene_form,
+                      r.application, r.confidence, r.flags, r.source_quote,
+                      p.title, p.year, p.journal, p.doi, r.openalex_id
+               FROM properties r JOIN papers p ON p.openalex_id = r.openalex_id
+               ORDER BY r.property_key, r.value DESC""")]
+
         concepts = [dict(r) for r in conn.execute(
             "SELECT slug, title, category, summary, description, url, source,"
             " licence FROM concepts ORDER BY category, title")]
@@ -190,6 +200,8 @@ def bundle():
             " url FROM compounds ORDER BY name")]
         return {
             "rows": rows,
+            "properties": props,
+            "property_families": properties_mod.catalogue(),
             "passages": passages,
             "concepts": concepts,
             "compounds": compounds,
@@ -354,6 +366,11 @@ def get_stats():
                 "SELECT count(*) FROM evidence WHERE confidence='unverified'"),
             "material_systems": one(
                 "SELECT count(DISTINCT material_system) FROM evidence"),
+            "property_rows": one("SELECT count(*) FROM properties"),
+            "property_families": one(
+                "SELECT count(DISTINCT property_key) FROM properties"),
+            "property_verified": one(
+                "SELECT count(*) FROM properties WHERE confidence='verified'"),
             "year_range": list(conn.execute(
                 "SELECT min(year), max(year) FROM papers WHERE year IS NOT NULL"
             ).fetchone()),
@@ -719,7 +736,7 @@ def export_csv(material: str | None = None, graphene_form: str | None = None,
     return Response(
         buffer.getvalue(), media_type="text/csv",
         headers={"Content-Disposition":
-                 'attachment; filename="graphene-battery-evidence.csv"'})
+                 'attachment; filename="graphene-evidence.csv"'})
 
 
 @app.get("/api/export.xlsx", summary="Export the current view as XLSX")
@@ -758,7 +775,7 @@ def export_xlsx(material: str | None = None, graphene_form: str | None = None,
 
     notes = book.create_sheet("How to read this")
     for line in [
-        ["Graphene Battery Evidence Workbench export"],
+        ["Graphene Research Agent export"],
         ["Generated", datetime.now(timezone.utc).isoformat(timespec="seconds")],
         [],
         ["Every number in a row was read from the sentence in source_quote."],
@@ -787,7 +804,7 @@ def export_xlsx(material: str | None = None, graphene_form: str | None = None,
         media_type="application/vnd.openxmlformats-officedocument."
                    "spreadsheetml.sheet",
         headers={"Content-Disposition":
-                 'attachment; filename="graphene-battery-evidence.xlsx"'})
+                 'attachment; filename="graphene-evidence.xlsx"'})
 
 
 @app.get("/api/live", summary="Search the literature beyond the stored snapshot")
