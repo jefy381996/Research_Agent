@@ -6,3 +6,8 @@ __pycache__
 .env
 demo/data.json
 app/data.json
+web/data.json
+*.db-wal
+*.db-shm
+tests
+.github

@@ -1,5 +1,8 @@
 # Alternative to Railway's Nixpacks build: `railway up` picks this up if present.
-FROM python:3.11-slim
+# 3.13, not 3.11: numpy and matplotlib publish no cp311 wheels at these
+# pins, so a 3.11 image tries to compile them from source and fails for
+# want of a toolchain. 3.13 is also what the test suite runs on.
+FROM python:3.13-slim
 
 WORKDIR /srv
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PORT=8000
