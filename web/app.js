@@ -2371,7 +2371,6 @@ async function askAgent(question) {
   turn.innerHTML = `<div class="q"><div class="av">You</div><div class="t">${esc(question)}</div></div>
     <div class="research" aria-hidden="true">
       <canvas class="rcanvas"></canvas>
-      <div class="rveil"></div>
       <div class="rlabel"><span class="rdot"></span><span class="rtext">Reading the library</span>
         <span class="rcount"></span></div>
     </div>
@@ -2397,6 +2396,7 @@ async function askAgent(question) {
   const anim = window.ResearchAnim
     ? ResearchAnim.create(turn.querySelector(".rcanvas"), { side: 26 })
     : { step() {}, done() {}, stop() {} };
+  anim.live = true;      // true while the sheet is on screen and growing
   const SAYS = {
     describe_library: "Checking what the library holds",
     search_measurements: "Searching the measurements",
@@ -2421,7 +2421,15 @@ async function askAgent(question) {
       <span>${esc(what)} ${detail ? `<b>${esc(detail)}</b>` : ""}</span>
       <span class="r">${esc(result || "")}</span>`;
     body.appendChild(row);
-    body.parentElement.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    // Do NOT chase the step list while the sheet is still growing. Each
+    // appended step used to scroll the thread down, and on a phone that
+    // carried the animation clean off the top of the screen within four
+    // seconds - the one thing the screen exists to show. Keep the question
+    // and the sheet anchored; the steps can run off the bottom until the
+    // answer arrives, at which point there is something worth scrolling to.
+    if (!anim.live) {
+      body.parentElement.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
   };
 
   try {
@@ -2477,6 +2485,7 @@ async function askAgent(question) {
           if (rtext) rtext.textContent = "Checking its own citations";
         }
         else if (ev.type === "answer") {
+          anim.live = false;
           anim.done();
           if (stage) { stage.classList.add("settled");
             setTimeout(() => stage.remove(), 700); }
@@ -2506,6 +2515,7 @@ async function askAgent(question) {
           });
         }
         else if (ev.type === "error") {
+          anim.live = false;
           anim.stop(); if (stage) stage.remove();
           turn.querySelector(".sdot").classList.remove("live");
           label.textContent = "Could not finish";
