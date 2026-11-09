@@ -202,10 +202,13 @@ def run(question: str, history: list[dict] | None = None,
     if cacheable and not fresh:
         stored = agent_cache.get(question, llm.provider_name(), llm.model_name())
         if stored:
+            # Mark every event, not only the answer. A replay arrives in one
+            # burst, and an interface that renders it as fast as it reads it
+            # shows the viewer nothing at all - the research it is meant to
+            # display is over before the first frame. The flag lets the client
+            # pace the playback to the speed the work originally took.
             for event in stored:
-                if event.get("type") == "answer":
-                    event = dict(event, replayed=True)
-                yield event
+                yield dict(event, replayed=True)
             return
 
     if not llm.configured():

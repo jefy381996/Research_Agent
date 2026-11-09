@@ -831,11 +831,16 @@ def get_live(q: str, limit: int = Query(25, ge=1, le=50),
 
 @app.get("/api/agent/status", summary="Whether the reasoning agent can run")
 def agent_status():
-    import llm, agent, agent_tools
+    import llm, agent, agent_tools, agent_cache
     state = llm.status()
+    saved = agent_cache.saved()
     state.update({"tools": len(agent_tools.tool_specs()),
                   "max_rounds": agent.MAX_ROUNDS,
-                  "tool_names": sorted(agent_tools.REGISTRY)})
+                  "tool_names": sorted(agent_tools.REGISTRY),
+                  # Stored runs replay with no key and no quota, so the agent
+                  # can be demonstrated on a deployment that has neither.
+                  "saved": saved,
+                  "replayable": bool(saved)})
     return state
 
 

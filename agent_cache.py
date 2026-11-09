@@ -92,6 +92,28 @@ def put(question: str, provider: str, model: str, events: list[dict]) -> None:
         conn.close()
 
 
+def saved(limit: int = 12) -> list[dict]:
+    """The questions that already have a stored run.
+
+    These replay with no key and no quota, so they are the ones a demo can
+    rely on. Most-replayed first, then newest.
+    """
+    try:
+        conn = db.connect()
+    except Exception:
+        return []
+    try:
+        rows = conn.execute(
+            "SELECT question, provider, model, hits, created_at FROM agent_cache"
+            " ORDER BY hits DESC, created_at DESC LIMIT ?", (int(limit),)).fetchall()
+        return [{"question": r[0], "provider": r[1], "model": r[2],
+                 "replays": r[3], "stored_at": r[4]} for r in rows]
+    except Exception:
+        return []
+    finally:
+        conn.close()
+
+
 def stats() -> dict:
     try:
         conn = db.connect()

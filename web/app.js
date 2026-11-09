@@ -384,6 +384,125 @@ $("excats").addEventListener("click", (e) => {
   exCat = b.dataset.c || null; paintExplore($("exq").value);
 });
 
+/* ── telling a non-specialist what a screen is ──────────── */
+/* A table of 2,794 rows with a column called "coulombic efficiency" tells a
+   chemist a great deal and a research director nothing at all. Each of these
+   screens opens with the same three things in plain words: what it holds, what
+   one row of it means, and what to do with it. It can be folded away, and the
+   choice is remembered, so it never becomes furniture for someone who has read
+   it once. */
+const PRIMERS = {
+  evidence: {
+    title: "What this screen holds",
+    lead: "Battery performance figures, pulled out of published papers one sentence at a time.",
+    points: [
+      ["One card is one measurement",
+       "Someone built an electrode, measured it, and wrote the number in a paper. That number is the card. Nothing here is averaged, estimated or generated."],
+      ["Click any card to see the proof",
+       "It opens the exact sentence the number came from, with the figures highlighted, and a link to the paper. If you disagree with a number, you can go and argue with the author."],
+      ["Capacity, in mAh/g, is the headline",
+       "How much charge a gram of the material holds. Higher is better. Graphite, used in the battery in your phone, manages about 372."],
+      ["Verified and flagged",
+       "Every row is checked against physical limits and its own arithmetic. Rows that fail are kept and labelled, never deleted \u2014 hiding them would make the library look better than it is."],
+    ],
+  },
+  properties: {
+    title: "What this screen holds",
+    lead: "What graphene measures at, outside the battery: heat, electricity, strength, light, filtration.",
+    points: [
+      ["Twelve properties, each in its own unit",
+       "Thermal conductivity in W/mK, sheet resistance in ohms per square, stiffness in GPa. Use the buttons to pick one \u2014 comparing across units is meaningless."],
+      ["The median is far below the famous number",
+       "Graphene conducts heat at about 5,300 W/mK as a single sheet. The median here is nearer 10, because most papers measure graphene mixed into something else. Both are true. That is why everything is grouped before it is compared."],
+      ["One card is one sentence of one paper",
+       "Click it to read that sentence. The conditions \u2014 temperature, thickness, whether the sheet was suspended \u2014 are only whatever the sentence happened to state."],
+    ],
+  },
+  sources: {
+    title: "What this screen holds",
+    lead: "Every paper that contributed at least one measurement, and how many it gave.",
+    points: [
+      ["These are the receipts",
+       "The library draws on 37,027 papers. These are the ones a number was actually read from, so they are the ones worth checking."],
+      ["Follow the DOI",
+       "Each row links to the published paper. Nothing in this tool asks to be taken on trust."],
+    ],
+  },
+  explore: {
+    title: "What this screen holds",
+    lead: "Plain definitions of the terms the rest of the tool uses, from open reference sources.",
+    points: [
+      ["Start here if a word is unfamiliar",
+       "Anode, C-rate, chemical vapour deposition, Raman spectroscopy. Each entry says where it came from and links to the original."],
+      ["Where a term is also measured, the numbers come too",
+       'Ask "what is Young\u2019s modulus" and you get the definition and what this library measures it at.'],
+    ],
+  },
+  calculator: {
+    title: "What this screen holds",
+    lead: "Twenty-eight working calculations, each showing its formula and its inputs.",
+    points: [
+      ["Nothing is hidden",
+       "Every calculator prints the formula it used, the numbers you gave it, and a note on what the result does and does not mean."],
+      ["The values shown are worked examples",
+       "Replace them with yours. The result updates as you type."],
+    ],
+  },
+};
+
+function primerKey(view) { return "gba.primer." + view; }
+
+function primerHTML(view) {
+  const d = PRIMERS[view];
+  if (!d) return "";
+  return `<section class="primer" data-primer="${view}">
+    <button class="primer-x" aria-label="Hide this explanation">&times;</button>
+    <h3>${esc(d.title)}</h3>
+    <p class="lead">${esc(d.lead)}</p>
+    <dl>${d.points.map(([k, v], i) => `<div style="--i:${i}">
+      <dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>
+  </section>`;
+}
+
+function mountPrimer(view, host) {
+  if (!host || !PRIMERS[view]) return;
+  if (host.querySelector(`[data-primer="${view}"]`)) return;
+  let hidden = false;
+  try { hidden = localStorage.getItem(primerKey(view)) === "off"; } catch (e) {}
+  const wrap = document.createElement("div");
+  wrap.innerHTML = hidden
+    ? `<button class="primer-show" data-primer-show="${view}">
+         What am I looking at?</button>`
+    : primerHTML(view);
+  host.prepend(wrap.firstElementChild);
+}
+
+document.addEventListener("click", (e) => {
+  const x = e.target.closest(".primer-x");
+  if (x) {
+    const sec = x.closest(".primer");
+    const view = sec.dataset.primer;
+    sec.classList.add("folding");
+    setTimeout(() => {
+      const b = document.createElement("button");
+      b.className = "primer-show";
+      b.dataset.primerShow = view;
+      b.textContent = "What am I looking at?";
+      sec.replaceWith(b);
+    }, 320);
+    try { localStorage.setItem(primerKey(view), "off"); } catch (err) {}
+    return;
+  }
+  const show = e.target.closest("[data-primer-show]");
+  if (show) {
+    const view = show.dataset.primerShow;
+    const wrap = document.createElement("div");
+    wrap.innerHTML = primerHTML(view);
+    show.replaceWith(wrap.firstElementChild);
+    try { localStorage.removeItem(primerKey(view)); } catch (err) {}
+  }
+});
+
 /* ── properties view ────────────────────────────────────── */
 let prFam = null;
 
@@ -1355,6 +1474,13 @@ function show(v) {
   if (v === "sources" && !$("sb").children.length) paintSources();
   if (v === "evidence" && !$("gb").children.length) reload();
   if (v === "properties") paintProps($("prq").value);
+
+  // Say in plain words what the screen is, before the data arrives.
+  // .mid for the single-column screens; .pane for the two that carry a filter
+  // rail beside them, where prepending to the section would break the row.
+  const section = document.querySelector(`.view[data-view="${v}"]`);
+  if (section) mountPrimer(v, section.querySelector(".mid")
+                              || section.querySelector(".pane") || section);
 }
 document.querySelectorAll(".sitem").forEach((t) =>
   t.addEventListener("click", () => show(t.dataset.view)));
@@ -1931,14 +2057,41 @@ $("nbs").addEventListener("click", (e) => {
 /* ── theme, palette, keyboard ───────────────────────────── */
 try { const s = localStorage.getItem("gba.theme"); if (s) document.documentElement.dataset.theme = s; }
 catch (e) {}
-$("theme").addEventListener("click", () => {
-  document.documentElement.classList.add("theming");
-  setTimeout(() => document.documentElement.classList.remove("theming"), 480);
-  const dark = getComputedStyle(document.body).backgroundColor.replace(/\s/g, "") === "rgb(7,9,16)";
-  const next = dark ? "light" : "dark";
+/* What theme is actually showing right now: an explicit choice if one has
+   been made, otherwise whatever the operating system asked for.
+
+   This used to be decided by comparing the computed background colour against
+   the string "rgb(7,9,16)". The dark background is #07090D, which is
+   rgb(7,9,13), so the comparison never matched, the toggle always chose dark,
+   and once dark there was no way back to light. Read the state, do not
+   infer it from a pixel. */
+function currentTheme() {
+  const set = document.documentElement.dataset.theme;
+  if (set === "light" || set === "dark") return set;
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark" : "light";
+}
+
+function applyTheme(next) {
   document.documentElement.dataset.theme = next;
   try { localStorage.setItem("gba.theme", next); } catch (e) {}
+  const btn = $("theme");
+  if (btn) {
+    btn.setAttribute("aria-pressed", String(next === "dark"));
+    btn.title = next === "dark" ? "Switch to light" : "Switch to dark";
+  }
+  // The canvases read their colours from the stylesheet once per frame, but
+  // a paused one needs telling.
+  window.dispatchEvent(new CustomEvent("gba:theme", { detail: next }));
+}
+
+$("theme").addEventListener("click", () => {
+  // Cross-fade the whole page rather than snapping between palettes.
+  document.documentElement.classList.add("theming");
+  setTimeout(() => document.documentElement.classList.remove("theming"), 620);
+  applyTheme(currentTheme() === "dark" ? "light" : "dark");
 });
+applyTheme(currentTheme());
 
 let palItems = [], palIdx = 0;
 const openPal = () => { $("palbd").hidden = false; $("pal").hidden = false;
@@ -2039,8 +2192,11 @@ async function loadData() {
   $("chips").innerHTML = CHIPS.map((q, i) =>
     `<button style="--i:${i}" data-q="${esc(q)}">${esc(q)}</button>`).join("");
   $("chips").addEventListener("click", (e) => { const b = e.target.closest("button");
-    if (b) ask(b.dataset.q); });
+    if (b) (MODE === "agent" ? askAgent : ask)(b.dataset.q); });
   paintFacets(); head(); loadNotes(); probeAgent();
+  // The opening sequence is one-shot. Clearing the class once it has played
+  // stops every later tab switch from replaying the whole arrival.
+  setTimeout(() => document.documentElement.classList.remove("booting"), 2200);
   // Exposed so tests/scorecard_ui.js can drive the shipped engine directly.
   window.DATA = DATA; window.build = build;
 })();
@@ -2051,19 +2207,31 @@ async function loadData() {
    on the server's own key, so no visitor is ever asked to pay or sign in. */
 
 let MODE = "instant";
-let AGENT = { available: false, provider: null, model: null, tools: 0 };
+let AGENT = { available: false, replay: false, saved: [], provider: null,
+              model: null, tools: 0 };
 
 async function probeAgent() {
-  // The static copy has no server to reason with, so the button is disabled
-  // with a reason rather than left looking available and doing nothing.
+  // Three states, not two. With a model key the agent reasons live. Without
+  // one it can still replay any question it has already answered, because a
+  // stored run is a finished answer and needs no key, no network and no
+  // quota. Only a deployment with neither a key nor a stored run is dead.
   if (API) try {
     const s = await fetch("api/agent/status").then((r) => r.json());
-    AGENT = { available: !!s.configured, provider: s.provider,
-              model: s.model, tools: s.tools || 0 };
-  } catch (e) { AGENT.available = false; }
+    AGENT = { available: !!s.configured, replay: !s.configured && !!s.replayable,
+              saved: s.saved || [], provider: s.provider, model: s.model,
+              tools: s.tools || 0 };
+  } catch (e) { AGENT.available = false; AGENT.replay = false; }
+
   const btn = document.querySelector('.mode[data-mode="agent"]');
   if (!btn) return;
-  if (!AGENT.available) {
+  if (AGENT.available || AGENT.replay) {
+    btn.disabled = false;
+    btn.removeAttribute("style");
+    btn.title = AGENT.replay
+      ? "Replays the questions it has already researched"
+      : `Plans its own steps across ${AGENT.tools} tools`;
+    if (AGENT.replay) btn.classList.add("replayonly");
+  } else {
     btn.disabled = true;
     btn.title = API ? "No model key is set on the server"
                     : "Agent mode needs the full service, not the static copy";
@@ -2071,15 +2239,38 @@ async function probeAgent() {
   }
 }
 
+/* The questions the agent has already researched. In replay mode these are
+   the only ones that answer, so they are offered rather than left to guess. */
+function agentChips() {
+  const box = $("chips");
+  if (!box) return;
+  if (MODE !== "agent" || !AGENT.saved.length) return;
+  box.innerHTML = `<div class="chipnote">${AGENT.replay
+      ? "Already researched \u2014 these replay instantly, step by step, with no model needed"
+      : "Researched before \u2014 these replay instantly and identically"}</div>`
+    + AGENT.saved.slice(0, 6).map((s, i) =>
+      `<button style="--i:${i}" data-q="${esc(s.question)}" class="agentchip">
+        <svg class="ic" viewBox="0 0 22 22"><use href="#i-spark"/></svg>
+        ${esc(s.question)}</button>`).join("");
+  box.hidden = false;
+}
+
 function setMode(mode) {
-  if (mode === "agent" && !AGENT.available) return;
+  if (mode === "agent" && !(AGENT.available || AGENT.replay)) return;
   MODE = mode;
   document.querySelectorAll(".mode").forEach((b) =>
     b.setAttribute("aria-checked", String(b.dataset.mode === mode)));
   const hint = $("hint");
   if (hint) hint.textContent = mode === "agent"
-    ? `Plans its own steps across ${AGENT.tools} tools. Slower, costs a little.`
+    ? (AGENT.replay
+        ? `Replaying ${AGENT.saved.length} researched questions, step by step. Free.`
+        : `Plans its own steps across ${AGENT.tools} tools. Slower, costs a little.`)
     : "Rules only. Instant and free.";
+  if (mode === "agent") agentChips();
+  else if ($("chips")) {
+    $("chips").innerHTML = CHIPS.map((q, i) =>
+      `<button style="--i:${i}" data-q="${esc(q)}">${esc(q)}</button>`).join("");
+  }
 }
 document.addEventListener("click", (e) => {
   const b = e.target.closest(".mode");
@@ -2180,7 +2371,9 @@ async function askAgent(question) {
   turn.innerHTML = `<div class="q"><div class="av">You</div><div class="t">${esc(question)}</div></div>
     <div class="research" aria-hidden="true">
       <canvas class="rcanvas"></canvas>
-      <div class="rlabel"><span class="rdot"></span><span class="rtext">Reading the library</span></div>
+      <div class="rveil"></div>
+      <div class="rlabel"><span class="rdot"></span><span class="rtext">Reading the library</span>
+        <span class="rcount"></span></div>
     </div>
     <details class="steps" open><summary><span class="sdot live"></span>
       <span class="slabel">Thinking</span>
@@ -2194,8 +2387,15 @@ async function askAgent(question) {
   const label = turn.querySelector(".slabel");
   const stage = turn.querySelector(".research");
   const rtext = turn.querySelector(".rtext");
+  let calls = 0;
+  let paced = false;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  /* Roughly what each step costs when the agent is really thinking, so a
+     replay reads at the speed of work rather than the speed of a disk. */
+  const PACE = { start: 260, thinking: 900, tool_call: 620, tool_result: 540,
+                 correcting: 1100, answer: 700 };
   const anim = window.ResearchAnim
-    ? ResearchAnim.create(turn.querySelector(".rcanvas"), { side: 19 })
+    ? ResearchAnim.create(turn.querySelector(".rcanvas"), { side: 26 })
     : { step() {}, done() {}, stop() {} };
   const SAYS = {
     describe_library: "Checking what the library holds",
@@ -2240,7 +2440,20 @@ async function askAgent(question) {
       for (const line of lines) {
         if (!line.trim()) continue;
         let ev; try { ev = JSON.parse(line); } catch (e) { continue; }
-        if (ev.type === "start") label.textContent = `Working · ${ev.model}`;
+
+        // A stored run arrives in a single burst. Rendering it as fast as it
+        // is read would finish before the first frame is painted, and the
+        // viewer would see nothing of the research the screen exists to show.
+        // So a replay is played back, not dumped - each step at about the
+        // pace the original took. It is the same run either way; only the
+        // clock differs, and the answer says it is a replay.
+        if (ev.replayed) {
+          paced = true;
+          await sleep(PACE[ev.type] || 320);
+        }
+
+        if (ev.type === "start") label.textContent = paced
+          ? `Replaying \u00b7 ${ev.model}` : `Working \u00b7 ${ev.model}`;
         else if (ev.type === "thinking") {
           const t = document.createElement("div");
           t.className = "think"; t.textContent = ev.text.slice(0, 260) + "…";
@@ -2249,7 +2462,10 @@ async function askAgent(question) {
         else if (ev.type === "tool_call") {
           step("Calling", ev.name, "");
           anim.step();
+          calls += 1;
           if (rtext) rtext.textContent = SAYS[ev.name] || "Working";
+          const rc = turn.querySelector(".rcount");
+          if (rc) rc.textContent = `step ${calls}`;
         }
         else if (ev.type === "tool_result") {
           const last = body.querySelector(".step2:last-of-type .r");
@@ -2293,9 +2509,29 @@ async function askAgent(question) {
           anim.stop(); if (stage) stage.remove();
           turn.querySelector(".sdot").classList.remove("live");
           label.textContent = "Could not finish";
-          out.innerHTML = `<div class="refusal"><h3>The agent could not answer</h3>
-            <p>${esc(ev.message)}</p>
-            <p class="dim">Instant mode still works and needs no model.</p></div>`;
+          // In replay mode a new question is not a failure, it is simply one
+          // the agent has not been asked yet. Say that, and offer the ones it
+          // has, rather than printing a key-is-missing error at a researcher.
+          if (ev.code === "no_model" && AGENT.replay) {
+            out.innerHTML = `<div class="refusal"><h3>Not researched yet</h3>
+              <p>This deployment replays questions the agent has already worked
+                 through. It has not been asked this one, and it will not guess.</p>
+              <p class="dim">These it has researched &mdash; each replays in full,
+                 step by step:</p>
+              <div class="chips inline">${AGENT.saved.map((s, i) =>
+                `<button style="--i:${i}" class="agentchip" data-q="${esc(s.question)}">
+                  <svg class="ic" viewBox="0 0 22 22"><use href="#i-spark"/></svg>
+                  ${esc(s.question)}</button>`).join("")}</div>
+              <p class="dim" style="margin-top:14px">To let it research anything,
+                 set a model key on the server. Instant mode answers this question
+                 now, by rule, and needs no model.</p></div>`;
+            out.querySelectorAll("[data-q]").forEach((bq) =>
+              bq.addEventListener("click", () => askAgent(bq.dataset.q)));
+          } else {
+            out.innerHTML = `<div class="refusal"><h3>The agent could not answer</h3>
+              <p>${esc(ev.message)}</p>
+              <p class="dim">Instant mode still works and needs no model.</p></div>`;
+          }
         }
       }
     }

@@ -17,6 +17,12 @@
   --flag:#A33A2E; --flag-wash:rgba(163,58,46,.07);
   --good:#4A6B3F;
   --lattice:rgba(138,106,47,.16);
+  /* The sheet behind the page. It has to be seen to be worth drawing:
+     the first version used 10% alpha and was invisible on every screen.
+     Depth keeps it out of the way, not faintness. */
+  --lattice-line:rgba(138,106,47,.42);
+  --lattice-node:rgba(138,106,47,.5);
+  --lattice-glow:#B08A3E;
   --c1:#2a78d6; --c2:#eb6834; --c3:#1baf7a; --c0:#A79D8A;
   --b1:#D9C089; --b2:#BE9E55; --b3:#8A6A2F; --b4:#5C451C;
   --track:#EFEBE1;
@@ -51,6 +57,9 @@
   --flag:#F28B82; --flag-wash:rgba(242,139,130,.10);
   --good:#9ED7A8;
   --lattice:rgba(232,194,122,.13);
+  --lattice-line:rgba(232,194,122,.34);
+  --lattice-node:rgba(232,194,122,.46);
+  --lattice-glow:#E8C27A;
   --c1:#6FA8F5; --c2:#F0905C; --c3:#5FCFB2; --c0:#5A5648;
   --b1:#5C451C; --b2:#8A6A2F; --b3:#C2A05C; --b4:#E8C27A;
   --track:#161B23;
@@ -74,6 +83,9 @@
   --flag:#F28B82; --flag-wash:rgba(242,139,130,.10);
   --good:#9ED7A8;
   --lattice:rgba(232,194,122,.13);
+  --lattice-line:rgba(232,194,122,.34);
+  --lattice-node:rgba(232,194,122,.46);
+  --lattice-glow:#E8C27A;
   --c1:#6FA8F5; --c2:#F0905C; --c3:#5FCFB2; --c0:#5A5648;
   --b1:#5C451C; --b2:#8A6A2F; --b3:#C2A05C; --b4:#E8C27A;
   --track:#161B23;
@@ -925,9 +937,13 @@ table.g tbody tr:hover{background:var(--acc-soft);
 }
 
 /* ═══════════════════ the sheet behind everything ═══════════════════ */
-#lattice{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.9}
+#lattice{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:1}
 .shell{position:relative;z-index:1}
+/* The sheet belongs behind the opening screen, where it is the subject. On a
+   screen of data it is interference, so those are opaque. */
 .askview{background:transparent}
+.view:not(.askview){background:var(--bg)}
+.view:not(.askview) .pane,.view:not(.askview) .mid{background:var(--bg)}
 body{background:
   radial-gradient(1100px 560px at 50% -16%,var(--acc-soft),transparent 70%),
   var(--bg)}
@@ -1105,22 +1121,41 @@ body{background:
 }
 
 /* ═══════════ while the agent is researching ═══════════ */
-.research{position:relative;height:190px;border:1px solid var(--line);
-  border-radius:var(--r-m);background:
-    radial-gradient(420px 180px at 50% 50%,var(--acc-soft),transparent 72%),
-    var(--surf);overflow:hidden;display:grid;place-items:center;
+/* The research stage is an instrument panel, not a page element. Deep ink in
+   both themes, so the gold lattice reads the same on a projector in a bright
+   room as it does on a laptop at night. */
+.research{position:relative;height:300px;border:1px solid #1E232C;
+  border-radius:var(--r-m);overflow:hidden;display:grid;place-items:center;
+  background:
+    radial-gradient(620px 300px at 50% 46%,#141A24,transparent 72%),
+    linear-gradient(170deg,#0C1017,#070A0F);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.04),
+             0 18px 44px -26px rgba(7,10,15,.8);
   animation:rise-in 420ms var(--e-out) both;
   transition:opacity 600ms var(--e-out),height 600ms var(--e-out),
              margin 600ms var(--e-out)}
+/* a faint rule grid, the way a real readout has one */
+.research::before{content:"";position:absolute;inset:0;pointer-events:none;
+  background-image:linear-gradient(rgba(224,186,116,.055) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(224,186,116,.055) 1px,transparent 1px);
+  background-size:46px 46px;
+  mask-image:radial-gradient(70% 60% at 50% 50%,#000,transparent 78%)}
+/* and a corner frame, so it reads as an instrument rather than a box */
+.research::after{content:"";position:absolute;inset:11px;pointer-events:none;
+  border:1px solid rgba(224,186,116,.16);border-radius:8px;
+  mask-image:linear-gradient(#000 0 0),linear-gradient(#000 0 0);
+  mask-size:100% 34px,34px 100%;mask-position:0 0,0 0;
+  mask-repeat:repeat-x,repeat-y}
 .research.settled{opacity:0;height:0;margin:0;border-width:0}
 .rcanvas{position:absolute;inset:0;width:100%;height:100%}
 .rlabel{position:relative;display:flex;align-items:center;gap:9px;
-  padding:6px 14px;border-radius:999px;background:color-mix(in srgb,var(--surf) 82%,transparent);
-  backdrop-filter:blur(6px);border:1px solid var(--line);
-  font:500 11.5px var(--sans);color:var(--ink-2);letter-spacing:.01em}
-.rdot{width:6px;height:6px;border-radius:50%;background:var(--acc);
-  box-shadow:0 0 10px var(--acc-glow);animation:beat 1.1s var(--e-io) infinite}
-@media(max-width:780px){.research{height:150px}}
+  padding:7px 15px;border-radius:999px;background:rgba(10,14,20,.72);
+  backdrop-filter:blur(8px);border:1px solid rgba(224,186,116,.22);
+  font:500 11.5px var(--sans);color:#D8D2C6;letter-spacing:.012em;
+  box-shadow:0 6px 20px -10px rgba(0,0,0,.9)}
+.rdot{width:6px;height:6px;border-radius:50%;background:#F0CE8A;
+  box-shadow:0 0 12px rgba(240,206,138,.85);animation:beat 1.1s var(--e-io) infinite}
+@media(max-width:780px){.research{height:230px}}
 @media(prefers-reduced-motion:reduce){.research{transition:none}}
 
 /* ═══════════ measurements, made readable ═══════════ */
@@ -1175,3 +1210,126 @@ body{background:
 .pstat span{display:block;margin-top:5px;font:450 11.5px/1.35 var(--sans);
   color:var(--ink-3)}
 @media (max-width:640px){.pstat{grid-template-columns:1fr}}
+
+/* A vignette over the research sheet, so the caption stays readable against a
+   lattice that is deliberately bright. */
+.rveil{position:absolute;inset:0;pointer-events:none;background:
+  radial-gradient(190px 70px at 50% 50%,rgba(7,10,15,.82),transparent 76%)}
+.rcount{font:450 10.5px var(--mono);color:#A39B8B;
+  padding-left:10px;margin-left:4px;border-left:1px solid rgba(224,186,116,.25)}
+
+/* ═══════════ agent: the questions it has already researched ═══════════ */
+.chipnote{flex:1 0 100%;text-align:center;font:450 11.5px var(--sans);
+  color:var(--ink-3);margin:0 0 4px;letter-spacing:.01em}
+.chips.inline{margin-top:12px;justify-content:flex-start}
+.agentchip{display:inline-flex!important;align-items:center;gap:8px}
+.agentchip .ic{width:13px;height:13px;color:var(--acc);
+  stroke-width:1.7;flex:0 0 auto}
+.mode.replayonly[aria-checked="true"]{background:var(--acc);color:var(--acc-ink)}
+
+/* ═══════════ the plain-words primer on each data screen ═══════════ */
+.primer{position:relative;margin:0 0 20px;padding:20px 22px 18px;
+  border:1px solid var(--line);border-radius:var(--r-m);
+  background:linear-gradient(180deg,var(--acc-soft),transparent 60%),var(--surf);
+  box-shadow:var(--sh-1);
+  animation:primer-in 520ms var(--e-out) both;overflow:hidden}
+/* .pane is a flex column, so a block child is squeezed to whatever is left
+   and then clipped by its own overflow. The primer sizes to its content. */
+.pane > .primer{margin:18px 18px 0;flex:0 0 auto}
+.pane > .primer-show{flex:0 0 auto}
+@keyframes primer-in{from{opacity:0;transform:translateY(-8px)}}
+.primer.folding{animation:primer-out 320ms var(--e-io) both}
+@keyframes primer-out{to{opacity:0;transform:translateY(-10px) scaleY(.92)}}
+.primer h3{margin:0 0 6px;font:600 14px var(--sans);color:var(--ink);
+  letter-spacing:-.005em}
+.primer .lead{margin:0 0 15px;font:450 14.5px/1.5 var(--sans);color:var(--ink-2);
+  max-width:72ch}
+.primer dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));
+  gap:14px 26px;margin:0}
+.primer dl > div{animation:rise-in 480ms var(--e-out) both;
+  animation-delay:calc(90ms + var(--i,0) * 70ms)}
+.primer dt{font:600 12.5px var(--sans);color:var(--acc);margin-bottom:3px;
+  letter-spacing:.005em}
+.primer dd{margin:0;font:450 13px/1.55 var(--sans);color:var(--ink-2)}
+.primer-x{position:absolute;top:10px;right:11px;width:26px;height:26px;
+  display:grid;place-items:center;appearance:none;border:0;cursor:pointer;
+  background:none;color:var(--ink-3);font-size:19px;line-height:1;
+  border-radius:8px;transition:background var(--t-fast),color var(--t-fast)}
+.primer-x:hover{background:var(--surf-2);color:var(--ink)}
+.primer-show{display:inline-flex;align-items:center;gap:7px;appearance:none;
+  cursor:pointer;margin:0 0 16px;padding:7px 14px;border-radius:999px;
+  border:1px dashed var(--line-2);background:none;color:var(--ink-3);
+  font:500 12px var(--sans);
+  transition:color var(--t-fast),border-color var(--t-fast),background var(--t-fast)}
+.pane > .primer-show{margin:18px 18px 0}
+.primer-show::before{content:"?";display:grid;place-items:center;
+  width:15px;height:15px;border-radius:50%;background:var(--acc-soft-2);
+  color:var(--acc);font:700 10px var(--sans)}
+.primer-show:hover{color:var(--ink);border-color:var(--acc);
+  background:var(--acc-soft)}
+@media(max-width:640px){
+  .primer{padding:17px 16px 15px;margin-bottom:16px}
+  .pane > .primer,.pane > .primer-show{margin:14px 14px 0}
+  .primer dl{grid-template-columns:1fr;gap:12px}
+}
+
+/* ═══════════════════ the opening ═══════════════════
+   The page assembles rather than appearing. The lattice draws itself first,
+   then the frame, then the words, then the numbers - roughly the order you
+   would build the thing it describes. Nothing here blocks interaction: the
+   page is usable from the first frame, this only governs how it arrives. */
+@keyframes boot-fade{from{opacity:0}}
+@keyframes boot-rise{from{opacity:0;transform:translateY(14px)}}
+@keyframes boot-side{from{opacity:0;transform:translateX(-14px)}}
+@keyframes boot-scale{from{opacity:0;transform:translateY(10px) scale(.985)}}
+@keyframes boot-wipe{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
+
+html.booting .sbrand{animation:boot-side 620ms var(--e-out) both 80ms}
+html.booting .snav .sitem{animation:boot-side 520ms var(--e-out) both;
+  animation-delay:calc(160ms + var(--n,0) * 48ms)}
+html.booting .sfoot{animation:boot-fade 700ms var(--e-out) both 520ms}
+html.booting .badge{animation:boot-scale 700ms var(--e-out) both 220ms}
+html.booting .hero h1{animation:boot-rise 820ms var(--e-out) both 300ms}
+html.booting .hero p{animation:boot-rise 820ms var(--e-out) both 420ms}
+html.booting .statstrip .stat{animation:boot-scale 620ms var(--e-spring) both;
+  animation-delay:calc(560ms + var(--i,0) * 70ms)}
+html.booting .chips button{animation:boot-scale 540ms var(--e-out) both;
+  animation-delay:calc(760ms + var(--i,0) * 42ms)}
+html.booting .composer{animation:boot-rise 720ms var(--e-out) both 640ms}
+/* the hairline above the brand draws itself left to right */
+html.booting .side{animation:boot-fade 400ms linear both}
+html.booting .hero .badge i{animation:boot-wipe 900ms var(--e-out) both 400ms}
+
+@media(prefers-reduced-motion:reduce){
+  html.booting *{animation:none!important}
+}
+
+/* ═══════════ moving between screens ═══════════
+   Each screen arrives with its own content staggered behind it, so switching
+   tabs reads as a move rather than a repaint. */
+.view{animation:view-in 420ms var(--e-out) both}
+.view[data-view] .mid > *{animation:rise-in 480ms var(--e-out) both}
+.view[data-view] .mid > *:nth-child(1){animation-delay:40ms}
+.view[data-view] .mid > *:nth-child(2){animation-delay:95ms}
+.view[data-view] .mid > *:nth-child(3){animation-delay:150ms}
+.view[data-view] .mid > *:nth-child(4){animation-delay:205ms}
+.view[data-view] .pane > *{animation:rise-in 480ms var(--e-out) both}
+.view[data-view] .pane > *:nth-child(1){animation-delay:40ms}
+.view[data-view] .pane > *:nth-child(2){animation-delay:100ms}
+.view[data-view] .pane > *:nth-child(3){animation-delay:160ms}
+.view[data-view] .rail{animation:boot-side 460ms var(--e-out) both 60ms}
+
+/* the sidebar item you are on grows a filled marker rather than snapping */
+.sitem[aria-selected="true"]::before{transition:transform var(--t) var(--e-spring)}
+@media(prefers-reduced-motion:reduce){
+  .view,.view *,.rail{animation:none!important}
+}
+
+/* ═══════════ the cards, on arrival ═══════════ */
+.mcards .mcard{animation:rise-in 460ms var(--e-out) both;
+  animation-delay:calc(var(--i,0) * 24ms)}
+.exgroup .excard{animation:rise-in 440ms var(--e-out) both;
+  animation-delay:calc(var(--i,0) * 20ms)}
+@media(prefers-reduced-motion:reduce){
+  .mcards .mcard,.exgroup .excard{animation:none!important}
+}
