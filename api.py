@@ -766,6 +766,37 @@ def get_live(q: str, limit: int = Query(25, ge=1, le=50),
     return result
 
 
+@app.get("/api/agent/status", summary="Whether the reasoning agent can run")
+def agent_status():
+    import llm, agent, agent_tools
+    state = llm.status()
+    state.update({"tools": len(agent_tools.tool_specs()),
+                  "max_rounds": agent.MAX_ROUNDS,
+                  "tool_names": sorted(agent_tools.REGISTRY)})
+    return state
+
+
+@app.post("/api/agent", summary="Ask the reasoning agent, streamed")
+def agent_ask(payload: dict):
+    """Each line of the response is one event: a tool call, a result, the
+    agent's thinking, or the finished answer with its verification report."""
+    import agent
+    question = ((payload or {}).get("question") or "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="question is required")
+    history = (payload or {}).get("history") or []
+
+    def stream():
+        try:
+            for event in agent.run(question, history=history):
+                yield json.dumps(event, default=str) + "\n"
+        except Exception as exc:
+            yield json.dumps({"type": "error", "code": "crashed",
+                              "message": f"{type(exc).__name__}: {exc}"}) + "\n"
+
+    return StreamingResponse(stream(), media_type="application/x-ndjson")
+
+
 @app.get("/api/health", summary="Liveness and corpus readiness")
 def health():
     conn = _conn()
