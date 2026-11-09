@@ -14,3 +14,9 @@ venv/
 demo/data.json
 app/data.json
 web/data.json
+
+# SQLite write-ahead log. The database runs in WAL mode, so these two appear
+# beside it whenever the service runs and vanish when it closes cleanly. They
+# are runtime state, never content.
+*.db-wal
+*.db-shm
