@@ -66,8 +66,11 @@ papers. Say when most rows do not report a field. Say how many are flagged and \
 why. Never present a flagged number as settled.
 
 FORMAT
-Markdown. Lead with the answer, then the conditions it holds under, then the \
-caveats. A table when comparing three or more things. Keep it short."""
+Markdown, and brief: under 120 words unless more is asked for. Lead with the \
+answer in one sentence. Then at most three short bullets of conditions or \
+caveats. A table only when comparing three or more things. No headings, no \
+restating the question, no closing summary. A scientist will ask a follow-up \
+if they want more; they will not thank you for a wall of text."""
 
 
 def _tool_text(result: dict) -> str:

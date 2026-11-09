@@ -1144,7 +1144,8 @@ ta.addEventListener("keydown", (e) => {
 $("form").addEventListener("submit", (e) => {
   e.preventDefault();
   const q = ta.value.trim(); if (!q) return;
-  ta.value = ""; ta.style.height = "auto"; ask(q);
+  ta.value = ""; ta.style.height = "auto";
+  (MODE === "agent" ? askAgent : ask)(q);
 });
 
 const CHIPS = [
@@ -1651,7 +1652,232 @@ async function loadData() {
     `<button style="--i:${i}" data-q="${esc(q)}">${esc(q)}</button>`).join("");
   $("chips").addEventListener("click", (e) => { const b = e.target.closest("button");
     if (b) ask(b.dataset.q); });
-  paintFacets(); head(); loadNotes();
+  paintFacets(); head(); loadNotes(); probeAgent();
   // Exposed so tests/scorecard_ui.js can drive the shipped engine directly.
   window.DATA = DATA; window.build = build;
 })();
+
+/* ═══════════════════ agent mode ═══════════════════
+   The deterministic engine answers instantly and free. The agent plans for
+   itself, calls tools, and can answer things nobody coded a rule for; it runs
+   on the server's own key, so no visitor is ever asked to pay or sign in. */
+
+let MODE = "instant";
+let AGENT = { available: false, provider: null, model: null, tools: 0 };
+
+async function probeAgent() {
+  if (!API) return;
+  try {
+    const s = await fetch("api/agent/status").then((r) => r.json());
+    AGENT = { available: !!s.configured, provider: s.provider,
+              model: s.model, tools: s.tools || 0 };
+  } catch (e) { AGENT.available = false; }
+  const btn = document.querySelector('.mode[data-mode="agent"]');
+  if (!btn) return;
+  if (!AGENT.available) {
+    btn.disabled = true;
+    btn.title = API ? "No model key is set on the server"
+                    : "Agent mode needs the full service, not the static copy";
+    btn.style.opacity = ".45"; btn.style.cursor = "not-allowed";
+  }
+}
+
+function setMode(mode) {
+  if (mode === "agent" && !AGENT.available) return;
+  MODE = mode;
+  document.querySelectorAll(".mode").forEach((b) =>
+    b.setAttribute("aria-checked", String(b.dataset.mode === mode)));
+  const hint = $("hint");
+  if (hint) hint.textContent = mode === "agent"
+    ? `Plans its own steps across ${AGENT.tools} tools. Slower, costs a little.`
+    : "Rules only. Instant and free.";
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest(".mode");
+  if (b && !b.disabled) setMode(b.dataset.mode);
+});
+
+/* ---- a small markdown renderer; the agent answers in markdown ---- */
+function md(src, refs) {
+  const lines = String(src || "").split("\n");
+  let html = "", list = null, table = false;
+  const closeList = () => { if (list) { html += `</${list}>`; list = null; } };
+  const closeTable = () => { if (table) { html += "</tbody></table>"; table = false; } };
+  const inline = (s) => {
+    let t = esc(s);
+    t = t.replace(/`([^`]+)`/g, "<code>$1</code>");
+    t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    t = t.replace(/(?<!\w)\*([^*\n]+)\*(?!\w)/g, "<em>$1</em>");
+    t = t.replace(/\[([EP]W?\d+)\]/g, (m, id) => {
+      const n = refs.index.get(id);
+      return n ? `<button class="cite" data-ref="${esc(id)}" title="Show the source">${n}</button>` : "";
+    });
+    return t;
+  };
+  for (const raw of lines) {
+    const line = raw.replace(/\s+$/, "");
+    if (/^\s*\|(.+)\|\s*$/.test(line)) {
+      const cells = line.trim().slice(1, -1).split("|").map((c) => c.trim());
+      if (/^[\s|:-]+$/.test(line)) continue;
+      if (!table) { closeList(); html += "<table><tbody><tr>"
+        + cells.map((c) => `<th>${inline(c)}</th>`).join("") + "</tr>"; table = true; continue; }
+      html += "<tr>" + cells.map((c) => {
+        const num = /^[\s]*[\d.,+\-]+\s*\S{0,8}$/.test(c);
+        return `<td class="${num ? "num" : ""}">${inline(c)}</td>`;
+      }).join("") + "</tr>";
+      continue;
+    }
+    closeTable();
+    if (!line.trim()) { closeList(); continue; }
+    let m;
+    if ((m = line.match(/^#{1,6}\s+(.*)$/))) { closeList(); html += `<h3>${inline(m[1])}</h3>`; continue; }
+    if ((m = line.match(/^\s*[-*]\s+(.*)$/))) {
+      if (list !== "ul") { closeList(); html += "<ul>"; list = "ul"; }
+      html += `<li>${inline(m[1])}</li>`; continue;
+    }
+    if ((m = line.match(/^\s*\d+[.)]\s+(.*)$/))) {
+      if (list !== "ol") { closeList(); html += "<ol>"; list = "ol"; }
+      html += `<li>${inline(m[1])}</li>`; continue;
+    }
+    closeList();
+    html += `<p>${inline(line)}</p>`;
+  }
+  closeList(); closeTable();
+  return html;
+}
+
+function agentRefs(text) {
+  const index = new Map(), items = [];
+  for (const id of [...String(text).matchAll(/\[([EP]W?\d+)\]/g)].map((m) => m[1])) {
+    if (index.has(id)) continue;
+    let item = null;
+    if (id[0] === "E") {
+      const row = DATA.rows.find((r) => "E" + r.id === id);
+      if (row) item = { kind: "evidence", id, row };
+    } else {
+      const wid = id.slice(1);
+      const p = DATA.passages.find((x) => x.i === wid);
+      if (p) item = { kind: "passage", id, p };
+    }
+    index.set(id, index.size + 1);
+    items.push(item || { kind: "unknown", id });
+  }
+  return { index, items };
+}
+
+function agentSources(refs) {
+  const known = refs.items.filter((i) => i.kind !== "unknown");
+  if (!known.length) return "";
+  return `<details class="disclose"><summary>Sources
+    <span class="dim">${known.length}</span>
+    <svg class="ic" viewBox="0 0 22 22"><use href="#i-chev"/></svg></summary>
+    <div class="inner2"><div class="srcs">${known.map((it) => {
+      const n = refs.index.get(it.id);
+      if (it.kind === "evidence") return srcCard(it.row, n);
+      return `<div class="src" data-pass="${esc(it.p.i)}"><div class="n">${n}</div><div>
+        <div class="t">${esc(it.p.t || "")}</div>
+        <div class="m"><span>${esc(it.p.j || "")}</span><span>${it.p.y || ""}</span></div>
+        <div class="qt">${esc(it.p.x.slice(0, 280))}&hellip;</div></div></div>`;
+    }).join("")}</div></div></details>`;
+}
+
+async function askAgent(question) {
+  if (busy || !question.trim()) return;
+  busy = true; $("send").disabled = true;
+  $("hero").hidden = true; $("chips").hidden = true;
+
+  const turn = document.createElement("div");
+  turn.className = "turn";
+  turn.innerHTML = `<div class="q"><div class="av">You</div><div class="t">${esc(question)}</div></div>
+    <details class="steps" open><summary><span class="sdot live"></span>
+      <span class="slabel">Thinking</span>
+      <svg class="ic" viewBox="0 0 22 22"><use href="#i-chev"/></svg></summary>
+      <div class="body"></div></details>
+    <div class="out"></div>`;
+  $("thread").appendChild(turn);
+  turn.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  const body = turn.querySelector(".steps .body");
+  const label = turn.querySelector(".slabel");
+  const out = turn.querySelector(".out");
+  const figures = [];
+  const step = (what, detail, result) => {
+    const row = document.createElement("div");
+    row.className = "step2";
+    row.innerHTML = `<span class="sdot"></span>
+      <span>${esc(what)} ${detail ? `<b>${esc(detail)}</b>` : ""}</span>
+      <span class="r">${esc(result || "")}</span>`;
+    body.appendChild(row);
+    body.parentElement.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  };
+
+  try {
+    const res = await fetch("api/agent", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question }),
+    });
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split("\n"); buf = lines.pop();
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        let ev; try { ev = JSON.parse(line); } catch (e) { continue; }
+        if (ev.type === "start") label.textContent = `Working · ${ev.model}`;
+        else if (ev.type === "thinking") {
+          const t = document.createElement("div");
+          t.className = "think"; t.textContent = ev.text.slice(0, 260) + "…";
+          body.appendChild(t);
+        }
+        else if (ev.type === "tool_call") step("Calling", ev.name, "");
+        else if (ev.type === "tool_result") {
+          const last = body.querySelector(".step2:last-of-type .r");
+          if (last) last.textContent = ev.summary || "";
+        }
+        else if (ev.type === "correcting")
+          step("Checking its own citations", "rewriting", "failed first pass");
+        else if (ev.type === "answer") {
+          const v = ev.verification || {};
+          const refs = agentRefs(ev.text);
+          const clean = v.clean;
+          out.innerHTML =
+            `<div class="prose">${md(ev.text, refs)}</div>`
+            + (ev.figures || []).map((f) =>
+                `<div class="figwrap"><img alt="Chart produced by the analysis"
+                  src="data:image/png;base64,${f.png_base64}"></div>`).join("")
+            + agentSources(refs)
+            + `<div class="acts">
+                 <button class="btn" data-save>Save to notebook</button>
+                 <span class="badge-v ${clean ? "ok" : "warn"}">${clean
+                   ? "Every figure traced to a source"
+                   : `${(v.numbers_unsupported || []).length} figure(s) unverified`}</span>
+                 <span class="dim">${ev.rounds} steps · ${ev.seconds}s</span></div>`;
+          label.textContent = `Worked for ${ev.seconds}s across ${ev.rounds} steps`;
+          turn.querySelector(".sdot").classList.remove("live");
+          turn.querySelector(".steps").open = false;
+          animateBlocks(out);
+          out.querySelector("[data-save]")?.addEventListener("click", (e) => {
+            saveNote(question, out.innerText.slice(0, 900), refs.items.length);
+            e.target.textContent = "Saved"; e.target.disabled = true;
+          });
+        }
+        else if (ev.type === "error") {
+          turn.querySelector(".sdot").classList.remove("live");
+          label.textContent = "Could not finish";
+          out.innerHTML = `<div class="refusal"><h3>The agent could not answer</h3>
+            <p>${esc(ev.message)}</p>
+            <p class="dim">Instant mode still works and needs no model.</p></div>`;
+        }
+      }
+    }
+  } catch (err) {
+    out.innerHTML = `<div class="refusal"><h3>The agent could not be reached</h3>
+      <p>${esc(String(err.message || err))}</p></div>`;
+  } finally {
+    busy = false; $("send").disabled = false; $("ask").focus();
+  }
+}
