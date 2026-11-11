@@ -21,16 +21,18 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /* Which questions should be handed to the agent, and which Instant answers
    properly on its own. Checked against the predicate, with no model needed. */
 const SHAPES = [
+  // quoted passages are Instant reporting its own failure, whatever was asked
+  [true,  "Do graphene separators suppress lithium dendrites?"],
+  [true,  "What is C-rate?"],
+  [true,  "How is graphene made?"],
+  [true,  "Is graphene oxide toxic to human cells?"],
+  [true,  "How much does graphene improve the strength of epoxy?"],
+  [true,  "How does CVD growth differ from liquid exfoliation?"],
   // asked why; rules can only match and count
   [true,  "Why do silicon anodes crack during cycling?"],
   [true,  "What limits the cycle life of silicon graphene anodes?"],
-  [true,  "How does nitrogen doping change graphene's conductivity?"],
   // asked which is better; needs weighing, not matching
   [true,  "What is the best electrolyte for a lithium-sulfur cell?"],
-  // asked how much and got prose with no figure in it
-  [true,  "How much does graphene improve the strength of epoxy?"],
-  // nothing in the library matched at all
-  [true,  "What is the melting point of tungsten?"],
 
   // Instant answered the shape that was asked for; leave it alone
   [false, "What is graphene?"],
@@ -46,6 +48,12 @@ const SHAPES = [
   [false, "What will battery prices be in 2030?"],
   [false, "Write me a poem about the sea."],
   [false, "Should I buy a graphene battery?"],
+
+  // outside the subject: nothing in the question touches the library's own
+  // vocabulary, so the agent would spend a call to reach the same refusal
+  [false, "What is the melting point of tungsten?"],
+  [false, "How do I file a UK tax return?"],
+  [false, "Who won the 2022 football world cup?"],
 ];
 
 /* End to end, with the agent reachable. */
@@ -117,9 +125,32 @@ async function run(page, mode, question, wait) {
       + `${handoff ? JSON.stringify(handoff.handoff.slice(0, 60)) : "none"}`);
   }
 
+  /* The toggle has to show which engine is running. Leaving the Instant pill
+     lit while the agent works tells the reader the opposite of the truth. */
+  const modeOf = () => page.evaluate(() => ({
+    instant: document.querySelector('.mode[data-mode="instant"]').getAttribute("aria-checked"),
+    agent: document.querySelector('.mode[data-mode="agent"]').getAttribute("aria-checked"),
+  }));
+  total += 1;
+  await page.evaluate(() => { window.agentCanTry = () => true; });
+  await run(page, "instant", "Why do silicon anodes crack during cycling?", 6000);
+  const onAgent = await modeOf();
+  const flipped = onAgent.agent === "true" && onAgent.instant === "false";
+  pass += flipped ? 1 : 0;
+  console.log(`  ${flipped ? "PASS" : "FAIL"}  the toggle moves to Agent when Instant hands over`);
+
+  total += 1;
+  await page.evaluate(() => { delete window.agentCanTry; });
+  await run(page, "agent", "What is an anode?", 8000);
+  const backOnInstant = await modeOf();
+  const flippedBack = backOnInstant.instant === "true" && backOnInstant.agent === "false";
+  pass += flippedBack ? 1 : 0;
+  console.log(`  ${flippedBack ? "PASS" : "FAIL"}  the toggle moves back when the agent falls back`);
+  await page.evaluate(() => { window.agentCanTry = () => true; });
+
   // A handed-over run must never hand back, however long we wait.
   total += 1;
-  const chain = await run(page, "instant", "What is the melting point of tungsten?", 12000);
+  const chain = await run(page, "instant", "Why do silicon anodes crack during cycling?", 12000);
   const noLoop = chain.length <= 2;
   pass += noLoop ? 1 : 0;
   console.log(`  ${noLoop ? "PASS" : "FAIL"}  a handed-over run never hands back `

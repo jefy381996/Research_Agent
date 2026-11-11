@@ -22,17 +22,27 @@ answer matches the shape of the question rather than whether Instant refused.
 Instant almost never refuses: asked *why* silicon anodes crack it returns a
 table of capacities, and asked *how much* graphene strengthens epoxy it returns
 quoted prose with no figure in it. Both look like answers. Neither is one, and
-both now go to the agent. So does a question about which option is better,
-which needs weighing rather than matching.
+both now go to the agent, as does a question about which option is better.
+
+Any answer that comes back as quoted passages goes too, whatever was asked.
+That branch exists for when the rules found nothing to extract, and it says so
+on screen — "No comparable numbers were extracted for this question" — so it is
+Instant reporting its own failure, and the agent reads the same papers and
+writes the answer out of them. The toggle follows whichever engine is actually
+running, rather than the one that was picked.
 
 Going the other way, when the agent cannot run - no key, no quota, or a
 question it has not researched - Instant answers instead, and the agent's
 working stays on screen if it got far enough to show any.
 
-Two guards keep this from running away. A handed-over run never hands back, so
-a question costs at most one attempt from each engine. And a question refused
-as outside the remit is never escalated: advice, prices, predictions and
-creative writing are decisions the agent is held to as well, not misses.
+Three guards keep this from running away. A handed-over run never hands back,
+so a question costs at most one attempt from each engine. A question refused as
+outside the remit is never escalated: advice, prices, predictions and creative
+writing are decisions the agent is held to as well, not misses. And a question
+that matched nothing is escalated only when it touches the library's own
+vocabulary — a reference entry title, a compound, a property, a facet value —
+so a tax question or a football result stops at the first refusal instead of
+spending a model call to arrive at the same answer.
 
 ## Run it
 
@@ -231,10 +241,11 @@ engine and only one of them is what a visitor meets:
 - `tests/scorecard_ui.js` — 34 questions driven through the real page in a real
   browser, covering definitions, battery numbers, material properties,
   comparisons, trends, calculations, quoted passages and refusals.
-- `tests/handoff_ui.js` — 22 cases covering which engine answers when: which
-  near misses are handed over, which good answers are left alone, and the two
-  guards — an out-of-remit question must not be escalated, and a handed-over
-  run must never hand back.
+- `tests/handoff_ui.js` — 30 cases covering which engine answers when: which
+  near misses are handed over, which good answers are left alone, that the
+  toggle follows the engine that is running, and the guards — out-of-remit and
+  off-subject questions must not be escalated, and a handed-over run must never
+  hand back.
 
 Both fail the build on drift in either direction.
 

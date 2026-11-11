@@ -1592,6 +1592,38 @@ function normQ(s) {
     .replace(/\s+/g, " ").replace(/[?!.,;:'"]+$/, "").trim();
 }
 
+/* The library's own vocabulary: every word that appears in a reference entry
+   title or category, a compound name, a property label, or one of the facet
+   values the measurements are indexed by. A question that touches none of it
+   is not a near miss, it is a different subject - and the agent, which is
+   held to the same library, would refuse it too. */
+const STOPWORDS = new Set(["and", "the", "for", "with", "from", "into", "its",
+  "are", "was", "were", "this", "that", "not", "non", "other", "per", "than",
+  "used", "use", "uses", "based", "type", "types", "general", "related"]);
+
+let DOMAIN_TERMS = null;
+function domainTerms() {
+  if (DOMAIN_TERMS) return DOMAIN_TERMS;
+  const set = new Set();
+  const add = (s) => String(s || "").toLowerCase().split(/[^a-z0-9]+/)
+    .forEach((w) => { if (w.length >= 3 && !STOPWORDS.has(w)) set.add(w); });
+  (DATA.concepts || []).forEach((c) => { add(c.title); add(c.category); });
+  (DATA.compounds || []).forEach((c) => add(c.name));
+  (DATA.property_families || []).forEach((f) => {
+    add(f.label); (f.aliases || []).forEach(add);
+  });
+  Object.values(DATA.facets || {}).forEach((list) =>
+    (list || []).forEach((v) => add(v.value)));
+  DOMAIN_TERMS = set;
+  return set;
+}
+
+function mentionsDomain(question) {
+  const terms = domainTerms();
+  return String(question).toLowerCase().split(/[^a-z0-9]+/)
+    .some((w) => w.length >= 3 && !STOPWORDS.has(w) && terms.has(w));
+}
+
 /* Can the agent actually attempt this question? With a model key, anything.
    Without one it can only replay what it has already researched, so there is
    no point handing it something it will refuse for want of a key. */
@@ -1618,26 +1650,32 @@ function worthEscalating(a) {
   if (a.wanted === "blocked") return false;        // the agent would refuse too
 
   if (a.kind === "refused") {
+    if (a.reason === "could not be computed") return true;
+    // Nothing matched. Worth a second opinion only if the question is about
+    // something this library covers at all; otherwise the agent would spend a
+    // call to reach the same refusal.
     return a.reason === "is not covered by the stored papers"
-        || a.reason === "could not be computed";
+        && mentionsDomain(a.question);
   }
 
-  // Asked for a figure and got prose, or got a table with no figure in it.
+  // Quoted passages are not an answer, whatever was asked. This branch exists
+  // for when the rules found nothing to extract, and it says so on screen:
+  // "No comparable numbers were extracted for this question." Instant is
+  // reporting its own failure, so it always goes to the agent, which reads
+  // the same papers and writes the answer out of them.
+  if (a.kind === "passages") return true;
+
+  // Asked for a figure and got a definition, or a table with no figure in it.
   if (a.wanted === "number") {
-    if (a.kind === "passages" || a.kind === "concept") return true;
+    if (a.kind === "concept") return true;
     if (a.kind === "quantitative" && !a.primary) return true;
     return false;
   }
 
-  // Asked why or how. Numbers do not answer that, and raw quotations only
-  // gesture at it; the agent reads the same papers and writes the answer.
+  // Asked why, or which is better. Numbers do not answer either.
   if (a.wanted === "mechanism" || a.wanted === "judgement") {
-    return NUMERIC_KINDS.includes(a.kind) || a.kind === "passages"
-        || a.kind === "concept";
+    return NUMERIC_KINDS.includes(a.kind) || a.kind === "concept";
   }
-
-  // An open question Instant could only meet with quotations.
-  if (a.wanted === "open" && a.kind === "passages") return true;
 
   return false;
 }
@@ -1655,12 +1693,31 @@ function escalationReason(a) {
   if (a.wanted === "judgement") {
     return "That asks which is better, which needs weighing rather than matching.";
   }
-  if (a.wanted === "number") {
-    return a.kind === "passages"
-      ? "The papers discuss this, but no figure was extracted by rule."
-      : "The rules found the subject but not the figure asked for.";
+  if (a.kind === "passages") {
+    return "The papers discuss this, but the rules extracted no answer from them.";
   }
-  return "The rules could only find passages that mention it.";
+  if (a.wanted === "number") {
+    return "The rules found the subject but not the figure asked for.";
+  }
+  return "The rules could not answer this one.";
+}
+
+/* The toggle has to show which engine is actually running. When Instant hands
+   a question to the agent, the agent is what is working - leaving the Instant
+   pill lit tells the reader the opposite of what is happening. setMode's own
+   guard is skipped here because the handoff has already established that the
+   engine can run; this only reflects a decision that has been made. */
+function syncMode(mode) {
+  MODE = mode;
+  document.querySelectorAll(".mode").forEach((bt) =>
+    bt.setAttribute("aria-checked", String(bt.dataset.mode === mode)));
+  const hint = $("hint");
+  if (!hint) return;
+  hint.textContent = mode === "agent"
+    ? (AGENT.replay
+        ? `Replaying ${AGENT.saved.length} researched questions, step by step. Free.`
+        : `Plans its own steps across ${AGENT.tools} tools. Slower, costs a little.`)
+    : "Rules only. Instant and free.";
 }
 
 function handoffBanner(from, why) {
@@ -1722,6 +1779,7 @@ async function ask(question, opts = {}) {
 
   // Rules found nothing. Let the agent try before giving up on the question.
   if (!opts.from && worthEscalating(a) && agentCanTry(question)) {
+    syncMode("agent");
     return askAgent(question, { from: "instant", why: escalationReason(a) });
   }
   $("ask").focus();
@@ -2725,6 +2783,7 @@ async function askAgent(question, opts = {}) {
         turn.querySelector(".sdot")?.classList.remove("live");
         label.textContent = "Stopped";
       }
+      syncMode("instant");
       return ask(question, { from: "agent", why: failed });
     }
     $("ask").focus();
