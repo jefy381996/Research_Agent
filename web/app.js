@@ -1211,8 +1211,12 @@ function renderAnswer(a) {
       <p class="dim">The library holds ${fmt(DATA.stats.evidence_rows)} measurements from
         ${fmt(DATA.stats.papers)} papers across graphene — batteries, electronics, sensors,
         membranes, composites, biomedicine and more — plus ${fmt(DATA.stats.concepts)} reference
-        entries. Instant mode answers definitions and performance figures by rule. For a
-        question that needs reasoning across several of those, switch to Agent.</p></div>`);
+        entries.</p>
+      ${agentCanTry(a.question)
+        ? `<p class="dim">The agent is being given the same question now; it can search in
+             ways a rule cannot.</p>`
+        : `<p class="dim">The agent could search further, but it needs a model key set on the
+             server before it can run.</p>`}</div>`);
     return { html: blocks.join(""), refs: [] };
   }
 
@@ -1529,16 +1533,65 @@ function traceFor(a) {
   return s;
 }
 
-async function ask(question) {
+/* ── handing a question from one engine to the other ─────
+   Instant answers by rule and never costs anything; the agent can plan, call
+   fifteen tools and reach things a rule cannot. Neither is strictly better, so
+   when one comes back empty the other gets a turn automatically.
+
+   Two rules keep this from becoming a loop or a waste:
+   - a handed-over run never hands back (the `from` flag), so the worst case is
+     one attempt each;
+   - a question refused as outside the remit - advice, prices, predictions -
+     is NOT escalated. The agent is held to the same rule and would refuse it
+     too, so passing it on would spend a model call to arrive at the same
+     answer, and invites the agent to answer something it should not. */
+
+/* The same normalisation the server uses for its answer cache, so a stored
+   question is recognised whatever the spacing or trailing punctuation. */
+function normQ(s) {
+  return String(s || "").trim().toLowerCase()
+    .replace(/\s+/g, " ").replace(/[?!.,;:'"]+$/, "").trim();
+}
+
+/* Can the agent actually attempt this question? With a model key, anything.
+   Without one it can only replay what it has already researched, so there is
+   no point handing it something it will refuse for want of a key. */
+function agentCanTry(question) {
+  if (AGENT.available) return true;
+  if (!AGENT.replay) return false;
+  const q = normQ(question);
+  return (AGENT.saved || []).some((s) => normQ(s.question) === q);
+}
+
+/* An Instant refusal worth a second opinion. "Not covered" and a failed
+   calculation are misses the agent may be able to work around; out-of-remit
+   is a decision, not a miss. */
+function worthEscalating(a) {
+  return a.kind === "refused"
+    && (a.reason === "is not covered by the stored papers"
+        || a.reason === "could not be computed");
+}
+
+function handoffBanner(from, why) {
+  const to = from === "instant" ? "the agent" : "instant mode";
+  return `<div class="handoff">
+    <span class="hio"><svg class="ic" viewBox="0 0 22 22"><use href="${
+      from === "instant" ? "#i-spark" : "#i-bolt"}"/></svg></span>
+    <span><b>Trying ${esc(to)} instead.</b> ${esc(why)}</span></div>`;
+}
+
+async function ask(question, opts = {}) {
   if (busy || !question.trim()) return;
   busy = true;
   $("send").disabled = true;
   $("hero").hidden = true; $("chips").hidden = true;
 
   const turn = document.createElement("div");
-  turn.className = "turn";
-  turn.innerHTML = `<div class="q"><div class="av">You</div><div class="t">${esc(question)}</div></div>
-    <div class="trace"><div class="trace-h">Working<button class="lnk" data-hide hidden>Hide</button></div>
+  turn.className = "turn" + (opts.from ? " continued" : "");
+  turn.innerHTML = (opts.from
+      ? handoffBanner(opts.from, opts.why || "")
+      : `<div class="q"><div class="av">You</div><div class="t">${esc(question)}</div></div>`)
+    + `<div class="trace"><div class="trace-h">Working<button class="lnk" data-hide hidden>Hide</button></div>
       <div class="tl"></div></div>
     <div class="out"></div>`;
   $("thread").appendChild(turn);
@@ -1574,7 +1627,16 @@ async function ask(question) {
     saveNote(question, out.innerText.slice(0, 900), refs.length);
     e.target.textContent = "Saved"; e.target.disabled = true;
   });
-  busy = false; $("send").disabled = false; $("ask").focus();
+  busy = false; $("send").disabled = false;
+
+  // Rules found nothing. Let the agent try before giving up on the question.
+  if (!opts.from && worthEscalating(a) && agentCanTry(question)) {
+    return askAgent(question, { from: "instant",
+      why: a.reason === "could not be computed"
+        ? "The rules could not work that calculation out."
+        : "Nothing in the stored papers matched closely enough by rule." });
+  }
+  $("ask").focus();
 }
 
 $("thread").addEventListener("click", (e) => {
@@ -2361,15 +2423,18 @@ function agentSources(refs) {
     }).join("")}</div></div></details>`;
 }
 
-async function askAgent(question) {
+async function askAgent(question, opts = {}) {
   if (busy || !question.trim()) return;
   busy = true; $("send").disabled = true;
   $("hero").hidden = true; $("chips").hidden = true;
+  let failed = null;              // set when the run ends without an answer
 
   const turn = document.createElement("div");
-  turn.className = "turn";
-  turn.innerHTML = `<div class="q"><div class="av">You</div><div class="t">${esc(question)}</div></div>
-    <div class="research" aria-hidden="true">
+  turn.className = "turn" + (opts.from ? " continued" : "");
+  turn.innerHTML = (opts.from
+      ? handoffBanner(opts.from, opts.why || "")
+      : `<div class="q"><div class="av">You</div><div class="t">${esc(question)}</div></div>`)
+    + `<div class="research" aria-hidden="true">
       <canvas class="rcanvas"></canvas>
       <div class="rlabel"><span class="rdot"></span><span class="rtext">Reading the library</span>
         <span class="rcount"></span></div>
@@ -2442,10 +2507,11 @@ async function askAgent(question) {
     let buf = "";
     for (;;) {
       const { value, done } = await reader.read();
-      if (done) break;
+      if (done || failed) break;
       buf += dec.decode(value, { stream: true });
       const lines = buf.split("\n"); buf = lines.pop();
       for (const line of lines) {
+        if (failed) break;
         if (!line.trim()) continue;
         let ev; try { ev = JSON.parse(line); } catch (e) { continue; }
 
@@ -2522,6 +2588,12 @@ async function askAgent(question) {
           // In replay mode a new question is not a failure, it is simply one
           // the agent has not been asked yet. Say that, and offer the ones it
           // has, rather than printing a key-is-missing error at a researcher.
+          failed = ev.code === "no_model" && AGENT.replay
+            ? "The agent has not researched this one, and will not guess."
+            : (ev.message || "The agent could not finish.");
+          // With a fallback coming, do not also print the agent's own error
+          // page - the answer below it is the thing the reader wants.
+          if (!opts.from) { break; }
           if (ev.code === "no_model" && AGENT.replay) {
             out.innerHTML = `<div class="refusal"><h3>Not researched yet</h3>
               <p>This deployment replays questions the agent has already worked
@@ -2546,10 +2618,27 @@ async function askAgent(question) {
       }
     }
   } catch (err) {
+    anim.live = false;
     anim.stop(); if (stage) stage.remove();
-    out.innerHTML = `<div class="refusal"><h3>The agent could not be reached</h3>
-      <p>${esc(String(err.message || err))}</p></div>`;
+    failed = String(err.message || err);
+    if (opts.from) {
+      out.innerHTML = `<div class="refusal"><h3>The agent could not be reached</h3>
+        <p>${esc(failed)}</p></div>`;
+    }
   } finally {
-    busy = false; $("send").disabled = false; $("ask").focus();
+    busy = false; $("send").disabled = false;
+    if (failed && !opts.from) {
+      // The agent could not answer. Instant always can, and costs nothing.
+      // Keep the agent's turn if it got far enough to show real working -
+      // that is worth seeing - and drop it when it is an empty shell, which
+      // is what a missing key produces.
+      if (!body.children.length) turn.remove();
+      else {
+        turn.querySelector(".sdot")?.classList.remove("live");
+        label.textContent = "Stopped";
+      }
+      return ask(question, { from: "agent", why: failed });
+    }
+    $("ask").focus();
   }
 }

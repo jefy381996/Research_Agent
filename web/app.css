@@ -1334,3 +1334,23 @@ html.booting .hero .badge i{animation:boot-wipe 900ms var(--e-out) both 400ms}
 /* The turn is scrolled to its own top; leave the question a little air above
    it rather than clipping its first line against the edge. */
 .turn{scroll-margin-top:18px}
+
+/* ═══════════ one engine handing a question to the other ═══════════
+   This replaces the question header on a handed-over turn: repeating the
+   question would read as a second question being asked, when it is the same
+   one being tried another way. */
+.handoff{display:flex;align-items:flex-start;gap:11px;margin:4px 0 18px;
+  padding:11px 14px;border-radius:var(--r-m);
+  border:1px dashed var(--line-2);background:var(--acc-soft);
+  font:450 13.5px/1.5 var(--sans);color:var(--ink-2);
+  animation:rise-in 420ms var(--e-out) both}
+.handoff b{color:var(--ink);font-weight:600}
+.handoff .hio{flex:0 0 auto;display:grid;place-items:center;
+  width:24px;height:24px;border-radius:7px;background:var(--acc);
+  color:var(--acc-ink);margin-top:-1px}
+.handoff .hio .ic{width:14px;height:14px;stroke-width:1.9}
+.turn.continued{margin-top:-6px}
+@media(max-width:640px){
+  .handoff{font-size:13px;padding:10px 12px;gap:9px}
+}
+@media(prefers-reduced-motion:reduce){.handoff{animation:none}}

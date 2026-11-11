@@ -17,6 +17,13 @@ fifteen tools over the same data, checks every number and every citation it
 produces against what the tools actually returned, and makes it correct itself
 once before you see the answer.
 
+The two hand over to each other. When Instant finds nothing in the library the
+question goes to the agent automatically; when the agent cannot run - no key,
+no quota, or a question it has not researched - Instant answers instead. A
+handed-over run never hands back, so a question costs at most one attempt from
+each, and a question refused as outside the remit is not escalated at all,
+because the agent is held to the same rule and would refuse it too.
+
 ## Run it
 
 ```bash
@@ -214,6 +221,9 @@ engine and only one of them is what a visitor meets:
 - `tests/scorecard_ui.js` — 34 questions driven through the real page in a real
   browser, covering definitions, battery numbers, material properties,
   comparisons, trends, calculations, quoted passages and refusals.
+- `tests/handoff_ui.js` — 7 cases covering which engine answers when, including
+  the two that matter most: an out-of-remit question must not be escalated, and
+  a handed-over run must never hand back.
 
 Both fail the build on drift in either direction.
 
