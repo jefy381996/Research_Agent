@@ -17,12 +17,22 @@ fifteen tools over the same data, checks every number and every citation it
 produces against what the tools actually returned, and makes it correct itself
 once before you see the answer.
 
-The two hand over to each other. When Instant finds nothing in the library the
-question goes to the agent automatically; when the agent cannot run - no key,
-no quota, or a question it has not researched - Instant answers instead. A
-handed-over run never hands back, so a question costs at most one attempt from
-each, and a question refused as outside the remit is not escalated at all,
-because the agent is held to the same rule and would refuse it too.
+The two hand over to each other, and the test is whether the shape of the
+answer matches the shape of the question rather than whether Instant refused.
+Instant almost never refuses: asked *why* silicon anodes crack it returns a
+table of capacities, and asked *how much* graphene strengthens epoxy it returns
+quoted prose with no figure in it. Both look like answers. Neither is one, and
+both now go to the agent. So does a question about which option is better,
+which needs weighing rather than matching.
+
+Going the other way, when the agent cannot run - no key, no quota, or a
+question it has not researched - Instant answers instead, and the agent's
+working stays on screen if it got far enough to show any.
+
+Two guards keep this from running away. A handed-over run never hands back, so
+a question costs at most one attempt from each engine. And a question refused
+as outside the remit is never escalated: advice, prices, predictions and
+creative writing are decisions the agent is held to as well, not misses.
 
 ## Run it
 
@@ -221,9 +231,10 @@ engine and only one of them is what a visitor meets:
 - `tests/scorecard_ui.js` — 34 questions driven through the real page in a real
   browser, covering definitions, battery numbers, material properties,
   comparisons, trends, calculations, quoted passages and refusals.
-- `tests/handoff_ui.js` — 7 cases covering which engine answers when, including
-  the two that matter most: an out-of-remit question must not be escalated, and
-  a handed-over run must never hand back.
+- `tests/handoff_ui.js` — 22 cases covering which engine answers when: which
+  near misses are handed over, which good answers are left alone, and the two
+  guards — an out-of-remit question must not be escalated, and a handed-over
+  run must never hand back.
 
 Both fail the build on drift in either direction.
 

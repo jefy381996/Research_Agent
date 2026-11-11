@@ -109,6 +109,11 @@ const OUT_OF_REMIT = [
   [/\bwill\b[^?]*\b20[2-9]\d\b/, "asks for a prediction"],
   [/\brecommend\w*\b/, "asks for a recommendation"],
   [/\b(?:buy|purchase|cheapest|price)\b/, "asks about commerce"],
+  // Not a search that came up empty - a different job entirely. Naming it as
+  // such keeps it from being handed to the agent as if it were a near miss.
+  [/\b(?:write|compose|draft)\s+(?:me\s+)?(?:a|an|some)\s+(?:poem|song|story|joke|essay|rap|haiku|limerick|script)\b/,
+   "asks for creative writing, not evidence"],
+  [/\b(?:poem|haiku|limerick|sonnet)\b/, "asks for creative writing, not evidence"],
 ];
 
 // Share of passages a term must appear in before the library claims coverage.
@@ -904,7 +909,7 @@ function propertyAnswer(question, low, fam) {
   };
 }
 
-function build(question) {
+function buildAnswer(question) {
   const u = understand(question);
 
   if (u.blocked) return { kind: "refused", question, reason: u.blocked,
@@ -1533,6 +1538,40 @@ function traceFor(a) {
   return s;
 }
 
+/* What shape of answer did the question ask for?
+   Instant picks its branch from whatever it can match, so it will answer "why
+   do silicon anodes crack" with a table of capacities and think it has
+   succeeded. Recording the shape that was asked for lets the handoff see the
+   difference between an answer and a near miss. */
+const MECHANISM = new RegExp([
+  "^\\s*(?:why|how (?:does|do|can|is|are)|what (?:causes?|limits?|makes|happens|prevents?|drives?))\\b",
+  "\\b(?:mechanism|degrad\\w*|why does|why do|reason(?:s)? (?:for|behind)|root cause)\\b",
+  "\\b(?:is|are) .{0,40}\\b(?:safe|toxic|stable|viable|practical|harmful|reversible)\\b",
+].join("|"), "i");
+
+/* "What is the best electrolyte for lithium-sulfur" opens like a definition
+   and is nothing of the kind: it asks for a judgement across the evidence,
+   which is exactly what rules cannot do and the agent can. */
+const JUDGEMENT = /\b(?:best|better|worst|optimal|ideal|most (?:suitable|promising|effective|stable)|which .{0,30}\b(?:should|is better|performs better))\b/i;
+
+function wantedKind(question) {
+  const u = understand(question);
+  if (u.blocked) return "blocked";
+  if (u.wantsCalc) return "number";
+  if (JUDGEMENT.test(question)) return "judgement";
+  if (MECHANISM.test(question)) return "mechanism";
+  if (u.metrics.length || u.compare || u.trend) return "number";
+  if (isDefinitional(question)) return "definition";
+  return "open";
+}
+
+/* The one the rest of the app calls. */
+function build(question) {
+  const a = buildAnswer(question);
+  a.wanted = wantedKind(question);
+  return a;
+}
+
 /* ── handing a question from one engine to the other ─────
    Instant answers by rule and never costs anything; the agent can plan, call
    fifteen tools and reach things a rule cannot. Neither is strictly better, so
@@ -1563,13 +1602,65 @@ function agentCanTry(question) {
   return (AGENT.saved || []).some((s) => normQ(s.question) === q);
 }
 
-/* An Instant refusal worth a second opinion. "Not covered" and a failed
-   calculation are misses the agent may be able to work around; out-of-remit
-   is a decision, not a miss. */
+/* Did Instant actually answer the question, or did it merely produce
+   something? These are different, and the first version of this handoff
+   conflated them: it escalated only on an outright refusal, and Instant
+   almost never refuses. It answers "why do silicon anodes crack" with a
+   capacity table and "how much does graphene strengthen epoxy" with quoted
+   prose, both of which look like answers and are not.
+
+   So the test is whether the shape of the answer matches the shape of the
+   question. Out-of-remit stays un-escalated: that is a decision the agent is
+   held to as well, not a miss. */
+const NUMERIC_KINDS = ["quantitative", "comparison", "trend", "calculation", "property"];
+
 function worthEscalating(a) {
-  return a.kind === "refused"
-    && (a.reason === "is not covered by the stored papers"
-        || a.reason === "could not be computed");
+  if (a.wanted === "blocked") return false;        // the agent would refuse too
+
+  if (a.kind === "refused") {
+    return a.reason === "is not covered by the stored papers"
+        || a.reason === "could not be computed";
+  }
+
+  // Asked for a figure and got prose, or got a table with no figure in it.
+  if (a.wanted === "number") {
+    if (a.kind === "passages" || a.kind === "concept") return true;
+    if (a.kind === "quantitative" && !a.primary) return true;
+    return false;
+  }
+
+  // Asked why or how. Numbers do not answer that, and raw quotations only
+  // gesture at it; the agent reads the same papers and writes the answer.
+  if (a.wanted === "mechanism" || a.wanted === "judgement") {
+    return NUMERIC_KINDS.includes(a.kind) || a.kind === "passages"
+        || a.kind === "concept";
+  }
+
+  // An open question Instant could only meet with quotations.
+  if (a.wanted === "open" && a.kind === "passages") return true;
+
+  return false;
+}
+
+/* Say which near miss triggered the handoff, in the reader's terms. */
+function escalationReason(a) {
+  if (a.kind === "refused") {
+    return a.reason === "could not be computed"
+      ? "The rules could not work that calculation out."
+      : "Nothing in the stored papers matched closely enough by rule.";
+  }
+  if (a.wanted === "mechanism") {
+    return "That asks why something happens, and rules can only match and count.";
+  }
+  if (a.wanted === "judgement") {
+    return "That asks which is better, which needs weighing rather than matching.";
+  }
+  if (a.wanted === "number") {
+    return a.kind === "passages"
+      ? "The papers discuss this, but no figure was extracted by rule."
+      : "The rules found the subject but not the figure asked for.";
+  }
+  return "The rules could only find passages that mention it.";
 }
 
 function handoffBanner(from, why) {
@@ -1631,10 +1722,7 @@ async function ask(question, opts = {}) {
 
   // Rules found nothing. Let the agent try before giving up on the question.
   if (!opts.from && worthEscalating(a) && agentCanTry(question)) {
-    return askAgent(question, { from: "instant",
-      why: a.reason === "could not be computed"
-        ? "The rules could not work that calculation out."
-        : "Nothing in the stored papers matched closely enough by rule." });
+    return askAgent(question, { from: "instant", why: escalationReason(a) });
   }
   $("ask").focus();
 }
