@@ -157,6 +157,31 @@ An LLM pass is available behind `LLM_PROVIDER`, and may only rephrase text
 already retrieved. It cannot introduce a fact. The default path needs no model,
 no key and no network, and returns the same answer every time.
 
+## A researcher's own data
+
+A researcher can read their own results with the same two extractors the
+library was built with: paste a results paragraph, or drop a PDF. The figures
+come back under the same rule — one sentence per figure, and that sentence
+travels with it — and appear as cards that open to show it, exactly as library
+measurements do.
+
+**The server stores none of it.** It extracts and returns; the rows live in the
+browser that asked for them. This deployment has no login, so anything written
+to the database would be readable by everyone holding the link, and unpublished
+results are precisely what a researcher would be adding. `/api/extract/text`
+and `/api/extract/pdf` write nothing, no PDF is retained, and
+`tests/test_user_data.py` compares every table's row count across a call to
+prove it.
+
+That also keeps the library honest. A figure somebody supplied can never be
+counted as published evidence, because it was never stored to be counted — the
+totals do not move, and every supplied row is tagged *yours* wherever it
+appears. The cost is stated on the screen: the data does not follow the
+researcher to another browser, so there is a CSV export.
+
+The agent does not see this data yet. Instant mode and the Measurements and
+Properties screens do.
+
 ## Properties, and why they needed their own rules
 
 A battery figure is unambiguous: `372 mAh/g` can only be a capacity. A material
@@ -241,6 +266,9 @@ engine and only one of them is what a visitor meets:
 - `tests/scorecard_ui.js` — 34 questions driven through the real page in a real
   browser, covering definitions, battery numbers, material properties,
   comparisons, trends, calculations, quoted passages and refusals.
+- `tests/mydata_ui.js` — 10 cases covering a researcher's own data, including
+  the two that matter: the library's totals must not move, and a second browser
+  must see nothing of the first one's unpublished work.
 - `tests/handoff_ui.js` — 30 cases covering which engine answers when: which
   near misses are handed over, which good answers are left alone, that the
   toggle follows the engine that is running, and the guards — out-of-remit and

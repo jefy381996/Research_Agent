@@ -378,7 +378,6 @@ def get_stats():
             "concepts": one("SELECT count(*) FROM concepts"),
             "compounds": one("SELECT count(*) FROM compounds"),
             "calculators": len(calculators.REGISTRY),
-            "user_documents": one("SELECT count(*) FROM user_documents"),
             "checks": {
                 "capacity_hard_max_mah_g": plausibility.CAPACITY_HARD_MAX,
                 "cycle_hard_max": plausibility.CYCLE_HARD_MAX,
@@ -573,18 +572,10 @@ def post_convert(payload: dict):
 
 # --- my library -------------------------------------------------------------
 
-@app.post("/api/upload", summary="Upload a PDF, extract its text, index it")
-def post_upload(file: UploadFile = File(...)):
-    if not (file.filename or "").lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="only PDF files are accepted")
+def _read_pdf(raw: bytes, filename: str) -> tuple[str, int]:
+    """Text out of a PDF, and the page count. The file is never kept."""
     import pymupdf
-
-    raw = file.file.read()
-    if len(raw) > 60 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="file larger than 60 MB")
-
-    # The PDF is written to a temporary file, read, and deleted. No PDF is kept.
-    tmp_dir = tempfile.mkdtemp(prefix="upload-")
+    tmp_dir = tempfile.mkdtemp(prefix="extract-")
     tmp_path = os.path.join(tmp_dir, "document.pdf")
     try:
         with open(tmp_path, "wb") as fh:
@@ -597,95 +588,86 @@ def post_upload(file: UploadFile = File(...)):
         pages = document.page_count
         text = "\n".join(page.get_text() for page in document)
         document.close()
+        return text, pages
     finally:
-        for path in (tmp_path,):
-            if os.path.exists(path):
-                os.unlink(path)
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
         if os.path.isdir(tmp_dir):
             os.rmdir(tmp_dir)
 
+
+def _extract(text: str, title: str, pages: int | None = None) -> dict:
+    """Read a researcher's own text with the same two extractors the library
+    was built with, and return what they found.
+
+    Nothing is written anywhere. This deployment has no login, so anything
+    stored on the server would be readable by everyone holding the link, and
+    unpublished work is exactly what a researcher would be uploading. The rows
+    go back to the browser that asked for them and live there.
+
+    The same consequence matters for the library's own integrity: a number a
+    researcher supplied must never be countable as published evidence. Keeping
+    the server stateless makes that true by construction rather than by a flag
+    somebody has to remember to check.
+    """
+    import extract_evidence
+    import extract_properties
+
+    body = (text or "").strip()
+    if len(body) < 40:
+        raise HTTPException(status_code=422,
+                            detail="give at least a sentence or two of text")
+
+    paper = {"openalex_id": "MINE", "title": title or "untitled",
+             "abstract": body[:400_000]}
+
+    rows, rejected = extract_evidence.rows_for_paper(paper, section="your text")
+    plausibility.assess(rows)
+    for row in rows:
+        row.pop("_derived", None)
+        row["flags"] = row.get("flags") or []
+
+    props = extract_properties.rows_for_paper(paper)
+    for row in props:
+        row.pop("openalex_id", None)
+        row.pop("row_hash", None)
+        row["flags"] = [f for f in str(row.get("flags") or "").split(";") if f]
+
+    return {
+        "title": title or "untitled",
+        "characters": len(body),
+        "pages": pages,
+        "evidence": rows,
+        "properties": props,
+        "rejected_fields": len(rejected),
+        "stored": False,
+        "note": ("Read with the same extractors as the library, under the same "
+                 "rule: every figure comes from one sentence, and that sentence "
+                 "comes back with it. Nothing was saved on the server."),
+    }
+
+
+@app.post("/api/extract/text", summary="Read measurements out of text you supply")
+def post_extract_text(payload: dict):
+    """Paste an abstract, a results paragraph, or a whole section."""
+    return _extract(str(payload.get("text") or ""),
+                    str(payload.get("title") or "pasted text"))
+
+
+@app.post("/api/extract/pdf", summary="Read measurements out of a PDF you supply")
+def post_extract_pdf(file: UploadFile = File(...)):
+    """The PDF is read in a temporary file and deleted; it is never stored."""
+    if not (file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="only PDF files are accepted")
+    raw = file.file.read()
+    if len(raw) > 40 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="file larger than 40 MB")
+    text, pages = _read_pdf(raw, file.filename or "document.pdf")
     if not text.strip():
         raise HTTPException(
             status_code=422,
             detail="no text layer found; this looks like a scanned PDF")
-
-    import extract_evidence
-
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    conn = _conn()
-    try:
-        cursor = conn.execute(
-            "INSERT INTO user_documents(filename, uploaded_at, page_count,"
-            " char_count) VALUES(?,?,?,?)",
-            (file.filename, now, pages, len(text)))
-        doc_id = cursor.lastrowid
-        synthetic_id = f"USER{doc_id}"
-        conn.execute(
-            "INSERT INTO papers(openalex_id, title, year, journal, abstract,"
-            " source, full_text_reusable, fetched_at, authors)"
-            " VALUES(?,?,?,?,?,?,?,?,?)"
-            " ON CONFLICT(openalex_id) DO UPDATE SET abstract=excluded.abstract",
-            (synthetic_id, file.filename, None, "Uploaded by you", text,
-             "upload", "yes", now, "[]"))
-        conn.execute(
-            "INSERT INTO paper_sections(openalex_id, section, content)"
-            " VALUES(?,?,?) ON CONFLICT(openalex_id, section)"
-            " DO UPDATE SET content=excluded.content",
-            (synthetic_id, "full_text", text))
-        for ordinal, piece in enumerate(build_index.chunk(text)):
-            conn.execute(
-                "INSERT INTO chunks(openalex_id, section, ordinal, text)"
-                " VALUES(?,?,?,?) ON CONFLICT(openalex_id, section, ordinal)"
-                " DO UPDATE SET text=excluded.text",
-                (synthetic_id, "full_text", ordinal, piece))
-        conn.commit()
-
-        paper = conn.execute(
-            "SELECT openalex_id, title, abstract FROM papers WHERE openalex_id=?",
-            (synthetic_id,)).fetchone()
-        rows, _ = extract_evidence.rows_for_paper(paper, section="full_text")
-        plausibility.assess(rows)
-        fields = extract_evidence.INSERT_FIELDS
-        assignments = ",".join(f"{f}=excluded.{f}" for f in fields
-                               if f != "row_hash")
-        sql = (f"INSERT INTO evidence({','.join(fields)})"
-               f" VALUES({','.join('?' * len(fields))})"
-               f" ON CONFLICT(row_hash) DO UPDATE SET {assignments}")
-        written = 0
-        for row in rows:
-            row.pop("_derived", None)
-            row["row_hash"] = extract_evidence.row_hash(row)
-            row["flags"] = json.dumps(row.get("flags") or [])
-            row["extracted_at"] = now
-            try:
-                conn.execute(sql, [row.get(f) for f in fields])
-                written += 1
-            except Exception:
-                pass
-        conn.commit()
-        conn.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')")
-        conn.commit()
-        return {
-            "document_id": doc_id,
-            "openalex_id": synthetic_id,
-            "filename": file.filename,
-            "page_count": pages,
-            "characters": len(text),
-            "evidence_rows": written,
-            "pdf_retained": False,
-        }
-    finally:
-        conn.close()
-
-
-@app.get("/api/documents", summary="Documents you uploaded")
-def get_documents():
-    conn = _conn()
-    try:
-        return {"rows": [dict(r) for r in conn.execute(
-            "SELECT * FROM user_documents ORDER BY id DESC")]}
-    finally:
-        conn.close()
+    return _extract(text, file.filename or "document.pdf", pages)
 
 
 # --- export -----------------------------------------------------------------

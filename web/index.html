@@ -26,6 +26,7 @@
 <g id="i-bolt"><path d="M12 2 5 12.5h5L9.5 20 17 9.5h-5z"/></g>
 <g id="i-spark"><path d="M11 3l1.9 5.1L18 10l-5.1 1.9L11 17l-1.9-5.1L4 10l5.1-1.9z"/><path d="M17.5 14.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/></g>
 <g id="i-chev"><path d="M7 9l4 4 4-4"/></g>
+<g id="i-flask"><path d="M9 3h4M10 3v6.2L5.2 17.4A1.5 1.5 0 0 0 6.5 19.7h9a1.5 1.5 0 0 0 1.3-2.3L12 9.2V3"/><path d="M7.6 14h6.8"/></g>
 <g id="i-atom"><circle cx="11" cy="11" r="2"/><ellipse cx="11" cy="11" rx="8.5" ry="3.6"/><ellipse cx="11" cy="11" rx="8.5" ry="3.6" transform="rotate(60 11 11)"/><ellipse cx="11" cy="11" rx="8.5" ry="3.6" transform="rotate(120 11 11)"/></g>
 </defs></svg>
 
@@ -42,7 +43,8 @@
       <button role="tab" class="sitem" style="--n:3" data-short="Material" data-view="properties" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-atom"/></svg>Properties<span class="scount" id="n-prop"></span></button>
       <button role="tab" class="sitem" style="--n:4" data-short="Calc" data-view="calculator" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-calc"/></svg>Calculators<span class="scount" id="n-calc"></span></button>
       <button role="tab" class="sitem" style="--n:5" data-short="Papers" data-view="sources" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-book"/></svg>Papers<span class="scount" id="n-pap"></span></button>
-      <button role="tab" class="sitem" style="--n:6" data-short="Notes" data-view="notebook" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-note"/></svg>Notebook<span class="scount" id="nbn"></span></button>
+      <button role="tab" class="sitem" style="--n:6" data-short="Mine" data-view="mydata" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-flask"/></svg>My data<span class="scount" id="n-mine"></span></button>
+      <button role="tab" class="sitem" style="--n:7" data-short="Notes" data-view="notebook" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-note"/></svg>Notebook<span class="scount" id="nbn"></span></button>
     </nav>
     <div class="sfoot">
       <button class="btn wide" id="pal-open"><span class="kbd">&#8984;K</span>Search everything</button>
@@ -188,6 +190,50 @@
         <th>Paper</th><th class="num">Year</th><th>Journal</th><th>Read from</th>
         <th>Confidence</th><th class="num">Measurements</th><th>DOI</th>
       </tr></thead><tbody id="sb"></tbody></table></div>
+    </div>
+  </section>
+
+  <section class="view" data-view="mydata" hidden aria-label="My data">
+    <div class="mid">
+      <div class="phead">
+        <div><h2 class="h2">My data</h2>
+          <p class="sub" id="md-sub">Read your own results with the same extractor the library was built with.</p></div>
+      </div>
+
+      <div class="mdadd">
+        <div class="mdbox" id="mddrop">
+          <svg class="ic" viewBox="0 0 22 22" aria-hidden="true"><use href="#i-note"/></svg>
+          <b>Drop a PDF here</b>
+          <span>or <button class="lnk" id="mdpick">choose a file</button> &mdash; the paper, your report, a results section</span>
+          <input type="file" id="mdfile" accept="application/pdf,.pdf" hidden>
+        </div>
+        <div class="mdor"><span>or paste text</span></div>
+        <label class="fld"><span>A name for this, so you can find it again</span>
+          <input type="text" id="mdtitle" placeholder="Si/graphene cell, run 14"></label>
+        <textarea id="mdtext" rows="5" aria-label="Paste your results text"
+          placeholder="Paste an abstract, a results paragraph, or a whole section. Figures are read one sentence at a time, exactly as they are for published papers."></textarea>
+        <div class="mdact">
+          <button class="btn pri" id="mdgo">Read it</button>
+          <span class="dim" id="mdstat"></span>
+        </div>
+      </div>
+
+      <div class="mdnote">
+        <h3>Where this goes</h3>
+        <p><b>Into this browser, and nowhere else.</b> The text is sent to the
+          server, read, and the figures are sent straight back; nothing is
+          written to the server and no PDF is kept. This app has no login, so
+          anything stored on the server would be readable by anyone holding the
+          link &mdash; which is not where unpublished work belongs.</p>
+        <p class="dim">Two consequences worth knowing. Your data does not follow
+          you to another browser or another machine, so export it if you want to
+          keep it. And your figures are never counted as published evidence:
+          the library's totals do not move, and your rows are marked wherever
+          they appear.</p>
+      </div>
+
+      <div id="mdsets"></div>
+      <div id="mdempty" class="empty" hidden></div>
     </div>
   </section>
 

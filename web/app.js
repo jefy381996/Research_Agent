@@ -389,6 +389,294 @@ $("excats").addEventListener("click", (e) => {
   exCat = b.dataset.c || null; paintExplore($("exq").value);
 });
 
+/* ── a researcher's own data ─────────────────────────────
+   Read with the same two extractors the library was built with, under the
+   same rule: one sentence per figure, and the sentence travels with it.
+
+   It lives in this browser. The server extracts and returns; it stores
+   nothing. There is no login here, so anything kept on the server would be
+   readable by everyone holding the link, and unpublished results are exactly
+   what a researcher would be adding. Keeping the server stateless also keeps
+   the library honest: a figure somebody supplied can never be counted as
+   published evidence, because it was never there to count.
+
+   The cost is real and is stated on the screen: the data does not follow the
+   researcher to another browser, so there is an export. */
+function setN(id, v) { const el = $(id); if (el) el.textContent = v; }
+
+const MY_KEY = "gba.mydata";
+let MY = { sets: [] };
+
+function myLoad() {
+  try {
+    const raw = localStorage.getItem(MY_KEY);
+    MY.sets = raw ? JSON.parse(raw) : [];
+  } catch (e) { MY.sets = []; }
+  if (!Array.isArray(MY.sets)) MY.sets = [];
+}
+
+function mySave() {
+  try {
+    localStorage.setItem(MY_KEY, JSON.stringify(MY.sets));
+    return true;
+  } catch (e) {
+    // Quota, or storage blocked outright in a private window.
+    return false;
+  }
+}
+
+/* Every row the researcher has added, shaped like a library row so the same
+   cards and the same drawer render it, and tagged so it is never mistaken
+   for one. */
+function myRows() {
+  const out = [];
+  MY.sets.forEach((s) => (s.evidence || []).forEach((r, i) => {
+    out.push({ ...r, id: `${s.id}-e${i}`, mine: true, setId: s.id,
+               title: s.title, journal: "Your data", year: null,
+               doi: null, openalex_id: `MINE-${s.id}` });
+  }));
+  return out;
+}
+
+function myProps() {
+  const out = [];
+  MY.sets.forEach((s) => (s.properties || []).forEach((r, i) => {
+    out.push({ ...r, id: `${s.id}-p${i}`, mine: true, setId: s.id,
+               title: s.title, journal: "Your data", year: null,
+               doi: null, openalex_id: `MINE-${s.id}` });
+  }));
+  return out;
+}
+
+const myCount = () => myRows().length + myProps().length;
+
+function myAddSet(result) {
+  const set = {
+    id: "D" + Date.now().toString(36),
+    title: result.title || "untitled",
+    addedAt: new Date().toISOString(),
+    characters: result.characters || 0,
+    pages: result.pages || null,
+    evidence: result.evidence || [],
+    properties: result.properties || [],
+  };
+  MY.sets.unshift(set);
+  if (!mySave()) {
+    MY.sets.shift();
+    return { ok: false,
+             error: "This browser would not store it — it may be full, or set to block site data." };
+  }
+  return { ok: true, set };
+}
+
+function myRemove(id) {
+  MY.sets = MY.sets.filter((s) => s.id !== id);
+  mySave();
+  paintMine();
+  setN("n-mine", myCount() || "");
+}
+
+/* ---- adding ---- */
+
+async function myExtractText() {
+  const text = $("mdtext").value.trim();
+  const title = $("mdtitle").value.trim() || "pasted text";
+  if (text.length < 40) {
+    myStat("Give at least a sentence or two.", true);
+    return;
+  }
+  await myRun(() => fetch("api/extract/text", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, title }),
+  }), () => { $("mdtext").value = ""; $("mdtitle").value = ""; });
+}
+
+async function myExtractPdf(file) {
+  if (!file) return;
+  if (!/\.pdf$/i.test(file.name)) { myStat("That is not a PDF.", true); return; }
+  const form = new FormData();
+  form.append("file", file, file.name);
+  await myRun(() => fetch("api/extract/pdf", { method: "POST", body: form }));
+}
+
+async function myRun(send, onDone) {
+  if (!API) {
+    myStat("Reading your own data needs the full service, not the static copy.", true);
+    return;
+  }
+  $("mdgo").disabled = true;
+  myStat("Reading…");
+  try {
+    const res = await send();
+    if (!res.ok) {
+      let detail = `the server returned ${res.status}`;
+      try { detail = (await res.json()).detail || detail; } catch (e) {}
+      myStat(String(detail), true);
+      return;
+    }
+    const result = await res.json();
+    const found = (result.evidence || []).length + (result.properties || []).length;
+    if (!found) {
+      myStat("No figures were found in that. The extractor only takes a number "
+             + "when one sentence states it with its unit.", true);
+      return;
+    }
+    const added = myAddSet(result);
+    if (!added.ok) { myStat(added.error, true); return; }
+    if (onDone) onDone();
+    myStat(`${found} figure${found === 1 ? "" : "s"} read from ${esc(result.title)}.`);
+    paintMine();
+    setN("n-mine", myCount() || "");
+  } catch (err) {
+    myStat(String(err.message || err), true);
+  } finally {
+    $("mdgo").disabled = false;
+  }
+}
+
+function myStat(msg, bad) {
+  const el = $("mdstat");
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.toggle("bad", !!bad);
+}
+
+/* ---- painting ---- */
+
+function paintMine() {
+  const host = $("mdsets");
+  const empty = $("mdempty");
+  if (!host) return;
+  $("md-sub").textContent = MY.sets.length
+    ? `${MY.sets.length} set${MY.sets.length === 1 ? "" : "s"}, `
+      + `${myCount()} figure${myCount() === 1 ? "" : "s"}, read with the same `
+      + `extractor the library was built with.`
+    : "Read your own results with the same extractor the library was built with.";
+
+  if (!MY.sets.length) {
+    host.innerHTML = "";
+    empty.hidden = false;
+    empty.innerHTML = `<strong>Nothing added yet.</strong>
+      Paste a results paragraph or drop a PDF above. Whatever is found appears
+      here with the sentence it came from, exactly as library measurements do.`;
+    return;
+  }
+  empty.hidden = true;
+  host.innerHTML = MY.sets.map((s, gi) => {
+    const ev = s.evidence || [], pr = s.properties || [];
+    const when = new Date(s.addedAt);
+    return `<section class="mdset" style="--g:${gi}">
+      <header>
+        <div>
+          <h3>${esc(s.title)}</h3>
+          <p class="dim">${ev.length} battery figure${ev.length === 1 ? "" : "s"}
+            &middot; ${pr.length} propert${pr.length === 1 ? "y" : "ies"}
+            &middot; ${fmt(s.characters)} characters${
+              s.pages ? ` &middot; ${s.pages} pages` : ""}
+            &middot; added ${when.toLocaleDateString("en-GB")}</p>
+        </div>
+        <div class="mdbtns">
+          <button class="btn" data-mdexport="${s.id}">Export</button>
+          <button class="btn" data-mddelete="${s.id}">Delete</button>
+        </div>
+      </header>
+      <div class="mcards">
+        ${ev.map((r, i) => mcard({ ...r, id: `${s.id}-e${i}`, mine: true,
+            title: s.title, journal: "Your data" }, i)).join("")}
+        ${pr.map((r, i) => prCard({ ...r, id: `${s.id}-p${i}`, mine: true,
+            title: s.title, journal: "Your data" }, ev.length + i)).join("")}
+      </div>
+    </section>`;
+  }).join("");
+}
+
+/* ---- export ---- */
+
+function myExport(id) {
+  const set = MY.sets.find((s) => s.id === id);
+  if (!set) return;
+  const lines = [[
+    "set", "kind", "material", "property", "value", "unit", "as_reported",
+    "cycles", "retention_pct", "current_ma_g", "confidence", "flags",
+    "source_sentence",
+  ].join(",")];
+  const cell = (v) => {
+    const s = v === null || v === undefined ? "" : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  (set.evidence || []).forEach((r) => lines.push([
+    set.title, "battery", r.material_system, "specific capacity",
+    r.specific_capacity_mah_g, "mAh/g", r.capacity_as_reported,
+    r.cycle_count, r.capacity_retention_pct, r.current_density_ma_g,
+    r.confidence, (r.flags || []).join(";"), r.source_quote,
+  ].map(cell).join(",")));
+  (set.properties || []).forEach((r) => lines.push([
+    set.title, "property", r.material, r.property_label, r.value, r.unit,
+    r.value_as_reported, "", "", "", r.confidence,
+    (r.flags || []).join(";"), r.source_quote,
+  ].map(cell).join(",")));
+
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${set.title.replace(/[^\w.-]+/g, "-").slice(0, 60)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ---- wiring ---- */
+
+function wireMine() {
+  const drop = $("mddrop"), input = $("mdfile");
+  if (!drop) return;
+  $("mdpick").addEventListener("click", () => input.click());
+  input.addEventListener("change", () => {
+    myExtractPdf(input.files && input.files[0]);
+    input.value = "";
+  });
+  ["dragenter", "dragover"].forEach((ev) =>
+    drop.addEventListener(ev, (e) => {
+      e.preventDefault(); drop.classList.add("over");
+    }));
+  ["dragleave", "drop"].forEach((ev) =>
+    drop.addEventListener(ev, (e) => {
+      e.preventDefault(); drop.classList.remove("over");
+    }));
+  drop.addEventListener("drop", (e) => {
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    myExtractPdf(f);
+  });
+  $("mdgo").addEventListener("click", myExtractText);
+
+  $("mdsets").addEventListener("click", (e) => {
+    const del = e.target.closest("[data-mddelete]");
+    if (del) {
+      const set = MY.sets.find((s) => s.id === del.dataset.mddelete);
+      if (del.dataset.sure) { myRemove(del.dataset.mddelete); return; }
+      // No browser confirm() in an artifact frame, and a destructive action
+      // deserves a second press rather than a silent one.
+      del.dataset.sure = "1";
+      del.textContent = "Delete — sure?";
+      setTimeout(() => {
+        if (!del.isConnected) return;
+        delete del.dataset.sure; del.textContent = "Delete";
+      }, 4000);
+      return;
+    }
+    const exp = e.target.closest("[data-mdexport]");
+    if (exp) { myExport(exp.dataset.mdexport); return; }
+
+    const card = e.target.closest("[data-id],[data-prid]");
+    if (!card) return;
+    const id = card.dataset.id || card.dataset.prid;
+    const row = myRows().find((r) => r.id === id)
+             || myProps().find((r) => r.id === id);
+    if (!row) return;
+    if (row.property_key) openProp(row); else openRow(row);
+  });
+}
+
 /* ── telling a non-specialist what a screen is ──────────── */
 /* A table of 2,794 rows with a column called "coulombic efficiency" tells a
    chemist a great deal and a research director nothing at all. Each of these
@@ -513,8 +801,9 @@ let prFam = null;
 
 function prCard(r, i) {
   const cond = [r.application, r.graphene_form].filter(Boolean);
-  return `<button class="mcard ${r.confidence === "flagged" ? "fl" : ""}"
-      style="--i:${i}" data-prid="${r.id}">
+  return `<button class="mcard ${r.confidence === "flagged" ? "fl" : ""}${
+      r.mine ? " mine" : ""}" style="--i:${i}" data-prid="${r.id}">
+    ${r.mine ? `<span class="mtag">yours</span>` : ""}
     <div class="mhead"><span class="mmat">${esc(r.property_label)}</span>
       <span class="mchem">${esc(r.material || "graphene")}</span></div>
     <div class="mbig">${sig(r.value)}<u>${esc(r.unit)}</u></div>
@@ -1483,6 +1772,7 @@ function show(v) {
   if (v === "sources" && !$("sb").children.length) paintSources();
   if (v === "evidence" && !$("gb").children.length) reload();
   if (v === "properties") paintProps($("prq").value);
+  if (v === "mydata") paintMine();
 
   // Say in plain words what the screen is, before the data arrives.
   // .mid for the single-column screens; .pane for the two that carry a filter
@@ -1996,8 +2286,9 @@ function mcard(r, i) {
     ? `${fmt(r.specific_capacity_mah_g, 0)}<u>mAh/g</u>`
     : (r.capacity_retention_pct !== null
         ? `${fmt(r.capacity_retention_pct, 0)}<u>% retained</u>` : `<span class="nr">no headline figure</span>`);
-  return `<button class="mcard ${r.confidence === "flagged" ? "fl" : ""}"
-      style="--i:${i}" data-id="${r.id}">
+  return `<button class="mcard ${r.confidence === "flagged" ? "fl" : ""}${
+      r.mine ? " mine" : ""}" style="--i:${i}" data-id="${r.id}">
+    ${r.mine ? `<span class="mtag">yours</span>` : ""}
     <div class="mhead"><span class="mmat">${esc(r.material_system || "unnamed")}</span>
       <span class="mchem">${esc(r.battery_type || "chemistry not stated")}${
         r.electrode_role ? " \u00b7 " + esc(r.electrode_role) : ""}</span></div>
@@ -2391,7 +2682,7 @@ async function loadData() {
     [fmt(DATA.concepts.length), "reference entries"],
   ].map(([v, k], i) => `<div class="stat" style="--i:${i}"><div class="v">${esc(v)}</div>
       <div class="k">${esc(k)}</div></div>`).join("");
-  const setN = (id, v) => { const el = $(id); if (el) el.textContent = v; };
+
   setN("n-con", fmt(DATA.concepts.length));
   setN("n-ev", fmt(s.evidence_rows));
   setN("n-prop", fmt((DATA.properties || []).length));
@@ -2402,6 +2693,7 @@ async function loadData() {
   $("chips").addEventListener("click", (e) => { const b = e.target.closest("button");
     if (b) (MODE === "agent" ? askAgent : ask)(b.dataset.q); });
   paintFacets(); head(); loadNotes(); probeAgent();
+  myLoad(); wireMine(); setN("n-mine", myCount() || "");
   // The opening sequence is one-shot. Clearing the class once it has played
   // stops every later tab switch from replaying the whole arrival.
   setTimeout(() => document.documentElement.classList.remove("booting"), 2200);

@@ -1354,3 +1354,67 @@ html.booting .hero .badge i{animation:boot-wipe 900ms var(--e-out) both 400ms}
   .handoff{font-size:13px;padding:10px 12px;gap:9px}
 }
 @media(prefers-reduced-motion:reduce){.handoff{animation:none}}
+
+/* ═══════════ a researcher's own data ═══════════ */
+.mdadd{border:1px solid var(--line);border-radius:var(--r-m);background:var(--surf);
+  padding:20px;margin:0 0 18px;display:grid;gap:14px}
+.mdbox{display:grid;place-items:center;gap:6px;text-align:center;
+  padding:30px 18px;border:1.5px dashed var(--line-2);border-radius:var(--r-m);
+  background:var(--surf-2);transition:border-color var(--t) var(--e-out),
+  background var(--t) var(--e-out)}
+.mdbox.over{border-color:var(--acc);background:var(--acc-soft)}
+.mdbox .ic{width:26px;height:26px;color:var(--acc);stroke-width:1.5}
+.mdbox b{font:600 14px var(--sans)}
+.mdbox span{font:450 13px var(--sans);color:var(--ink-3)}
+.mdor{display:flex;align-items:center;gap:14px;color:var(--ink-3);
+  font:450 11.5px var(--mono);letter-spacing:.04em}
+.mdor::before,.mdor::after{content:"";flex:1;height:1px;background:var(--line)}
+#mdtext{width:100%;resize:vertical;padding:12px 14px;border-radius:var(--r-s);
+  border:1px solid var(--line);background:var(--bg);color:var(--ink);
+  font:450 13.5px/1.6 var(--sans);min-height:110px}
+#mdtext:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+.mdact{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+#mdstat{font:450 13px var(--sans);color:var(--ink-2);min-width:0}
+#mdstat.bad{color:var(--flag)}
+
+.mdnote{border:1px solid var(--line);border-left:3px solid var(--acc);
+  border-radius:var(--r-s);background:var(--acc-soft);padding:15px 17px;
+  margin:0 0 22px}
+.mdnote h3{margin:0 0 6px;font:600 13px var(--sans)}
+.mdnote p{margin:0 0 8px;font:450 13.5px/1.6 var(--sans);color:var(--ink-2);
+  max-width:72ch}
+.mdnote p:last-child{margin-bottom:0}
+.mdnote .dim{color:var(--ink-3);font-size:13px}
+
+.mdset{margin:0 0 26px;animation:rise-in 480ms var(--e-out) both;
+  animation-delay:calc(var(--g,0) * 70ms)}
+.mdset > header{display:flex;align-items:flex-start;justify-content:space-between;
+  gap:16px;flex-wrap:wrap;padding:0 0 12px;margin-bottom:4px;
+  border-bottom:1px solid var(--line)}
+.mdset h3{margin:0 0 3px;font:500 16px var(--display);letter-spacing:-.005em}
+.mdset header .dim{font:450 11.5px var(--mono);color:var(--ink-3)}
+.mdbtns{display:flex;gap:8px;flex:0 0 auto}
+.mdset .mcards{padding:14px 0 0}
+
+/* the tag that keeps a supplied figure from reading as a published one */
+.mcard.mine{border-color:var(--acc-soft-2)}
+.mcard .mtag{position:absolute;top:10px;right:10px;
+  font:500 9.5px var(--mono);letter-spacing:.07em;text-transform:uppercase;
+  color:var(--acc);background:var(--acc-soft);border:1px solid var(--acc-soft-2);
+  padding:2px 7px;border-radius:999px}
+.mcard{position:relative}
+
+@media(max-width:640px){
+  .mdadd{padding:15px}
+  .mdbox{padding:22px 12px}
+  .mdset > header{flex-direction:column;gap:10px}
+}
+
+/* Eight destinations and a theme switch. On a 390px phone that is ~43px each,
+   which fits; below that the labels need to give way before they clip. */
+@media(max-width:380px){
+  .sitem[data-short]{padding:7px 1px}
+  .sitem[data-short]::before{font-size:8.5px;letter-spacing:0}
+  .sitem[data-short] .ic{width:18px;height:18px}
+  .sfoot .btn.wide{padding:7px 5px;font-size:8.5px}
+}

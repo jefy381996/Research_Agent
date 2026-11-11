@@ -93,6 +93,7 @@ jobs:
           done
           node tests/scorecard_ui.js http://127.0.0.1:8099/
           node tests/handoff_ui.js http://127.0.0.1:8099/
+          node tests/mydata_ui.js http://127.0.0.1:8099/
 
       - name: Refuse to continue on an empty evidence table
         run: |
