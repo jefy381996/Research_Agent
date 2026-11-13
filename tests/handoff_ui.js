@@ -51,9 +51,18 @@ const SHAPES = [
 
   // outside the subject: nothing in the question touches the library's own
   // vocabulary, so the agent would spend a call to reach the same refusal
-  [false, "What is the melting point of tungsten?"],
   [false, "How do I file a UK tax return?"],
   [false, "Who won the 2022 football world cup?"],
+  [false, "What is the best pizza topping?"],
+
+  // Tungsten is not an exception to that rule, it is the rule working. The
+  // corpus holds "Atomic Tungsten on Graphene" and "Tungsten oxide/reduced
+  // graphene oxide composite electrodes", so a tungsten question is about
+  // something this library has papers on and the agent should look. It will
+  // not find a melting point, and will say so - which is the right answer
+  // arrived at properly rather than guessed at by a vocabulary that had
+  // never heard of tungsten.
+  [true,  "What is the melting point of tungsten?"],
 ];
 
 /* End to end, with the agent reachable. */

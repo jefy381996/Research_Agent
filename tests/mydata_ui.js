@@ -119,6 +119,64 @@ async function open(browser) {
   check("prose with no figures says so rather than inventing one",
     /No figures were found/i.test(none), none);
 
+  /* The order a researcher expects: the library, then their own data, then
+     the agent. And the matching that decides it, which has to be conservative
+     - a researcher who sees their own run attached to somebody else's
+     question stops trusting the screen. */
+  await page.fill("#mdtitle", "Zr/rGO run 7");
+  await page.fill("#mdtext", "The Zr/rGO hybrid anode delivered a reversible capacity "
+    + "of 2460 mAh g-1 at 300 mA g-1 and retained 93% of it after 400 cycles. The "
+    + "Zr/rGO film showed a thermal conductivity of 44.5 W/mK.");
+  await page.click("#mdgo");
+  await sleep(4000);
+
+  const MATCH = [
+    [true,  "What capacity do rGO anodes reach?",            "names the form they used"],
+    [true,  "What thermal conductivity do graphene composites reach?", "names the property"],
+    [true,  "How did Zr/rGO run 7 perform?",                 "names their set"],
+    [false, "What capacity do silicon graphene anodes reach?", "silicon; theirs is rGO"],
+    [false, "What capacity do anodes reach?",                "generic; would match everything"],
+    [false, "What is graphene?",                             "a definition"],
+    [false, "Compare material systems on capacity in lithium-ion anodes", "library comparison"],
+  ];
+  const matched = await page.evaluate((cs) => cs.map(([want, q, why]) =>
+    ({ want, q, why, got: !!myAnswer(q) })), MATCH);
+  for (const r of matched) {
+    check(`${r.want ? "shows" : "hides "} their data: ${r.why}`, r.got === r.want,
+      `"${r.q}"`);
+  }
+
+  /* The cascade itself: a question the library cannot answer, which their own
+     data can. */
+  await page.click('[data-view="ask"]'); await sleep(500);
+  await page.evaluate(() => { document.getElementById("thread").innerHTML = ""; });
+  await page.fill("#ask", "How did Zr/rGO run 7 perform?");
+  await page.click("#send");
+  await sleep(6500);
+  const cascade = await page.evaluate(() =>
+    [...document.querySelectorAll("#thread .turn")].map((t) => ({
+      continued: t.classList.contains("continued"),
+      handoff: (t.querySelector(".handoff")?.innerText || "").replace(/\s+/g, " "),
+      fromMine: !!t.querySelector(".headline.mine"),
+    })));
+  check("the library comes up short, then their own data answers",
+    cascade.length === 2 && cascade[1].continued && cascade[1].fromMine
+      && /your own data/i.test(cascade[1].handoff),
+    JSON.stringify(cascade));
+
+  /* And beside a library answer, when both have something to say. */
+  await page.evaluate(() => { document.getElementById("thread").innerHTML = ""; });
+  await page.fill("#ask", "What thermal conductivity do graphene composites reach?");
+  await page.click("#send");
+  await sleep(4000);
+  const beside = await page.evaluate(() => {
+    const s = document.querySelector(".minestrip");
+    return { library: !!document.querySelector(".headline:not(.mine)"),
+             strip: !!s, cards: s ? s.querySelectorAll(".mcard").length : 0 };
+  });
+  check("their figures sit beside a library answer, not inside it",
+    beside.library && beside.strip && beside.cards > 0, JSON.stringify(beside));
+
   console.log(`\nMy-data scorecard: ${pass}/${total}`);
   if (errors.length) console.log("console errors:\n  " + errors.slice(0, 5).join("\n  "));
   await browser.close();

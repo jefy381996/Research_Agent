@@ -31,6 +31,20 @@ Instant reporting its own failure, and the agent reads the same papers and
 writes the answer out of them. The toggle follows whichever engine is actually
 running, rather than the one that was picked.
 
+A researcher's own data sits between the two. The order is: the library,
+then whatever they have added, then the agent — each step running only because
+the one before it came up short. Their figures also appear *beside* a library
+answer whenever both have something to say, in their own frame with their own
+count, never blended into the median.
+
+That matching is deliberately conservative. The question has to agree with the
+row on subject — the material, the chemistry, the property — not merely share
+a word with it. An early version counted any two matching words and attached a
+researcher's zirconium run to a question about silicon anodes, because they
+shared "capacity", "anode" and a graphene form. A researcher who sees their own
+result against somebody else's question stops trusting the screen, which costs
+more than a missed match.
+
 Going the other way, when the agent cannot run - no key, no quota, or a
 question it has not researched - Instant answers instead, and the agent's
 working stays on screen if it got far enough to show any.
@@ -39,10 +53,12 @@ Three guards keep this from running away. A handed-over run never hands back,
 so a question costs at most one attempt from each engine. A question refused as
 outside the remit is never escalated: advice, prices, predictions and creative
 writing are decisions the agent is held to as well, not misses. And a question
-that matched nothing is escalated only when it touches the library's own
-vocabulary — a reference entry title, a compound, a property, a facet value —
-so a tax question or a football result stops at the first refusal instead of
-spending a model call to arrive at the same answer.
+that matched nothing is escalated only when it touches the subject, which is
+modelled from the paper titles themselves: 37,000 of them, written by the field
+about itself. A tax question or a football result stops at the first refusal
+instead of spending a model call to reach the same answer, while a question
+about tungsten does go to the agent, because the corpus holds *Atomic Tungsten
+on Graphene* and the agent should look.
 
 ## Run it
 
@@ -303,10 +319,10 @@ engine and only one of them is what a visitor meets:
 - `tests/voice_ui.js` — 50 cases over what is spoken, what is heard and what
   counts as a command. The audio itself cannot be tested in a headless browser;
   everything either side of it can, and that is where the mistakes are.
-- `tests/mydata_ui.js` — 10 cases covering a researcher's own data, including
+- `tests/mydata_ui.js` — 19 cases covering a researcher's own data, including
   the two that matter: the library's totals must not move, and a second browser
   must see nothing of the first one's unpublished work.
-- `tests/handoff_ui.js` — 30 cases covering which engine answers when: which
+- `tests/handoff_ui.js` — 31 cases covering which engine answers when: which
   near misses are handed over, which good answers are left alone, that the
   toggle follows the engine that is running, and the guards — out-of-remit and
   off-subject questions must not be escalated, and a handed-over run must never

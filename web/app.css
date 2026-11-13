@@ -1449,3 +1449,27 @@ html.booting .hero .badge i{animation:boot-wipe 900ms var(--e-out) both 400ms}
 @media(prefers-reduced-motion:reduce){
   .vdot,.btn.icon.mic[aria-pressed="true"] .ic{animation:none}
 }
+
+/* an answer that came from the researcher's own data, not the library */
+.headline.mine{border-top-color:var(--acc)}
+.headline.mine .lbl{color:var(--acc)}
+
+/* the researcher's own figures, beside the library's answer and never inside
+   it: its own frame, its own count, its own colour */
+.minestrip{margin:18px 0 0;padding:16px 18px;border-radius:var(--r-m);
+  border:1px solid var(--acc-soft-2);background:var(--acc-soft);
+  animation:rise-in 460ms var(--e-out) both}
+.mshead{display:flex;align-items:center;gap:9px;flex-wrap:wrap;
+  font:600 13px var(--sans);color:var(--ink)}
+.mshead .ic{width:16px;height:16px;color:var(--acc);stroke-width:1.7}
+.mshead .dim{font:450 12px var(--sans);color:var(--ink-3);font-weight:450}
+.msfig{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin:12px 0 2px}
+.msfig b{font:600 26px/1 var(--mono);letter-spacing:-.02em;color:var(--ink)}
+.msfig u{font:450 12px var(--mono);color:var(--acc);text-decoration:none}
+.msfig span{font:450 12.5px var(--sans);color:var(--ink-2)}
+.minestrip .mcards{padding:12px 0 0;gap:11px;
+  grid-template-columns:repeat(auto-fill,minmax(280px,1fr))}
+@media(max-width:640px){
+  .minestrip{padding:14px}
+  .minestrip .mcards{grid-template-columns:1fr}
+}

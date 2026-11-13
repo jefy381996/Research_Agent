@@ -389,6 +389,184 @@ $("excats").addEventListener("click", (e) => {
   exCat = b.dataset.c || null; paintExplore($("exq").value);
 });
 
+/* ── the step between the library and the agent ──────────
+   A researcher who has added their own results should not be told a question
+   is unanswerable while the answer is sitting in the data they uploaded five
+   minutes ago. So the order is: the library, then their own data, then the
+   agent. Each step only runs because the one before it came up short.
+
+   Their figures are never mixed into the library's. This is a separate answer,
+   labelled as theirs, with its own count - because one measurement from one
+   run is not the same kind of claim as a median over four hundred papers, and
+   the screen should not pretend otherwise. */
+/* Words every row in the library would match on, so matching on them alone
+   means nothing. Built through terms() rather than written out, because
+   terms() stems: it turns "anodes" into "anod", and a hand-written list
+   containing "anode" let it straight through. That one slip attached a
+   researcher's zirconium run to every question about anodes. */
+const UNSPECIFIC = new Set(terms(
+  "capacity capacities reach reaches measurement measurements data value "
+  + "values figure figures number numbers anode anodes cathode cathodes "
+  + "electrode electrodes battery batteries cell cells material materials "
+  + "graphene sample samples result results performance show give gives "
+  + "reported typical average median"));
+
+function myAnswer(question) {
+  const rows = myRows(), props = myProps();
+  if (!rows.length && !props.length) return null;
+
+  const u = understand(question);
+  const low = question.toLowerCase();
+  const fam = matchProperty(low);
+  const qterms = terms(question).filter((w) => !UNSPECIFIC.has(w));
+
+  /* Conservative on purpose. The first version counted any two matching
+     words, so "what capacity do silicon graphene anodes reach" pulled up a
+     researcher's zirconium run - it shared "capacity", "anode" and the
+     graphene form, and nothing that mattered. A researcher who sees their own
+     result attached to somebody else's question stops trusting the screen,
+     and that costs more than a missed match. So: the subject has to agree. */
+  const named = (field, want) => {
+    if (!want) return true;                       // the question named nothing
+    return String(field || "").toLowerCase().includes(String(want).toLowerCase());
+  };
+
+  // "graphene" is the catch-all form, not a specific one: rGO, graphene oxide
+  // and CVD graphene are all graphene. It can neither exclude a row nor
+  // select one.
+  const form = u.facets.graphene_form === "graphene" ? null : u.facets.graphene_form;
+
+  const fits = (r) => {
+    const material = [r.material_system, r.material, r.graphene_form]
+      .filter(Boolean).join(" ");
+
+    // A question that names a material, chemistry or form excludes any row
+    // that does not carry it.
+    if (u.facets.partner && !named(material, u.facets.partner)) return false;
+    if (form && !named(material, form)) return false;
+    if (u.facets.battery_type && r.battery_type
+        && r.battery_type !== u.facets.battery_type) return false;
+
+    // A property question matches on the property, which is unambiguous.
+    if (fam) return r.property_key === fam.key;
+
+    // Then a positive signal is needed - the row has to actually carry what
+    // the question named, not merely fail to contradict it. Without this,
+    // "what is graphene" and any lithium-ion comparison pulled in every row
+    // the researcher had ever added.
+    if (u.facets.partner && named(material, u.facets.partner)) return true;
+    if (form && named(material, form)) return true;
+    if (u.facets.battery_type && r.battery_type === u.facets.battery_type) return true;
+
+    // Or the question names the subject in words: the material, the
+    // application, or the name the researcher gave the set.
+    const hay = [material, r.application, r.title, r.source_quote]
+      .filter(Boolean).join(" ").toLowerCase();
+    return qterms.some((w) => anyIn(hay, w));
+  };
+
+  const ev = rows.filter(fits);
+  const pr = props.filter(fits);
+  if (!ev.length && !pr.length) return null;
+
+  let stat = null;
+  if (pr.length) {
+    const key = pr[0].property_key;
+    const same = pr.filter((r) => r.property_key === key);
+    const values = same.map((r) => Number(r.value)).filter(Number.isFinite);
+    if (values.length) {
+      stat = { label: same[0].property_label, unit: same[0].unit,
+               ...spread(values), rows: same };
+    }
+  }
+  if (!stat && ev.length) {
+    const [field, unit, label] = u.metrics[0] || METRICS[0];
+    const s = metricStats(ev, field);
+    if (s) stat = { label, unit, ...s, rows: ev };
+  }
+
+  return { kind: "mine", question, evidence: ev, properties: pr, stat,
+           sets: new Set([...ev, ...pr].map((r) => r.setId)).size };
+}
+
+/* The same data, shown beside a library answer rather than instead of it.
+   A strict cascade is not enough on its own: ask "what capacity do zirconium
+   anodes reach" and the rules match on the graphene form alone, answer with a
+   median over four hundred rGO papers, and never reach the researcher's own
+   zirconium run at all. Whenever their data has something to say about the
+   question, it says it - beside the library's answer, never blended into it. */
+function myStrip(question) {
+  const a = myAnswer(question);
+  if (!a) return "";
+  const s = a.stat;
+  const n = a.evidence.length + a.properties.length;
+  return `<div class="minestrip">
+    <div class="mshead">
+      <svg class="ic" viewBox="0 0 22 22"><use href="#i-flask"/></svg>
+      <b>And in your own data</b>
+      <span class="dim">${n} matching measurement${n === 1 ? "" : "s"}, not counted above</span>
+    </div>
+    ${s ? `<div class="msfig"><b>${sig(s.median)}</b><u>${esc(s.unit)}</u>
+        <span>${s.n === 1 ? "your" : `median of your ${s.n}`}
+          ${esc(s.label.toLowerCase())}${s.n > 1
+            ? `, range ${sig(s.min)}&ndash;${sig(s.max)}` : ""}</span></div>` : ""}
+    <div class="mcards">${
+      a.evidence.slice(0, 4).map((r, i) => mcard(r, i)).join("")
+      + a.properties.slice(0, 4).map((r, i) => prCard(r, i)).join("")}</div>
+  </div>`;
+}
+
+/* Answer from the researcher's own data, in a turn of its own so it is never
+   confused with the library's. */
+async function askMine(question, why) {
+  const a = myAnswer(question);
+  if (!a) return false;
+  busy = true; $("send").disabled = true;
+
+  const turn = document.createElement("div");
+  turn.className = "turn continued";
+  turn.innerHTML = handoffBanner("mine", why) + `<div class="out"></div>`;
+  $("thread").appendChild(turn);
+
+  const out = turn.querySelector(".out");
+  const n = a.evidence.length + a.properties.length;
+  const s = a.stat;
+  const blocks = [];
+  blocks.push(`<div class="headline mine"><div class="lbl">from your own data
+      &middot; ${a.sets} set${a.sets === 1 ? "" : "s"}</div>
+    ${s ? `<div class="big">${sig(s.median)}<u>${esc(s.unit)}</u></div>
+      <div class="sub">median ${esc(s.label.toLowerCase())} of <b>${s.n}</b>
+        measurement${s.n === 1 ? "" : "s"} you added${s.n > 1
+          ? ` &middot; range ${sig(s.min)}&ndash;${sig(s.max)} ${esc(s.unit)}` : ""}</div>`
+     : `<div class="big txt">${n}</div>
+        <div class="sub">matching measurement${n === 1 ? "" : "s"} in your own data</div>`}
+    </div>`);
+  blocks.push(`<div class="mcards">${
+    a.evidence.slice(0, 6).map((r, i) => mcard(r, i)).join("")
+    + a.properties.slice(0, 6).map((r, i) => prCard(r, i)).join("")}</div>`);
+  blocks.push(`<div class="gap"><h3>What this is, and is not</h3><p>
+    These are figures you added, read with the same extractor as the library
+    and kept in this browser. They are not published evidence and are not
+    counted as any. The library had no answer to this one.</p></div>`);
+
+  out.innerHTML = blocks.join("");
+  animateBlocks(out);
+  turn.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  out.addEventListener("click", (e) => {
+    const card = e.target.closest("[data-id],[data-prid]");
+    if (!card) return;
+    const id = card.dataset.id || card.dataset.prid;
+    const row = myRows().find((r) => r.id === id) || myProps().find((r) => r.id === id);
+    if (row) { if (row.property_key) openProp(row); else openRow(row); }
+  });
+
+  busy = false; $("send").disabled = false;
+  voiceAfterAnswer(s
+    ? `In your own data, the median ${s.label.toLowerCase()} is ${sig(s.median)} ${s.unit}, from ${s.n} measurement${s.n === 1 ? "" : "s"} you added.`
+    : `I found ${n} matching measurement${n === 1 ? "" : "s"} in your own data.`);
+  return true;
+}
+
 /* ── asking out loud ─────────────────────────────────────
    Voice costs nothing here, and that is a design decision rather than a
    compromise. The browser listens and speaks; Instant answers by rule with no
@@ -1718,11 +1896,22 @@ function renderAnswer(a) {
         ${fmt(DATA.stats.papers)} papers across graphene — batteries, electronics, sensors,
         membranes, composites, biomedicine and more — plus ${fmt(DATA.stats.concepts)} reference
         entries.</p>
-      ${agentCanTry(a.question)
-        ? `<p class="dim">The agent is being given the same question now; it can search in
-             ways a rule cannot.</p>`
-        : `<p class="dim">The agent could search further, but it needs a model key set on the
-             server before it can run.</p>`}</div>`);
+      ${(() => {
+        // Say what is actually about to happen. This used to be decided by
+        // whether the agent was reachable, while the handover was decided by
+        // something else, so the page could promise a second attempt that
+        // never came.
+        if (!worthEscalating(a))
+          return `<p class="dim">Nothing in this question matches what the library
+             covers, so the agent would not find it either.</p>`;
+        if (myAnswer(a.question))
+          return `<p class="dim">Your own data is being checked now.</p>`;
+        if (agentCanTry(a.question))
+          return `<p class="dim">The agent is being given the same question now; it can
+             search in ways a rule cannot.</p>`;
+        return `<p class="dim">The agent could search further, but it needs a model key set
+             on the server before it can run.</p>`;
+      })()}</div>`);
     return { html: blocks.join(""), refs: [] };
   }
 
@@ -2099,10 +2288,36 @@ function normQ(s) {
    values the measurements are indexed by. A question that touches none of it
    is not a near miss, it is a different subject - and the agent, which is
    held to the same library, would refuse it too. */
-const STOPWORDS = new Set(["and", "the", "for", "with", "from", "into", "its",
-  "are", "was", "were", "this", "that", "not", "non", "other", "per", "than",
-  "used", "use", "uses", "based", "type", "types", "general", "related"]);
+/* Words that carry no subject. Kept short on purpose: this list only has to
+   stop a question being judged on-subject because it contains "the". */
+const STOPWORDS = new Set([
+  "and", "the", "for", "with", "from", "into", "its", "are", "was", "were",
+  "this", "that", "not", "non", "other", "per", "than", "used", "use", "uses",
+  "based", "type", "types", "general", "related", "using", "via", "their",
+  "high", "low", "new", "novel", "toward", "towards", "study", "studies",
+  "review", "role", "between", "what", "which", "where", "when", "who", "whom",
+  "how", "why", "does", "did", "can", "could", "should", "would", "will",
+  "have", "has", "had", "been", "being", "there", "here", "about", "also",
+  "more", "most", "much", "many", "some", "any", "all", "one", "two", "both",
+  "you", "your", "yours", "our", "ours", "they", "them", "then", "them",
+  "get", "got", "make", "made", "take", "give", "tell", "say", "said",
+  "good", "best", "better", "worse", "worst", "big", "small", "long", "short",
+  "world", "cup", "game", "games", "team", "won", "win", "year", "years",
+  "day", "days", "week", "month", "time", "times", "people", "person",
+  "like", "want", "need", "know", "think", "work", "works", "way", "ways",
+  "thing", "things", "part", "parts", "kind", "sort", "each", "every",
+]);
 
+/* What subjects this library actually covers.
+   The first version built this from metadata alone - reference entry titles,
+   compound names, property labels, facet values - which came to 465 words and
+   missed plenty of real subject matter. "Is pulmonary inflammation a risk" is
+   a graphene toxicity question and matched none of it.
+
+   Paper titles are a far better model of the subject, because they are the
+   subject: 37,000 of them, written by the field about itself. A word has to
+   appear in at least two of them to count, which drops one-off proper nouns
+   and typos. Built once, in about twenty milliseconds. */
 let DOMAIN_TERMS = null;
 function domainTerms() {
   if (DOMAIN_TERMS) return DOMAIN_TERMS;
@@ -2116,6 +2331,16 @@ function domainTerms() {
   });
   Object.values(DATA.facets || {}).forEach((list) =>
     (list || []).forEach((v) => add(v.value)));
+
+  const seen = new Map();
+  (DATA.passages || []).forEach((p) => {
+    String(p.t || "").toLowerCase().split(/[^a-z0-9]+/).forEach((w) => {
+      if (w.length < 4 || STOPWORDS.has(w)) return;
+      seen.set(w, (seen.get(w) || 0) + 1);
+    });
+  });
+  seen.forEach((n, w) => { if (n >= 2) set.add(w); });
+
   DOMAIN_TERMS = set;
   return set;
 }
@@ -2223,10 +2448,11 @@ function syncMode(mode) {
 }
 
 function handoffBanner(from, why) {
-  const to = from === "instant" ? "the agent" : "instant mode";
+  const to = from === "instant" ? "the agent"
+           : from === "mine" ? "your own data" : "instant mode";
   return `<div class="handoff">
     <span class="hio"><svg class="ic" viewBox="0 0 22 22"><use href="${
-      from === "instant" ? "#i-spark" : "#i-bolt"}"/></svg></span>
+      from === "instant" ? "#i-spark" : from === "mine" ? "#i-flask" : "#i-bolt"}"/></svg></span>
     <span><b>Trying ${esc(to)} instead.</b> ${esc(why)}</span></div>`;
 }
 
@@ -2262,7 +2488,8 @@ async function ask(question, opts = {}) {
 
   const { html, refs } = renderAnswer(a);
   const out = turn.querySelector(".out");
-  out.innerHTML = html + `<div class="acts">
+  const mine = a.kind === "refused" ? "" : myStrip(question);
+  out.innerHTML = html + mine + `<div class="acts">
     <button class="btn" data-save>Save to notebook</button>
     ${API ? `<button class="btn" data-live="${esc(question)}">Search live literature</button>`
           : ""}
@@ -2277,12 +2504,26 @@ async function ask(question, opts = {}) {
     saveNote(question, out.innerText.slice(0, 900), refs.length);
     e.target.textContent = "Saved"; e.target.disabled = true;
   });
+  const strip = out.querySelector(".minestrip");
+  if (strip) strip.addEventListener("click", (e) => {
+    const card = e.target.closest("[data-id],[data-prid]");
+    if (!card) return;
+    const id = card.dataset.id || card.dataset.prid;
+    const row = myRows().find((r) => r.id === id) || myProps().find((r) => r.id === id);
+    if (row) { if (row.property_key) openProp(row); else openRow(row); }
+  });
   busy = false; $("send").disabled = false;
 
-  // Rules found nothing. Let the agent try before giving up on the question.
-  if (!opts.from && worthEscalating(a) && agentCanTry(question)) {
-    syncMode("agent");
-    return askAgent(question, { from: "instant", why: escalationReason(a) });
+  // The library came up short. Try the researcher's own data next, and only
+  // then the agent: it is the one step that costs nothing and is most likely
+  // to hold the answer to a question about their own work.
+  if (!opts.from && worthEscalating(a)) {
+    const why = escalationReason(a);
+    if (await askMine(question, why)) { $("ask").focus(); return; }
+    if (agentCanTry(question)) {
+      syncMode("agent");
+      return askAgent(question, { from: "instant", why });
+    }
   }
   voiceAfterAnswer(spokenAnswer(a));
   $("ask").focus();
