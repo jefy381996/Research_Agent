@@ -26,6 +26,8 @@
 <g id="i-bolt"><path d="M12 2 5 12.5h5L9.5 20 17 9.5h-5z"/></g>
 <g id="i-spark"><path d="M11 3l1.9 5.1L18 10l-5.1 1.9L11 17l-1.9-5.1L4 10l5.1-1.9z"/><path d="M17.5 14.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/></g>
 <g id="i-chev"><path d="M7 9l4 4 4-4"/></g>
+<g id="i-mic"><rect x="8" y="2.5" width="6" height="10" rx="3"/><path d="M5 10.5a6 6 0 0 0 12 0"/><path d="M11 16.5V19M8 19h6"/></g>
+<g id="i-wave"><path d="M3 11h1.5M6.5 7.5v7M10 4.5v13M13.5 7v8M17 9.5v3M19.5 11H21"/></g>
 <g id="i-flask"><path d="M9 3h4M10 3v6.2L5.2 17.4A1.5 1.5 0 0 0 6.5 19.7h9a1.5 1.5 0 0 0 1.3-2.3L12 9.2V3"/><path d="M7.6 14h6.8"/></g>
 <g id="i-atom"><circle cx="11" cy="11" r="2"/><ellipse cx="11" cy="11" rx="8.5" ry="3.6"/><ellipse cx="11" cy="11" rx="8.5" ry="3.6" transform="rotate(60 11 11)"/><ellipse cx="11" cy="11" rx="8.5" ry="3.6" transform="rotate(120 11 11)"/></g>
 </defs></svg>
@@ -68,10 +70,18 @@
       <div class="thread" id="thread"></div>
       <div class="chips" id="chips"></div>
     </div></div>
+    <div class="vbar" id="vbar" hidden>
+      <span class="vdot"></span>
+      <span class="vtext" id="vtext">Listening&hellip;</span>
+      <button class="lnk" id="vstop">Stop</button>
+    </div>
     <form class="composer" id="form"><div class="inner">
       <div class="cbox">
         <textarea id="ask" rows="1" aria-label="Your question"
           placeholder="Ask anything&hellip;"></textarea>
+        <button type="button" class="btn icon mic" id="mic" aria-pressed="false"
+          aria-label="Ask by voice" title="Ask by voice">
+          <svg class="ic" viewBox="0 0 22 22"><use href="#i-mic"/></svg></button>
         <button type="submit" class="btn pri" id="send">Ask<svg class="ic" viewBox="0 0 22 22"><use href="#i-arrow"/></svg></button>
       </div>
       <div class="chint">
@@ -81,6 +91,9 @@
           <button type="button" class="mode" data-mode="agent" role="radio" aria-checked="false">
             <svg class="ic" viewBox="0 0 22 22"><use href="#i-spark"/></svg>Agent</button>
         </div>
+        <button type="button" class="mode talk" id="handsfree" aria-pressed="false"
+          title="Keep listening, and answer out loud">
+          <svg class="ic" viewBox="0 0 22 22"><use href="#i-wave"/></svg>Hands-free</button>
         <span id="hint" class="hintline">Rules only. Instant and free.</span>
       </div>
     </div></form>
@@ -262,6 +275,7 @@
 
 <script src="lattice.js"></script>
 <script src="research-anim.js"></script>
+<script src="voice.js"></script>
 <script src="calc.js"></script>
 <script src="app.js"></script>
 </body>

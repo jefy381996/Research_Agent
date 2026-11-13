@@ -389,6 +389,218 @@ $("excats").addEventListener("click", (e) => {
   exCat = b.dataset.c || null; paintExplore($("exq").value);
 });
 
+/* ── asking out loud ─────────────────────────────────────
+   Voice costs nothing here, and that is a design decision rather than a
+   compromise. The browser listens and speaks; Instant answers by rule with no
+   model behind it. So the loop - speak, hear an answer in under a second, be
+   listened to again - runs unlimited and free, which a realtime audio model
+   charging by the minute would not.
+
+   The written answer with its citations stays on screen throughout. Speech is
+   the way in and the way out; it is never the record. A spoken number cannot
+   be clicked to see the sentence it came from, so the screen keeps that job. */
+
+let VOICE = { on: false, handsFree: false, last: "", busy: false };
+
+/* What to say out loud. The screen can hold sixty cards; an ear cannot, so
+   each kind of answer gets one or two sentences and the detail stays visible
+   rather than being read out. */
+function spokenAnswer(a) {
+  const n = (v, d) => fmt(v, d === undefined ? 0 : d);
+  switch (a.kind) {
+    case "concept": {
+      const first = String(a.concept.summary || "").split(/(?<=[.!?])\s+/)[0] || "";
+      const extra = a.property
+        ? ` This library measures it at a median of ${sig(a.property.stats.median)} ${a.property.family.unit}, across ${a.property.stats.n} measurements.`
+        : "";
+      return `${a.concept.title}. ${first}${extra}`;
+    }
+    case "property": {
+      const s = a.stats, f = a.family;
+      return `Across ${s.n} measurements from ${a.papers} papers, the median `
+        + `${f.label.toLowerCase()} is ${sig(s.median)} ${f.unit}. `
+        + `Half of them fall between ${sig(s.p25)} and ${sig(s.p75)}.`;
+    }
+    case "quantitative": {
+      if (!a.primary) return `I found ${a.rows.length} matching measurements, but none of them state the figure you asked for.`;
+      const p = a.primary;
+      return `Across ${p.n} measurements, the median ${p.label.toLowerCase()} is `
+        + `${n(p.median, p.median < 10 ? 2 : 0)} ${p.unit}, with half between `
+        + `${n(p.p25)} and ${n(p.p75)}.`;
+    }
+    case "comparison": {
+      const best = a.groups[0];
+      return `The highest median ${a.label.toLowerCase()} is ${best.name}, at `
+        + `${n(best.median, 1)} ${a.unit}, across ${best.n} measurements.`;
+    }
+    case "trend": {
+      const first = a.years[0], last = a.years[a.years.length - 1];
+      const dir = last.median >= first.median ? "risen" : "fallen";
+      return `The median ${a.label.toLowerCase()} has ${dir} from `
+        + `${n(first.median)} in ${first.name} to ${n(last.median)} ${a.unit} in ${last.name}.`;
+    }
+    case "calculation":
+      return `That comes to ${n(a.calc.result, 2)} ${a.calc.unit}. The formula `
+        + `and the inputs are on screen.`;
+    case "passages":
+      return `I did not extract a figure for that, but ${a.passages.length} papers `
+        + `discuss it. They are quoted on screen.`;
+    case "refused":
+      return `I cannot answer that from this library. ${a.why || ""}`;
+    default:
+      return "The answer is on screen.";
+  }
+}
+
+/* The agent answers in markdown; speak its first couple of sentences and let
+   the screen carry the table, the working and the citations. */
+function spokenAgentAnswer(text) {
+  const plain = String(text || "")
+    .replace(/\|[^\n]*\|/g, " ")          // tables are not for listening to
+    .replace(/^[-*]\s+/gm, "")
+    .replace(/\s+/g, " ").trim();
+  const sentences = plain.split(/(?<=[.!?])\s+/).filter(Boolean);
+  return sentences.slice(0, 2).join(" ") || "The answer is on screen.";
+}
+
+function vbar(show, text) {
+  const bar = $("vbar");
+  if (!bar) return;
+  bar.hidden = !show;
+  if (text !== undefined) $("vtext").textContent = text;
+}
+
+function voiceSay(text, then) {
+  VOICE.last = text;
+  if (!VOICE.on && !VOICE.handsFree) { if (then) then(); return; }
+  Voice.speak(text, then);
+}
+
+/* After an answer has rendered, say it, and in hands-free mode go back to
+   listening the moment it has finished. */
+function voiceAfterAnswer(sentence) {
+  if (!VOICE.on && !VOICE.handsFree) return;
+  voiceSay(sentence, () => {
+    if (VOICE.handsFree) startListening(true);
+  });
+}
+
+function runVoiceCommand(cmd) {
+  switch (cmd.kind) {
+    case "silence": Voice.shutUp(); vbar(true, "Stopped."); return true;
+    case "exit": stopVoice(); return true;
+    case "repeat": voiceSay(VOICE.last || "I have not said anything yet."); return true;
+    case "theme": applyTheme(cmd.arg); voiceSay(`${cmd.arg} mode.`); return true;
+    case "view": {
+      show(cmd.arg);
+      const label = document.querySelector(`.sitem[data-view="${cmd.arg}"]`);
+      voiceSay(`Opening ${label ? label.textContent.replace(/\d[\d,]*$/, "").trim() : cmd.arg}.`);
+      return true;
+    }
+    default: return false;
+  }
+}
+
+function heard(transcript) {
+  // Correct here as well as in the recogniser callback. This is the entry
+  // point every path ends up at, and a raw transcript reaching the engine
+  // means "are gee oh" is searched for instead of rGO - which answers a
+  // different question and looks like the library is wrong. fixTerms is
+  // idempotent, so running it twice costs nothing.
+  const text = Voice.fixTerms(String(transcript || "").trim());
+  if (!text) return;
+  const cmd = Voice.parseCommand(text);
+  if (cmd && runVoiceCommand(cmd)) return;
+
+  vbar(true, text);
+  $("ask").value = text;
+  if (VOICE.busy) return;
+  VOICE.busy = true;
+  const engine = MODE === "agent" ? askAgent : ask;
+  Promise.resolve(engine(text)).finally(() => { VOICE.busy = false; });
+}
+
+function startListening(quietly) {
+  const can = Voice.supported();
+  if (!can.listen) {
+    vbar(true, can.why);
+    $("mic").setAttribute("aria-pressed", "false");
+    return;
+  }
+  VOICE.on = true;
+  $("mic").setAttribute("aria-pressed", "true");
+  if (!quietly) vbar(true, "Listening…");
+  Voice.listen({
+    onPartial: (text) => vbar(true, text),
+    onHeard: heard,
+    onState: (state, detail) => {
+      if (state === "listening" && !VOICE.busy) vbar(true, "Listening…");
+      if (state === "error") {
+        const why = detail === "not-allowed"
+          ? "Microphone blocked. Allow it in the address bar to ask out loud."
+          : detail === "no-speech" ? "I did not catch that."
+          : `Listening stopped: ${detail}`;
+        vbar(true, why);
+        if (detail === "not-allowed") stopVoice();
+      }
+    },
+  });
+}
+
+function stopVoice() {
+  VOICE.on = false;
+  VOICE.handsFree = false;
+  Voice.stopListening();
+  Voice.shutUp();
+  $("mic").setAttribute("aria-pressed", "false");
+  $("handsfree").setAttribute("aria-pressed", "false");
+  vbar(false);
+}
+
+function wireVoice() {
+  const mic = $("mic"), hf = $("handsfree");
+  if (!mic) return;
+  const can = Voice.supported();
+
+  if (!can.listen) {
+    // Firefox has no recogniser. Say why rather than offering a dead button.
+    mic.disabled = true;
+    mic.title = can.why;
+    if (hf) { hf.disabled = true; hf.title = can.why; }
+  }
+
+  mic.addEventListener("click", () => {
+    if (VOICE.on) { stopVoice(); return; }
+    startListening();
+  });
+
+  if (hf) hf.addEventListener("click", () => {
+    VOICE.handsFree = !VOICE.handsFree;
+    hf.setAttribute("aria-pressed", String(VOICE.handsFree));
+    if (VOICE.handsFree) {
+      vbar(true, "Hands-free. Ask away — I will answer out loud and keep listening.");
+      startListening(true);
+    } else {
+      Voice.shutUp();
+      if (!VOICE.on) vbar(false);
+    }
+  });
+
+  const stop = $("vstop");
+  if (stop) stop.addEventListener("click", stopVoice);
+
+  // Escape silences it from anywhere.
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && (VOICE.on || Voice.isSpeaking())) stopVoice();
+  });
+
+  // Chrome loads voices asynchronously; without this the first answer is mute.
+  if (window.speechSynthesis) {
+    window.speechSynthesis.getVoices();
+    window.speechSynthesis.onvoiceschanged = () => {};
+  }
+}
+
 /* ── a researcher's own data ─────────────────────────────
    Read with the same two extractors the library was built with, under the
    same rule: one sentence per figure, and the sentence travels with it.
@@ -2072,6 +2284,7 @@ async function ask(question, opts = {}) {
     syncMode("agent");
     return askAgent(question, { from: "instant", why: escalationReason(a) });
   }
+  voiceAfterAnswer(spokenAnswer(a));
   $("ask").focus();
 }
 
@@ -2694,6 +2907,7 @@ async function loadData() {
     if (b) (MODE === "agent" ? askAgent : ask)(b.dataset.q); });
   paintFacets(); head(); loadNotes(); probeAgent();
   myLoad(); wireMine(); setN("n-mine", myCount() || "");
+  wireVoice();
   // The opening sequence is one-shot. Clearing the class once it has played
   // stops every later tab switch from replaying the whole arrival.
   setTimeout(() => document.documentElement.classList.remove("booting"), 2200);
@@ -2991,6 +3205,7 @@ async function askAgent(question, opts = {}) {
         else if (ev.type === "answer") {
           anim.live = false;
           anim.done();
+          voiceAfterAnswer(spokenAgentAnswer(ev.text));
           if (stage) { stage.classList.add("settled");
             setTimeout(() => stage.remove(), 700); }
           const v = ev.verification || {};
@@ -3051,6 +3266,7 @@ async function askAgent(question, opts = {}) {
             out.innerHTML = `<div class="refusal"><h3>The agent could not answer</h3>
               <p>${esc(ev.message)}</p>
               <p class="dim">Instant mode still works and needs no model.</p></div>`;
+            voiceAfterAnswer("The agent could not finish that one.");
           }
         }
       }

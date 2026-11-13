@@ -157,6 +157,40 @@ An LLM pass is available behind `LLM_PROVIDER`, and may only rephrase text
 already retrieved. It cannot introduce a fact. The default path needs no model,
 no key and no network, and returns the same answer every time.
 
+## Asking out loud
+
+There is a microphone beside the Ask button and a hands-free switch beside it.
+Speak a question, watch the transcript appear, hear the answer, and be listened
+to again. All of it runs in the browser through the Web Speech API, so it needs
+no key, no quota and no per-minute charge — which matters, because the engine
+it is wired to needs no model either. Instant answers by rule in under a
+second, so the whole loop is free and unlimited.
+
+What a paid realtime model would add is interruption mid-sentence. That is
+approximated rather than bought: the recogniser keeps running while the answer
+is spoken, and the moment you start talking the speech is cut off and your
+words are taken instead.
+
+Three parts do the work that is not audio, and they are the ones with tests:
+
+| Part | Problem it solves |
+|---|---|
+| `sayable()` | A screen reads `1,842 mAh/g`; a person says "one thousand eight hundred and forty two milliamp hours per gram". Citation markers, markdown and table pipes never reach the voice |
+| `fixTerms()` | A recogniser hears "are gee oh" and the library calls it `rGO`. Also "lithium sulphur", "see rate", "c v d", "graphine" |
+| `parseCommand()` | "Show me the measurements" is an instruction; "what capacity do silicon anodes reach" is a question. Telling them apart, and never mistaking one for the other |
+
+Each kind of answer has a spoken form of one or two sentences, because a screen
+can hold sixty cards and an ear cannot. The written answer with its citations
+stays on screen throughout: speech is the way in and the way out, never the
+record, because a spoken number cannot be clicked to see the sentence it came
+from.
+
+Two limits, said in the interface rather than left to be found. Listening does
+not exist in Firefox at all, so the button is disabled there with the reason on
+it; speaking works everywhere. And in Chrome the audio goes to Google's
+recogniser — free, but not local, which is worth saying plainly in an app whose
+other promise is that your own data never leaves the browser.
+
 ## A researcher's own data
 
 A researcher can read their own results with the same two extractors the
@@ -266,6 +300,9 @@ engine and only one of them is what a visitor meets:
 - `tests/scorecard_ui.js` — 34 questions driven through the real page in a real
   browser, covering definitions, battery numbers, material properties,
   comparisons, trends, calculations, quoted passages and refusals.
+- `tests/voice_ui.js` — 50 cases over what is spoken, what is heard and what
+  counts as a command. The audio itself cannot be tested in a headless browser;
+  everything either side of it can, and that is where the mistakes are.
 - `tests/mydata_ui.js` — 10 cases covering a researcher's own data, including
   the two that matter: the library's totals must not move, and a second browser
   must see nothing of the first one's unpublished work.
