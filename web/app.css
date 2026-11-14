@@ -498,9 +498,6 @@ table.g td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
   width:2px;background:var(--ink)}
 .ic{width:17px;height:17px;flex:0 0 17px;fill:none;stroke:currentColor;stroke-width:1.6;
   stroke-linecap:round;stroke-linejoin:round}
-.scount{margin-left:auto;font:500 10.5px var(--mono);color:var(--ink-3);
-  background:var(--surf-2);border-radius:20px;padding:1px 7px}
-.sitem[aria-selected="true"] .scount{background:var(--surf);color:var(--acc)}
 .sfoot{margin-top:auto;padding-top:16px;display:grid;gap:7px}
 .btn.wide{width:100%;justify-content:flex-start;display:flex;align-items:center;gap:9px;
   padding:8px 10px}
@@ -587,7 +584,7 @@ table.g td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
 .defcard .src2{font-size:12px;color:var(--ink-3)}
 
 @media(max-width:1000px){.side{flex:0 0 68px;width:68px;padding:14px 8px}
-  .sname,.scount,.snote,.btn.wide span:not(.kbd){display:none}
+  .sname,.snote,.btn.wide span:not(.kbd){display:none}
   .sitem{justify-content:center;padding:11px 0}.btn.wide{justify-content:center}
   .sbrand{justify-content:center;padding:4px 0 16px}}
 @media(max-width:780px){
@@ -784,7 +781,6 @@ table.g thead th{background:color-mix(in srgb,var(--surf) 92%,transparent);
   box-shadow:inset 0 0 0 1px var(--acc-soft-2)}
 .sitem[aria-selected="true"]::before{left:0;width:3px;border-radius:0 3px 3px 0;
   background:var(--acc);box-shadow:0 0 12px var(--acc-glow)}
-.sitem[aria-selected="true"] .scount{background:var(--acc);color:var(--acc-ink)}
 .sitem > *{position:relative;z-index:1}
 
 /* ── buttons ──────────────────────────────────────────────── */
@@ -856,7 +852,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--acc);
 .cattr{border-left:2px solid var(--acc-soft-2);border-radius:var(--r-s)}
 .co .r{color:var(--acc)}
 .calc .fx{background:var(--acc-soft);color:var(--acc);border-radius:var(--r-s)}
-.pill,.scount{border-radius:7px}
+.pill{border-radius:7px}
 .pal{border-radius:var(--r-l)}
 .pal li[aria-selected="true"]{background:var(--acc-soft);color:var(--acc)}
 .drawer{border-radius:0}
@@ -1041,7 +1037,6 @@ body{background:
   .sitem .ic{width:19px;height:19px}
   .sitem[aria-selected="true"]::before{display:none}
   .sitem[aria-selected="true"]{background:var(--acc-soft)}
-  .scount{display:none}
   .sfoot{position:fixed;top:10px;right:10px;margin:0;padding:0;flex-direction:row;
     gap:6px;z-index:41}
   .sfoot .btn.wide{width:auto;padding:8px 10px;background:var(--surf);

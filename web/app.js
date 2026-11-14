@@ -792,8 +792,6 @@ function wireVoice() {
 
    The cost is real and is stated on the screen: the data does not follow the
    researcher to another browser, so there is an export. */
-function setN(id, v) { const el = $(id); if (el) el.textContent = v; }
-
 const MY_KEY = "gba.mydata";
 let MY = { sets: [] };
 
@@ -863,7 +861,6 @@ function myRemove(id) {
   MY.sets = MY.sets.filter((s) => s.id !== id);
   mySave();
   paintMine();
-  setN("n-mine", myCount() || "");
 }
 
 /* ---- adding ---- */
@@ -916,7 +913,6 @@ async function myRun(send, onDone) {
     if (onDone) onDone();
     myStat(`${found} figure${found === 1 ? "" : "s"} read from ${esc(result.title)}.`);
     paintMine();
-    setN("n-mine", myCount() || "");
   } catch (err) {
     myStat(String(err.message || err), true);
   } finally {
@@ -2983,14 +2979,13 @@ $("sb").addEventListener("click", (e) => {
 let notes = [];
 const NKEY = "gba.notes.v1";
 function loadNotes() { try { notes = JSON.parse(localStorage.getItem(NKEY) || "[]"); }
-  catch (e) { notes = []; } paintCount(); }
+  catch (e) { notes = []; } }
 function saveNote(q, a, n) {
   notes.unshift({ q, a, n, at: new Date().toISOString() });
   notes = notes.slice(0, 80);
   try { localStorage.setItem(NKEY, JSON.stringify(notes)); } catch (e) { /* private mode */ }
-  paintCount(); paintNotebook();
+  paintNotebook();
 }
-function paintCount() { const el = $("nbn"); el.textContent = notes.length; el.hidden = !notes.length; }
 function paintNotebook() {
   $("nbs").innerHTML = notes.length ? notes.map((n, i) => `<div class="nb">
     <div class="q2">${esc(n.q)}</div>
@@ -3004,7 +2999,7 @@ $("nbs").addEventListener("click", (e) => {
   const b = e.target.closest("[data-del]"); if (!b) return;
   notes.splice(Number(b.dataset.del), 1);
   try { localStorage.setItem(NKEY, JSON.stringify(notes)); } catch (err) {}
-  paintCount(); paintNotebook();
+  paintNotebook();
 });
 
 /* ── theme, palette, keyboard ───────────────────────────── */
@@ -3137,17 +3132,12 @@ async function loadData() {
   ].map(([v, k], i) => `<div class="stat" style="--i:${i}"><div class="v">${esc(v)}</div>
       <div class="k">${esc(k)}</div></div>`).join("");
 
-  setN("n-con", fmt(DATA.concepts.length));
-  setN("n-ev", fmt(s.evidence_rows));
-  setN("n-prop", fmt((DATA.properties || []).length));
-  setN("n-calc", (DATA.calculators || []).length);
-  setN("n-pap", fmt(s.papers));
   $("chips").innerHTML = CHIPS.map((q, i) =>
     `<button style="--i:${i}" data-q="${esc(q)}">${esc(q)}</button>`).join("");
   $("chips").addEventListener("click", (e) => { const b = e.target.closest("button");
     if (b) (MODE === "agent" ? askAgent : ask)(b.dataset.q); });
   paintFacets(); head(); loadNotes(); probeAgent();
-  myLoad(); wireMine(); setN("n-mine", myCount() || "");
+  myLoad(); wireMine();
   wireVoice();
   // The opening sequence is one-shot. Clearing the class once it has played
   // stops every later tab switch from replaying the whole arrival.

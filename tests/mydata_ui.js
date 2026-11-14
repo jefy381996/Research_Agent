@@ -41,10 +41,16 @@ async function open(browser) {
   page.on("pageerror", (e) => errors.push(String(e.message)));
   page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
 
-  const libraryBefore = await page.evaluate(() => ({
-    ev: document.getElementById("n-ev").textContent,
-    pr: document.getElementById("n-prop").textContent,
-  }));
+  /* Read the headline figures, not the sidebar: the per-tab counts were
+     removed, but the claim they were used to check - that a supplied figure
+     never becomes countable as published evidence - is unchanged. */
+  // textContent, not innerText: the second read happens while the Ask view is
+  // hidden, where innerText has no layout to work from and returns the raw
+  // source instead of the rendered, upper-cased text. The figures are what is
+  // being compared, so take only those.
+  const libraryFigures = () => page.evaluate(() =>
+    (document.getElementById("strip").textContent.match(/[\d,]+(?:\u2013[\d,]+)?/g) || []).join(" "));
+  const libraryBefore = await libraryFigures();
 
   await page.click('[data-view="mydata"]');
   await sleep(700);
@@ -60,20 +66,16 @@ async function open(browser) {
     sets: document.querySelectorAll(".mdset").length,
     cards: document.querySelectorAll("#mdsets .mcard").length,
     tagged: document.querySelectorAll("#mdsets .mcard .mtag").length,
-    badge: document.getElementById("n-mine").textContent,
   }));
   check("the figures are read and shown", added.sets === 1 && added.cards >= 4,
     JSON.stringify(added));
   check("every supplied row is tagged as the researcher's own",
     added.cards > 0 && added.tagged === added.cards, JSON.stringify(added));
 
-  const libraryAfter = await page.evaluate(() => ({
-    ev: document.getElementById("n-ev").textContent,
-    pr: document.getElementById("n-prop").textContent,
-  }));
+  const libraryAfter = await libraryFigures();
   check("the library's totals do not move",
-    libraryAfter.ev === libraryBefore.ev && libraryAfter.pr === libraryBefore.pr,
-    `${JSON.stringify(libraryBefore)} -> ${JSON.stringify(libraryAfter)}`);
+    libraryAfter === libraryBefore,
+    `${libraryBefore} -> ${libraryAfter}`);
 
   // the sentence behind a supplied figure is there, exactly as for the library
   await page.locator("#mdsets .mcard").first().click();
