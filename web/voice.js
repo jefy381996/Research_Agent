@@ -183,16 +183,48 @@
       .split(" ").filter(Boolean);
   }
 
-  const ECHO_SHARE = 0.6;     // this much of what we heard being ours = echo
+  const ECHO_SHARE = 0.6;     // this much of it being a run of ours = echo
   const ECHO_TAIL_MS = 800;   // the speakers keep arriving after we stop
 
+  /* Counting shared words is not enough, and getting this wrong is worse than
+     having no filter at all. An answer about rGO is being read out, the person
+     says "what about rGO", and almost every word they said is a word in the
+     sentence - so the follow-up is thrown away as an echo, silently, which is
+     exactly the moment a follow-up is most natural.
+
+     What separates them is order, not vocabulary. An echo is a run of what we
+     are saying, in sequence. A question reuses the same words in an order we
+     are not saying them in. So the test is the longest consecutive run of what
+     came back that appears consecutively in what we are speaking. */
+  function longestRun(heard, spoken) {
+    let best = 0;
+    for (let i = 0; i < spoken.length; i++) {
+      for (let j = 0; j < heard.length; j++) {
+        let k = 0;
+        while (i + k < spoken.length && j + k < heard.length
+               && spoken[i + k] === heard[j + k]) k += 1;
+        if (k > best) best = k;
+      }
+    }
+    return best;
+  }
+
+  /* Three words are not many, and in a long answer two of them will line up
+     by chance: "and for rGO" collides with "...the median for rGO is...", and
+     a ratio alone throws the follow-up away. A short utterance therefore has
+     to match in full to count as ours, while a longer one only has to be
+     mostly a run - by then chance has stopped being a plausible explanation. */
+  const ECHO_MIN_WORDS = 4;
+
   function isEcho(heard, spoken) {
-    const h = words(heard).filter((w) => w.length > 2);
-    if (!h.length) return false;
-    const mine = new Set(words(spoken));
-    if (!mine.size) return false;
-    const shared = h.filter((w) => mine.has(w)).length;
-    return shared / h.length >= ECHO_SHARE;
+    const h = words(heard);
+    const s = words(spoken);
+    // One word is not enough to tell whose it is; the caller drops those
+    // while speaking anyway.
+    if (h.length < 2 || !s.length) return false;
+    const run = longestRun(h, s);
+    if (run / h.length < ECHO_SHARE) return false;
+    return h.length >= ECHO_MIN_WORDS || run === h.length;
   }
 
   /* "Stop" has to work even while we are saying the word "stop". */

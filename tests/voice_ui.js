@@ -191,6 +191,39 @@ const COMMANDS = [
   check("silence is not echo", echo.nothing === false);
   check("nothing being spoken means nothing to echo", echo.noSpeech === false);
 
+  /* The cases that matter are the ones where the follow-up reuses the
+     answer's own words. The first version of this test did not have any, and
+     a rule counting shared words passed it while throwing away every
+     follow-up spoken over an answer that named the same material. */
+  const adversarial = await page.evaluate(() => {
+    const spoken = "Across 412 measurements from 288 papers the median for rGO "
+                  + "is about 969 milliamp hours per gram, and the spread is wide";
+    return {
+      askAboutTheThingBeingSpoken: Voice.isEcho("what about rGO", spoken),
+      andForTheThingBeingSpoken:   Voice.isEcho("and for rGO", spoken),
+      askAboutAWordJustSaid:       Voice.isEcho("what about the spread", spoken),
+      aQuestionSharingWords:       Voice.isEcho("compare that with graphene oxide", spoken),
+      shortEchoFragment:           Voice.isEcho("is wide", spoken),
+      midEchoFragment:             Voice.isEcho("and the spread is wide", spoken),
+      longEchoFragment:            Voice.isEcho("milliamp hours per gram and the spread", spoken),
+      reorderedWordsAreNotEcho:    Voice.isEcho("papers measurements across 412", spoken),
+    };
+  });
+  check("asking about the very thing being spoken is not echo",
+    adversarial.askAboutTheThingBeingSpoken === false);
+  check("nor is 'and for <that thing>'",
+    adversarial.andForTheThingBeingSpoken === false);
+  check("nor is asking about a word just said",
+    adversarial.askAboutAWordJustSaid === false);
+  check("nor is a question built from the answer's own words",
+    adversarial.aQuestionSharingWords === false);
+  check("a short run of our own words is echo",
+    adversarial.shortEchoFragment === true);
+  check("so is a longer one", adversarial.midEchoFragment === true);
+  check("and a long one", adversarial.longEchoFragment === true);
+  check("the same words in a different order are not echo",
+    adversarial.reorderedWordsAreNotEcho === false);
+
   const stops = await page.evaluate(() => ({
     stop: Voice.isStopPhrase("stop"),
     wait: Voice.isStopPhrase("wait"),
