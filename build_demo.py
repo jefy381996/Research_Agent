@@ -63,6 +63,11 @@ def main():
     # the rest fill the budget, so nothing cited by an answer is ever missing.
     cited = {r["openalex_id"] for r in rows}
     passages, seen = [], set()
+    # A ceiling on the total, not a floor with every cited paper on top of it.
+    # The static copy has to stay inside what a browser will download and what
+    # an artifact host will take, and at a hundred thousand papers the old rule
+    # had no upper bound at all. Papers behind a measurement go in first.
+    preferred, filler = [], []
     for record in conn.execute(
             "SELECT openalex_id, title, year, journal, doi, abstract FROM papers"
             " WHERE abstract IS NOT NULL AND abstract != ''"
@@ -70,12 +75,17 @@ def main():
         wid = record["openalex_id"]
         if wid in seen:
             continue
-        if len(passages) >= args.max_passages and wid not in cited:
-            continue
         seen.add(wid)
-        passages.append({"i": wid, "t": record["title"], "y": record["year"],
-                         "j": record["journal"], "d": record["doi"],
-                         "x": record["abstract"][:args.passage_chars]})
+        bucket = preferred if wid in cited else filler
+        if len(bucket) >= args.max_passages:
+            if len(preferred) >= args.max_passages:
+                break
+            continue
+        bucket.append({"i": wid, "t": record["title"], "y": record["year"],
+                       "j": record["journal"], "d": record["doi"],
+                       "x": record["abstract"][:args.passage_chars]})
+    passages = preferred[:args.max_passages]
+    passages += filler[:max(0, args.max_passages - len(passages))]
 
     one = lambda sql: conn.execute(sql).fetchone()[0]
     concepts = [dict(r) for r in conn.execute(

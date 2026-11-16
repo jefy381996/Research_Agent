@@ -36,7 +36,7 @@ SEARCHES = [
     ("battery",        'title.search:graphene AND (battery OR batteries)', None),
     ("anode",          'title.search:graphene AND (anode OR anodes)', None),
     ("cathode",        'title.search:graphene AND (cathode OR cathodes)', None),
-    ("electrode",      'title.search:graphene AND (electrode OR electrodes)', 2500),
+    ("electrode",      'title.search:graphene AND (electrode OR electrodes)', 6000),
     ("graphene-oxide", 'title.search:"graphene oxide" AND (battery OR anode OR cathode)', None),
     ("rgo",            'title.search:("reduced graphene oxide" OR rGO) AND (battery OR anode OR cathode)', None),
     ("lithium-ion",    'title.search:graphene AND ("lithium-ion" OR "lithium ion" OR "Li-ion")', None),
@@ -44,44 +44,69 @@ SEARCHES = [
     ("lithium-sulfur", 'title.search:graphene AND ("lithium-sulfur" OR "lithium sulfur" OR "Li-S")', None),
     ("solid-state",    'title.search:graphene AND ("solid-state" OR "solid state") AND (battery OR electrolyte)', None),
     ("silicon",        'title.search:graphene AND (silicon OR Si) AND (anode OR battery)', None),
-    ("supercapacitor", 'title.search:graphene AND (supercapacitor OR supercapacitors OR "energy storage")', 2000),
+    ("supercapacitor", 'title.search:graphene AND (supercapacitor OR supercapacitors OR "energy storage")', 5000),
     ("separator",      'title.search:graphene AND (separator OR interlayer OR "current collector")', None),
 
     # Fundamentals: what graphene is, how it is made, how it is measured.
-    ("synthesis",      'title.search:graphene AND (synthesis OR fabrication OR production OR preparation OR growth)', 2500),
+    ("synthesis",      'title.search:graphene AND (synthesis OR fabrication OR production OR preparation OR growth)', 6000),
     ("cvd",            'title.search:graphene AND ("chemical vapor deposition" OR CVD OR exfoliation)', None),
-    ("properties",     'title.search:graphene AND (properties OR conductivity OR mechanical OR thermal OR electronic)', 2500),
+    ("properties",     'title.search:graphene AND (properties OR conductivity OR mechanical OR thermal OR electronic)', 6000),
     ("characterisation", 'title.search:graphene AND (Raman OR XPS OR "X-ray diffraction" OR microscopy OR spectroscopy)', None),
-    ("reduction",      'title.search:"graphene oxide" AND (reduction OR reduced OR functionalization OR doping)', 2000),
-    ("structure",      'title.search:graphene AND (structure OR defects OR edge OR layer OR nanoribbon)', 2000),
+    ("reduction",      'title.search:"graphene oxide" AND (reduction OR reduced OR functionalization OR doping)', 5000),
+    ("structure",      'title.search:graphene AND (structure OR defects OR edge OR layer OR nanoribbon)', 5000),
     ("review",         'title.search:graphene AND (review OR advances OR progress OR perspective) AND (energy OR battery OR storage)', None),
 
     # Battery fundamentals, so the library can explain the field graphene sits in.
-    ("battery-basics", 'title.search:("lithium-ion battery" OR "lithium ion battery") AND (mechanism OR fundamentals OR review OR degradation OR "solid electrolyte interphase")', 1500),
-    ("beyond-lithium", 'title.search:("sodium-ion" OR "potassium-ion" OR "zinc-ion" OR "magnesium") AND (battery OR batteries) AND (anode OR cathode OR electrolyte)', 1500),
+    ("battery-basics", 'title.search:("lithium-ion battery" OR "lithium ion battery") AND (mechanism OR fundamentals OR review OR degradation OR "solid electrolyte interphase")', 3800),
+    ("beyond-lithium", 'title.search:("sodium-ion" OR "potassium-ion" OR "zinc-ion" OR "magnesium") AND (battery OR batteries) AND (anode OR cathode OR electrolyte)', 3800),
 
     # Graphene beyond energy storage. The tool is about graphene, not only
     # graphene in batteries, so every major application domain is represented.
-    ("electronics",    'title.search:graphene AND (transistor OR electronics OR "field-effect" OR circuit OR interconnect)', 1400),
-    ("sensors",        'title.search:graphene AND (sensor OR sensors OR sensing OR biosensor OR detection)', 1400),
-    ("membranes",      'title.search:graphene AND (membrane OR filtration OR desalination OR "water treatment" OR separation)', 1400),
-    ("composites",     'title.search:graphene AND (composite OR composites OR polymer OR reinforcement OR nanocomposite)', 1400),
-    ("coatings",       'title.search:graphene AND (coating OR corrosion OR barrier OR anti-corrosion OR tribolog)', 1200),
-    ("thermal",        'title.search:graphene AND ("thermal conductivity" OR "heat dissipation" OR "thermal management" OR phonon)', 1200),
-    ("photonics",      'title.search:graphene AND (photonic OR optoelectronic OR photodetector OR laser OR plasmonic OR modulator)', 1400),
-    ("solar",          'title.search:graphene AND (solar OR photovoltaic OR "perovskite solar" OR "dye-sensitized")', 1200),
-    ("catalysis",      'title.search:graphene AND (catalysis OR catalyst OR electrocatalysis OR "oxygen reduction" OR "hydrogen evolution")', 1400),
-    ("hydrogen",       'title.search:graphene AND ("hydrogen storage" OR "gas storage" OR adsorption OR "CO2 capture")', 1200),
-    ("biomedical",     'title.search:graphene AND (biomedical OR "drug delivery" OR tissue OR antibacterial OR bioimaging OR therapy)', 1400),
-    ("toxicity",       'title.search:graphene AND (toxicity OR cytotoxicity OR biocompatibility OR safety OR "environmental impact")', 1000),
-    ("mechanical",     'title.search:graphene AND (mechanical OR strength OR elastic OR fracture OR stiffness OR "Young modulus")', 1200),
-    ("spintronics",    'title.search:graphene AND (spintronics OR magnetic OR magnetism OR valleytronics OR "spin transport")', 1000),
-    ("quantum",        'title.search:graphene AND (quantum OR "quantum Hall" OR superconduct OR topological OR "Dirac fermion")', 1200),
-    ("fuelcell",       'title.search:graphene AND ("fuel cell" OR "proton exchange" OR electrolyser OR electrolyzer)', 1000),
-    ("shielding",      'title.search:graphene AND ("EMI shielding" OR "electromagnetic" OR microwave OR absorption)', 1000),
-    ("printing",       'title.search:graphene AND (ink OR printing OR printable OR flexible OR wearable OR stretchable)', 1200),
-    ("production",     'title.search:graphene AND ("large-scale" OR "mass production" OR scalable OR industrial OR "roll-to-roll")', 1000),
-    ("metrology",      'title.search:graphene AND (metrology OR standard OR "quality control" OR classification OR characterization)', 1000),
+    ("electronics",    'title.search:graphene AND (transistor OR electronics OR "field-effect" OR circuit OR interconnect)', 3500),
+    ("sensors",        'title.search:graphene AND (sensor OR sensors OR sensing OR biosensor OR detection)', 3500),
+    ("membranes",      'title.search:graphene AND (membrane OR filtration OR desalination OR "water treatment" OR separation)', 3500),
+    ("composites",     'title.search:graphene AND (composite OR composites OR polymer OR reinforcement OR nanocomposite)', 3500),
+    ("coatings",       'title.search:graphene AND (coating OR corrosion OR barrier OR anti-corrosion OR tribolog)', 3000),
+    ("thermal",        'title.search:graphene AND ("thermal conductivity" OR "heat dissipation" OR "thermal management" OR phonon)', 3000),
+    ("photonics",      'title.search:graphene AND (photonic OR optoelectronic OR photodetector OR laser OR plasmonic OR modulator)', 3500),
+    ("solar",          'title.search:graphene AND (solar OR photovoltaic OR "perovskite solar" OR "dye-sensitized")', 3000),
+    ("catalysis",      'title.search:graphene AND (catalysis OR catalyst OR electrocatalysis OR "oxygen reduction" OR "hydrogen evolution")', 3500),
+    ("hydrogen",       'title.search:graphene AND ("hydrogen storage" OR "gas storage" OR adsorption OR "CO2 capture")', 3000),
+    ("biomedical",     'title.search:graphene AND (biomedical OR "drug delivery" OR tissue OR antibacterial OR bioimaging OR therapy)', 3500),
+    ("toxicity",       'title.search:graphene AND (toxicity OR cytotoxicity OR biocompatibility OR safety OR "environmental impact")', 2500),
+    ("mechanical",     'title.search:graphene AND (mechanical OR strength OR elastic OR fracture OR stiffness OR "Young modulus")', 3000),
+    ("spintronics",    'title.search:graphene AND (spintronics OR magnetic OR magnetism OR valleytronics OR "spin transport")', 2500),
+    ("quantum",        'title.search:graphene AND (quantum OR "quantum Hall" OR superconduct OR topological OR "Dirac fermion")', 3000),
+    ("fuelcell",       'title.search:graphene AND ("fuel cell" OR "proton exchange" OR electrolyser OR electrolyzer)', 2500),
+    ("shielding",      'title.search:graphene AND ("EMI shielding" OR "electromagnetic" OR microwave OR absorption)', 2500),
+    ("printing",       'title.search:graphene AND (ink OR printing OR printable OR flexible OR wearable OR stretchable)', 3000),
+    ("production",     'title.search:graphene AND ("large-scale" OR "mass production" OR scalable OR industrial OR "roll-to-roll")', 2500),
+    ("metrology",      'title.search:graphene AND (metrology OR standard OR "quality control" OR classification OR characterization)', 2500),
+
+    # Everything above searches titles only, which is precise and narrow: a
+    # paper reporting a graphene membrane may name it only in the abstract.
+    # These read the abstract too, and carry the larger share of the corpus.
+    # OpenAlex sorts by citations, so a cap takes the papers the field reads.
+    ("abs-core",       'title_and_abstract.search:graphene', 20000),
+    ("abs-oxide",      'title_and_abstract.search:"graphene oxide"', 9000),
+    ("abs-energy",     'title_and_abstract.search:graphene AND (battery OR anode OR cathode OR supercapacitor OR "energy storage")', 9000),
+    ("abs-composite",  'title_and_abstract.search:graphene AND (composite OR polymer OR nanocomposite OR filler)', 7000),
+    ("abs-electronic", 'title_and_abstract.search:graphene AND (transistor OR electronic OR photonic OR optoelectronic OR device)', 6000),
+    ("abs-sensing",    'title_and_abstract.search:graphene AND (sensor OR sensing OR biosensor OR detection)', 6000),
+    ("abs-thermal",    'title_and_abstract.search:graphene AND (thermal OR "heat transfer" OR phonon OR "thermal conductivity")', 6000),
+    ("abs-membrane",   'title_and_abstract.search:graphene AND (membrane OR filtration OR desalination OR permeation)', 5000),
+    ("abs-catalysis",  'title_and_abstract.search:graphene AND (catalyst OR catalysis OR electrocatalyst OR "oxygen reduction")', 5000),
+    ("abs-mechanical", 'title_and_abstract.search:graphene AND (mechanical OR strength OR modulus OR fracture OR tensile)', 5000),
+    ("abs-bio",        'title_and_abstract.search:graphene AND (biomedical OR drug OR cell OR tissue OR toxicity OR antibacterial)', 5000),
+    ("abs-synthesis",  'title_and_abstract.search:graphene AND (synthesis OR growth OR exfoliation OR "chemical vapor deposition")', 6000),
+    ("abs-2d",         'title_and_abstract.search:("two-dimensional material" OR "2D material" OR MXene OR "transition metal dichalcogenide") AND graphene', 4000),
+    ("abs-coating",    'title_and_abstract.search:graphene AND (coating OR corrosion OR barrier OR lubricant OR tribology)', 4000),
+    ("abs-shielding",  'title_and_abstract.search:graphene AND (shielding OR electromagnetic OR microwave OR absorber)', 3000),
+    ("abs-printing",   'title_and_abstract.search:graphene AND (ink OR printing OR flexible OR wearable OR stretchable)', 4000),
+    ("abs-quantum",    'title_and_abstract.search:graphene AND (quantum OR superconduct OR topological OR "Dirac" OR spin)', 4000),
+    ("abs-solar",      'title_and_abstract.search:graphene AND (solar OR photovoltaic OR perovskite OR "light harvesting")', 4000),
+    ("abs-hydrogen",   'title_and_abstract.search:graphene AND (hydrogen OR "fuel cell" OR adsorption OR "gas separation")', 4000),
+    ("abs-environment",'title_and_abstract.search:graphene AND (adsorbent OR "water treatment" OR "heavy metal" OR dye OR pollutant)', 4000),
 ]
 
 # Broad fundamentals searches are capped. OpenAlex returns most-cited first,
@@ -129,13 +154,17 @@ def load_env(path=".env"):
 
 
 def api_key():
+    """The key is an optimisation, not a requirement.
+
+    OpenAlex serves this data to anonymous clients; a key buys a higher rate
+    limit and a more generous pool, nothing else. Refusing to run without one
+    made the collector stricter than the service it calls, so it now says what
+    it is doing and carries on.
+    """
     key = os.environ.get("OPENALEX_API_KEY", "").strip()
     if not key:
-        sys.exit(
-            "ERROR: OPENALEX_API_KEY is not set.\n"
-            "  Local: copy .env.example to .env and fill it in.\n"
-            "  CI:    set the OPENALEX_API_KEY repository secret."
-        )
+        print("  note     : no OPENALEX_API_KEY set; using the anonymous pool,\n"
+              "             which is slower. Set one to collect faster.")
     return key
 
 
@@ -234,7 +263,10 @@ def fetch_page(session, query_filter, cursor, key):
         "cursor": cursor,
     }
     url = API + "?" + urllib.parse.urlencode(params)
-    headers = {"Authorization": f"Bearer {key}", "Accept": "application/json"}
+    headers = {"Accept": "application/json",
+               "User-Agent": "graphene-research-agent/1.0"}
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
 
     last = ""
     for attempt in range(1, MAX_PAGE_RETRIES + 1):

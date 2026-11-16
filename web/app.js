@@ -1102,7 +1102,7 @@ const PRIMERS = {
     lead: "Every paper that contributed at least one measurement, and how many it gave.",
     points: [
       ["These are the receipts",
-       "The library draws on 37,027 papers. These are the ones a number was actually read from, so they are the ones worth checking."],
+       "The library draws on {papers} papers. These are the ones a number was actually read from, so they are the ones worth checking."],
       ["Follow the DOI",
        "Each row links to the published paper. Nothing in this tool asks to be taken on trust."],
     ],
@@ -1131,15 +1131,29 @@ const PRIMERS = {
 
 function primerKey(view) { return "gba.primer." + view; }
 
+// Primer copy is written once and read against a library that grows every
+// week, so any figure in it is a token filled from the loaded data rather
+// than a number typed into the sentence.
+function primerFill(text) {
+  const s = (DATA && DATA.stats) || {};
+  return String(text).replace(/\{(papers|measurements|concepts)\}/g, (whole, key) => {
+    const n = key === "papers" ? s.papers
+            : key === "measurements" ? s.evidence_rows
+            : s.concepts;
+    return (n === undefined || n === null) ? whole : fmt(n);
+  });
+}
+
 function primerHTML(view) {
   const d = PRIMERS[view];
   if (!d) return "";
+  const f = (t) => esc(primerFill(t));
   return `<section class="primer" data-primer="${view}">
     <button class="primer-x" aria-label="Hide this explanation">&times;</button>
-    <h3>${esc(d.title)}</h3>
-    <p class="lead">${esc(d.lead)}</p>
+    <h3>${f(d.title)}</h3>
+    <p class="lead">${f(d.lead)}</p>
     <dl>${d.points.map(([k, v], i) => `<div style="--i:${i}">
-      <dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>
+      <dt>${f(k)}</dt><dd>${f(v)}</dd></div>`).join("")}</dl>
   </section>`;
 }
 

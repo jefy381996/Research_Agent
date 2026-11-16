@@ -164,19 +164,29 @@ def bundle():
                 row["flags"] = []
             rows.append(row)
 
-        # Every paper behind a measurement is kept; the most-cited of the rest
-        # fill a budget, so the payload stays a few megabytes rather than twenty.
+        # The browser gets a bounded sample of the abstracts, not all of them.
+        # Papers behind a measurement come first, because those are the ones an
+        # answer is most likely to need to quote; the most-cited of the rest
+        # fill whatever is left. The budget is a ceiling on the total, which it
+        # was not before: every cited paper was added unconditionally, so at a
+        # hundred thousand papers the payload grew without limit.
         cited = {r["openalex_id"] for r in rows}
-        passages, budget = [], int(os.environ.get("PASSAGE_BUDGET", "6000"))
+        budget = int(os.environ.get("PASSAGE_BUDGET", "6000"))
+        preferred, filler = [], []
         for r in conn.execute(
                 "SELECT openalex_id, title, year, journal, doi, abstract FROM papers"
                 " WHERE abstract IS NOT NULL AND abstract != ''"
                 " ORDER BY citations_per_year DESC"):
-            if len(passages) >= budget and r["openalex_id"] not in cited:
+            bucket = preferred if r["openalex_id"] in cited else filler
+            if len(bucket) >= budget:
+                if len(preferred) >= budget:
+                    break
                 continue
-            passages.append({"i": r["openalex_id"], "t": r["title"], "y": r["year"],
-                             "j": r["journal"], "d": r["doi"],
-                             "x": (r["abstract"] or "")[:1200]})
+            bucket.append({"i": r["openalex_id"], "t": r["title"], "y": r["year"],
+                           "j": r["journal"], "d": r["doi"],
+                           "x": (r["abstract"] or "")[:1200]})
+        passages = preferred[:budget]
+        passages += filler[:max(0, budget - len(passages))]
 
         def facet(column):
             return [{"value": r[0], "count": r[1]} for r in conn.execute(
