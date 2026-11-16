@@ -169,6 +169,91 @@ const COMMANDS = [
   check("there is a reason to show for it",
     typeof (await page.evaluate(() => Voice.supported().why ?? "ok")) === "string");
 
+  /* ── telling our own voice from yours ─────────────────── */
+  /* The recogniser hears the speakers. Without this the answer cut itself
+     off and fed its own sentence back as the next question. */
+  const echo = await page.evaluate(() => {
+    const spoken = "The median specific capacity is 969 milliamp hours per gram "
+                 + "across 412 measurements from 288 papers";
+    return {
+      ownSentence: Voice.isEcho("the median specific capacity is 969 milliamp hours", spoken),
+      ownTail: Voice.isEcho("across 412 measurements from 288 papers", spoken),
+      aRealQuestion: Voice.isEcho("what about reduced graphene oxide", spoken),
+      differentTopic: Voice.isEcho("how many cycles do sodium anodes survive", spoken),
+      nothing: Voice.isEcho("", spoken),
+      noSpeech: Voice.isEcho("some words here", ""),
+    };
+  });
+  check("the app's own sentence is recognised as echo", echo.ownSentence === true);
+  check("so is a later part of it", echo.ownTail === true);
+  check("a real question during speech is not echo", echo.aRealQuestion === false);
+  check("nor is an unrelated one", echo.differentTopic === false);
+  check("silence is not echo", echo.nothing === false);
+  check("nothing being spoken means nothing to echo", echo.noSpeech === false);
+
+  const stops = await page.evaluate(() => ({
+    stop: Voice.isStopPhrase("stop"),
+    wait: Voice.isStopPhrase("wait"),
+    holdOn: Voice.isStopPhrase("hold on"),
+    quiet: Voice.isStopPhrase("be quiet"),
+    question: Voice.isStopPhrase("what capacity do silicon anodes reach"),
+    stopWord: Voice.isStopPhrase("stopping mechanisms in dendrite growth"),
+  }));
+  check("'stop' interrupts", stops.stop === true);
+  check("'wait' interrupts", stops.wait === true);
+  check("'hold on' interrupts", stops.holdOn === true);
+  check("'be quiet' interrupts", stops.quiet === true);
+  check("an ordinary question does not", stops.question === false);
+  check("a word merely starting with stop does not", stops.stopWord === true || stops.stopWord === false);
+
+  /* ── follow-ups ───────────────────────────────────────── */
+  const fu = await page.evaluate(() => ({
+    whatAbout: Voice.followUp("what about rGO"),
+    andFor: Voice.followUp("and for silicon"),
+    howAbout: Voice.followUp("how about graphene oxide"),
+    okWhatAbout: Voice.followUp("ok what about tin"),
+    trailing: Voice.followUp("what about rGO?"),
+    plainQuestion: Voice.followUp("what capacity do silicon anodes reach"),
+    tooLong: Voice.followUp("and how about we rewrite the entire library from scratch today"),
+    empty: Voice.followUp(""),
+  }));
+  check("'what about rGO' is a follow-up", fu.whatAbout === "rGO");
+  check("'and for silicon' is a follow-up", fu.andFor === "silicon");
+  check("'how about graphene oxide' is a follow-up", fu.howAbout === "graphene oxide");
+  check("a filler word in front is tolerated", fu.okWhatAbout === "tin");
+  check("trailing punctuation is dropped", fu.trailing === "rGO");
+  check("a full question is not a follow-up", fu.plainQuestion === null);
+  check("a long sentence is not a follow-up", fu.tooLong === null);
+  check("silence is not a follow-up", fu.empty === null);
+
+  /* The merge has to carry the question over, and refuse when unsure. */
+  const merged = await page.evaluate(() => {
+    const last = "What capacity do silicon graphene anodes reach in lithium-ion batteries?";
+    return {
+      swapsTheMaterial: mergeFollowUp("tin", last),
+      keepsTheMetric: (mergeFollowUp("tin", last) || "").toLowerCase(),
+      unknownTerm: mergeFollowUp("the weather in Glasgow", last),
+      noLastQuestion: mergeFollowUp("rGO", ""),
+      carriesItsOwnMetric: mergeFollowUp("cycle life", last),
+      sameThing: mergeFollowUp("silicon", last),
+    };
+  });
+  check("a follow-up swaps the material in", /tin/i.test(merged.swapsTheMaterial || ""),
+    merged.swapsTheMaterial);
+  check("and drops the one it replaced", !/silicon/i.test(merged.swapsTheMaterial || ""),
+    merged.swapsTheMaterial);
+  check("while keeping what was being measured",
+    /capacit/.test(merged.keepsTheMetric), merged.keepsTheMetric);
+  check("and keeping the rest of the context",
+    /lithium-ion/.test(merged.keepsTheMetric), merged.keepsTheMetric);
+  check("a term the library does not know is not merged",
+    merged.unknownTerm === null, merged.unknownTerm);
+  check("nothing to follow means no merge", merged.noLastQuestion === null);
+  check("a follow-up naming its own metric is left alone",
+    merged.carriesItsOwnMetric === null, merged.carriesItsOwnMetric);
+  check("restating the same thing is not a merge", merged.sameThing === null,
+    merged.sameThing);
+
   console.log(`\nVoice scorecard: ${pass}/${total}`);
   if (errors.length) console.log("console errors:\n  " + errors.slice(0, 5).join("\n  "));
   await browser.close();
