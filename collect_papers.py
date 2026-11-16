@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
-"""Collect graphene-battery paper metadata from OpenAlex into a CSV.
+"""Collect graphene paper metadata from OpenAlex into a CSV.
 
-Ten title-anchored searches cover the sub-domains of graphene battery
-research. Results are unioned and de-duplicated on the OpenAlex work id.
+Two kinds of search run. Most require a graphene-family term in the title, so
+the paper is about graphene. The rest, labelled `abs-*`, match the title or the
+abstract, which also finds papers that only mention graphene; they are kept
+because they carry real measurements, and `source_queries` records which
+searches found each paper, so the two are never reported as one number.
+Results are unioned and de-duplicated on the OpenAlex work id.
+
+OpenAlex meters requests against a budget. When that budget runs out mid-run
+the collector writes what it has and records which searches finished, so the
+next run resumes instead of paying for the same pages twice.
 
 Why the work id and not the DOI: a meaningful share of OpenAlex works carry
 no DOI. Keying on DOI would collapse every DOI-less paper into a single row.
@@ -16,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import os
 import sys
 import tempfile
@@ -29,8 +38,10 @@ API = "https://api.openalex.org/works"
 
 BASE_FILTERS = ("from_publication_date:2019-01-01", "type:article")
 
-# Ten searches. Each requires a graphene-family term in the title, so a paper
-# that merely mentions graphene in passing is not pulled in.
+# The title-anchored searches come first: each requires a graphene-family term
+# in the title, so the paper is about graphene rather than citing it. The
+# `abs-*` searches at the end match the abstract too and deliberately cast
+# wider; `source_queries` keeps them distinguishable.
 SEARCHES = [
     # Application: graphene in batteries, by sub-domain.
     ("battery",        'title.search:graphene AND (battery OR batteries)', None),
@@ -135,6 +146,9 @@ LICENCE_RESTRICTED = {
     "cc-by-nc", "cc-by-nd", "cc-by-nc-sa", "cc-by-nc-nd",
     "publisher-specific-oa", "other-oa", "publisher-specific-open-access",
 }
+
+CHECKPOINT_EVERY = 5            # searches between partial writes
+DEFAULT_PROGRESS = "data/.collect-progress.json"
 
 MAX_PAGE_RETRIES = 4
 BACKOFF_BASE = 2
@@ -254,6 +268,15 @@ def flatten(work, current_year, retrieved_at, label):
     }
 
 
+class CollectionStopped(RuntimeError):
+    """OpenAlex stopped serving this run.
+
+    Raised instead of exiting, so whatever has already been collected is
+    written out and the searches that finished are recorded. Twenty minutes of
+    paging is not thrown away because the last request was refused.
+    """
+
+
 def fetch_page(session, query_filter, cursor, key):
     params = {
         "filter": query_filter,
@@ -285,17 +308,23 @@ def fetch_page(session, query_filter, cursor, key):
                 except (TypeError, ValueError):
                     wait = BACKOFF_BASE ** attempt
                 if wait > MAX_RETRY_AFTER:
-                    sys.exit(f"ERROR: rate limited for {wait}s. Nothing written.\n  {last}")
+                    raise CollectionStopped(
+                        f"OpenAlex asked us to wait {wait}s "
+                        f"({wait / 3600:.1f} hours), which is longer than this "
+                        f"run can sensibly sleep.\n  {last}")
                 time.sleep(wait)
                 continue
             if resp.status_code in (401, 403):
-                sys.exit(f"ERROR: authentication rejected. Nothing written.\n  {last}")
+                raise CollectionStopped(
+                    f"OpenAlex rejected our credentials.\n  {last}")
             if resp.status_code < 500:
-                sys.exit(f"ERROR: request rejected. Nothing written.\n  {last}")
+                raise CollectionStopped(
+                    f"OpenAlex rejected the request.\n  {last}")
         if attempt < MAX_PAGE_RETRIES:
             time.sleep(BACKOFF_BASE ** attempt)
 
-    sys.exit(f"ERROR: page failed after {MAX_PAGE_RETRIES} attempts. Nothing written.\n  {last}")
+    raise CollectionStopped(
+        f"a page failed after {MAX_PAGE_RETRIES} attempts.\n  {last}")
 
 
 def read_existing(path):
@@ -311,6 +340,57 @@ def read_existing(path):
     except OSError as exc:
         sys.exit(f"ERROR: cannot read existing {path}: {exc}")
     return rows
+
+
+def load_progress(path):
+    """Labels of searches that finished in an earlier run."""
+    if not path or not os.path.exists(path):
+        return set()
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        return set(data.get("done") or [])
+    except (OSError, ValueError) as exc:
+        print(f"  note     : ignoring unreadable progress file ({exc})")
+        return set()
+
+
+def save_progress(path, done):
+    if not path:
+        return
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"done": sorted(done),
+                       "saved_at": datetime.now(timezone.utc)
+                       .replace(microsecond=0).isoformat()}, fh, indent=1)
+    except OSError as exc:
+        print(f"  warning  : could not save progress ({exc})")
+
+
+def clear_progress(path):
+    try:
+        if path and os.path.exists(path):
+            os.unlink(path)
+    except OSError:
+        pass
+
+
+def merge_and_write(out, collected):
+    """Union what this run collected with whatever the CSV already held.
+
+    The CSV is the durable accumulator: a run that stops early writes through
+    here, and the next run reads it back, so progress survives a budget that
+    runs out mid-way.
+    """
+    existing = read_existing(out)
+    merged = dict(existing)
+    merged.update(collected)
+    rows = sorted(merged.values(),
+                  key=lambda r: (-float(r.get("citations_per_year") or 0),
+                                 str(r.get("title", ""))))
+    write_atomic(out, rows)
+    return rows, existing
 
 
 def write_atomic(path, rows):
@@ -377,6 +457,13 @@ def main():
     parser.add_argument("--out", help="CSV path to write, e.g. data/papers.csv")
     parser.add_argument("--dry-run", action="store_true",
                         help="Report counts per search and write nothing.")
+    parser.add_argument("--progress", default=DEFAULT_PROGRESS,
+                        help="where to record which searches finished, so an "
+                             "interrupted run resumes instead of re-paying "
+                             "for the same pages")
+    parser.add_argument("--restart", action="store_true",
+                        help="ignore any recorded progress and run every "
+                             "search again")
     args = parser.parse_args()
     if not args.dry_run and not args.out:
         parser.error("either --out PATH or --dry-run is required")
@@ -398,36 +485,82 @@ def main():
     session = requests.Session()
     session.headers["User-Agent"] = "research-agent/0.4 (graphene battery evidence)"
 
+    if args.restart and not args.dry_run:
+        clear_progress(args.progress)
+    done = set() if args.dry_run else load_progress(args.progress)
+    if done:
+        print(f"  resuming : {len(done)} of {len(SEARCHES)} searches already "
+              f"done in an earlier run; skipping them")
+    print()
+
     collected, skipped_total, reported = {}, 0, 0
+    stopped, finished = None, 0
     for label, search, cap in SEARCHES:
-        total, skipped = run_search(session, label, search, cap, key, current_year,
-                                    retrieved_at, collected, args.dry_run)
+        if label in done:
+            continue
+        try:
+            total, skipped = run_search(session, label, search, cap, key,
+                                        current_year, retrieved_at, collected,
+                                        args.dry_run)
+        except CollectionStopped as exc:
+            stopped = str(exc)
+            break
         reported += total
         skipped_total += skipped
+        done.add(label)
+        finished += 1
+        # Partial writes, so a budget that runs out costs one interval of
+        # paging rather than the whole run.
+        if not args.dry_run and finished % CHECKPOINT_EVERY == 0:
+            rows, _ = merge_and_write(args.out, collected)
+            save_progress(args.progress, done)
+            print(f"    checkpoint: {len(rows)} rows on disk, "
+                  f"{len(done)}/{len(SEARCHES)} searches done", flush=True)
 
     print()
     print(f"Sum of per-search counts (with overlap): {reported}")
     if args.dry_run:
+        if stopped:
+            sys.exit(f"DRY RUN STOPPED after {len(done)}/{len(SEARCHES)} "
+                     f"searches: {stopped}")
         print("DRY RUN complete. No file was written.")
         return
 
     if not collected:
+        if stopped:
+            save_progress(args.progress, done)
+            sys.exit(f"STOPPED before any new rows were collected: {stopped}\n"
+                     f"  {len(done)}/{len(SEARCHES)} searches recorded as done; "
+                     f"re-run to resume.")
+        if len(done) >= len(SEARCHES):
+            # A previous run finished every search but was killed before it
+            # could clear the record. There is nothing left to pay for.
+            clear_progress(args.progress)
+            print(f"All {len(SEARCHES)} searches were already done in an "
+                  f"earlier run; nothing to collect.")
+            print(f"  {args.out} is left as it is. Use --restart to collect "
+                  f"the whole set again.")
+            return
         sys.exit("ERROR: collected zero rows. Nothing written.")
 
-    existing = read_existing(args.out)
-    merged = dict(existing)
+    rows, existing = merge_and_write(args.out, collected)
     new_ids = set(collected) - set(existing)
-    merged.update(collected)
-    rows = sorted(merged.values(),
-                  key=lambda r: (-float(r.get("citations_per_year") or 0),
-                                 str(r.get("title", ""))))
-    write_atomic(args.out, rows)
 
-    print(f"Unique papers after de-duplication    : {len(collected)}")
+    print(f"Unique papers this run                : {len(collected)}")
     print(f"Records skipped                       : {skipped_total}")
     print(f"New this run                          : {len(new_ids)}")
     print(f"Updated existing                      : {len(set(collected) & set(existing))}")
     print(f"Total rows in CSV                     : {len(rows)}")
+    print(f"Searches completed                    : {len(done)}/{len(SEARCHES)}")
+
+    if stopped:
+        save_progress(args.progress, done)
+        sys.exit(f"\nSTOPPED EARLY: {stopped}\n"
+                 f"  {len(rows)} rows were written to {args.out} and "
+                 f"{len(done)}/{len(SEARCHES)} searches recorded as done.\n"
+                 f"  Re-run the same command to resume from search "
+                 f"{len(done) + 1}; nothing already paid for is fetched twice.")
+    clear_progress(args.progress)
     print(f"Written to                            : {args.out}")
 
 
