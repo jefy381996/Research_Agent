@@ -14,14 +14,18 @@ sheet resistance to Young's modulus, surface area, optical transmittance, water
 permeance and EMI shielding.
 
 Of the 83,409 papers, 68,037 were matched by a search requiring a graphene
-term in the title, and 15,372 only by one that also reads the abstract — so
+term in the title, and 15,372 only by one that reads the abstract as well — so
 the second group includes papers that mention graphene rather than study it.
-11,052 papers name graphene nowhere in their title or abstract at all: those
-come from two searches that deliberately collect battery work without it, so
-the library can describe the field graphene sits in. They contribute 1,372 of
-the measurements, each labelled with the material it was measured on, and the
-engine does not draw on them to answer a question about graphene. Both numbers
-are worth knowing before anyone quotes the total.
+A further 6,283 came from `battery-basics` and `beyond-lithium`, the only two
+of the sixty-two searches that ask for no graphene term at all, deliberately,
+so the library can describe the field graphene sits in. They account for 1,466
+of the measurements, each labelled with the material it was measured on, and
+none of them is used to answer a question about graphene. These figures are
+counted from how each paper was found rather than from its text, because the
+abstracts that do not fit the size budget are dropped before shipping, and a
+paper that named graphene only in a dropped abstract would otherwise look as
+though it never named it. The same split is shown on the Papers tab in the
+app, so it travels with the total rather than sitting only here.
 
 Two ways to ask. **Instant** runs on rules alone: no model,
 no network, the same answer every time. **Agent** gives a language model

@@ -113,6 +113,65 @@ EVIDENCE_COLUMNS = [
 ]
 
 
+# The only two of the sixty-two searches that do not require a graphene term.
+NO_GRAPHENE_SEARCHES = frozenset({"battery-basics", "beyond-lithium"})
+
+
+# Computed once. /api/bundle is hit on every page load and this walks every
+# paper row; the database does not change while the service is up.
+_PROV = None
+
+
+def _provenance(conn):
+    """How each paper was found, which is not what it is about.
+
+    Most searches require a graphene term in the title. The `abs-*` searches
+    read the abstract too, so they also find papers that merely mention it.
+    Two searches collect battery work with no graphene requirement at all, on
+    purpose, so the library can describe the field graphene sits in. The total
+    on its own overstates what this is, so the split travels with it.
+    """
+    global _PROV
+    if _PROV is not None:
+        return _PROV
+    title_matched = abstract_only = 0
+    for (sq,) in conn.execute("SELECT source_queries FROM papers"):
+        parts = [q for q in (sq or "").split("|") if q]
+        if parts and all(q.startswith("abs-") for q in parts):
+            abstract_only += 1
+        else:
+            title_matched += 1
+    # Counted from how the paper was found, not from its text. Reading the
+    # text gave a different answer before and after shipping, because the
+    # abstracts that do not fit the size budget are dropped: a paper that
+    # named graphene only in a dropped abstract then looked as though it
+    # never named it. Two of the sixty-two searches - battery-basics and
+    # beyond-lithium - ask for no graphene term at all, deliberately, so the
+    # library can describe the field graphene sits in. Papers found only by
+    # those are the ones that may have nothing to do with graphene, and that
+    # is a fact about the search, which pruning cannot change.
+    context = 0
+    context_rows = 0
+    for (sq,) in conn.execute("SELECT source_queries FROM papers"):
+        parts = {q for q in (sq or "").split("|") if q}
+        if parts and parts <= NO_GRAPHENE_SEARCHES:
+            context += 1
+    for table in ("evidence", "properties"):
+        for (sq,) in conn.execute(
+                f"SELECT p.source_queries FROM {table} e"
+                f" JOIN papers p ON p.openalex_id = e.openalex_id"):
+            parts = {q for q in (sq or "").split("|") if q}
+            if parts and parts <= NO_GRAPHENE_SEARCHES:
+                context_rows += 1
+    contributing = conn.execute(
+        "SELECT count(*) FROM (SELECT openalex_id FROM evidence"
+        " UNION SELECT openalex_id FROM properties)").fetchone()[0]
+    _PROV = {"title_matched": title_matched, "abstract_only": abstract_only,
+             "context_only": context, "context_measurements": context_rows,
+             "papers_with_measurement": contributing}
+    return _PROV
+
+
 def _conn():
     return db.connect()
 
@@ -366,7 +425,12 @@ def get_stats():
         one = lambda s: conn.execute(s).fetchone()[0]
         return {
             "papers": one("SELECT count(*) FROM papers"),
-            "papers_with_text": one("SELECT count(*) FROM paper_sections"),
+            # Abstracts, not paper_sections: the shipped database has its
+            # derived index stripped, so counting that reported nought.
+            "papers_with_text": one(
+                "SELECT count(*) FROM papers WHERE abstract IS NOT NULL"
+                " AND abstract != ''"),
+            **_provenance(conn),
             "papers_reusable": one(
                 "SELECT count(*) FROM papers WHERE full_text_reusable='yes'"),
             "evidence_rows": one("SELECT count(*) FROM evidence"),

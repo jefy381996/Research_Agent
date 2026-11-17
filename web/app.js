@@ -1138,7 +1138,7 @@ function wireMine() {
 }
 
 /* ── telling a non-specialist what a screen is ──────────── */
-/* A table of 2,794 rows with a column called "coulombic efficiency" tells a
+/* A table of several thousand rows with a column called "coulombic efficiency" tells a
    chemist a great deal and a research director nothing at all. Each of these
    screens opens with the same three things in plain words: what it holds, what
    one row of it means, and what to do with it. It can be folded away, and the
@@ -1176,7 +1176,9 @@ const PRIMERS = {
     lead: "Every paper that contributed at least one measurement, and how many it gave.",
     points: [
       ["These are the receipts",
-       "The library draws on {papers} papers. These are the ones a number was actually read from, so they are the ones worth checking."],
+       "The library draws on {papers} papers. These {contributing} are the ones a number was actually read from, so they are the ones worth checking."],
+      ["Not all {papers} are about graphene",
+       "{titleMatched} were found by a search that required graphene in the paper's title. {abstractOnly} were found only by one that reads the abstract as well, so that group includes papers that mention graphene rather than study it. A further {contextOnly} came from two searches that ask for battery work with no graphene term at all \u2014 deliberately, so the library can describe the field graphene sits in. They account for {contextRows} of the measurements, each labelled with the material it was measured on, and none of them is used to answer a question about graphene."],
       ["Follow the DOI",
        "Each row links to the published paper. Nothing in this tool asks to be taken on trust."],
     ],
@@ -1210,12 +1212,22 @@ function primerKey(view) { return "gba.primer." + view; }
 // than a number typed into the sentence.
 function primerFill(text) {
   const s = (DATA && DATA.stats) || {};
-  return String(text).replace(/\{(papers|measurements|concepts)\}/g, (whole, key) => {
-    const n = key === "papers" ? s.papers
-            : key === "measurements" ? s.evidence_rows
-            : s.concepts;
-    return (n === undefined || n === null) ? whole : fmt(n);
-  });
+  const of = {
+    papers: s.papers,
+    measurements: (s.evidence_rows || 0) + (s.property_rows || 0),
+    concepts: s.concepts,
+    contributing: s.papers_with_measurement,
+    titleMatched: s.title_matched,
+    abstractOnly: s.abstract_only,
+    contextOnly: s.context_only,
+    contextRows: s.context_measurements,
+  };
+  return String(text).replace(
+    /\{(papers|measurements|concepts|contributing|titleMatched|abstractOnly|contextOnly|contextRows)\}/g,
+    (whole, key) => {
+      const n = of[key];
+      return (n === undefined || n === null) ? whole : fmt(n);
+    });
 }
 
 function primerHTML(view) {
@@ -1976,10 +1988,11 @@ function renderAnswer(a) {
   if (a.kind === "refused") {
     blocks.push(`<div class="refusal"><h3>Not in the library</h3>
       <p>This question ${esc(a.reason)}. ${esc(a.why)}</p>
-      <p class="dim">The library holds ${fmt(DATA.stats.evidence_rows)} measurements from
-        ${fmt(DATA.stats.papers)} papers across graphene — batteries, electronics, sensors,
-        membranes, composites, biomedicine and more — plus ${fmt(DATA.stats.concepts)} reference
-        entries.</p>
+      <p class="dim">The library holds ${fmt((DATA.stats.evidence_rows || 0)
+          + (DATA.stats.property_rows || 0))} measurements, read from
+        ${fmt(DATA.stats.papers_with_measurement || 0)} of its ${fmt(DATA.stats.papers)}
+        papers across graphene — batteries, electronics, sensors, membranes, composites,
+        biomedicine and more — plus ${fmt(DATA.stats.concepts)} reference entries.</p>
       ${(() => {
         // Say what is actually about to happen. This used to be decided by
         // whether the agent was reachable, while the handover was decided by
