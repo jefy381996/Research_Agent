@@ -62,47 +62,75 @@ def main():
     after_derived = size_mb(path)
 
     # Abstracts, if the file is still too big.
-    dropped = 0
+    #
+    # One pass of this used to guess how many to drop from the average length,
+    # on the assumption that dropping text frees its own size. It frees more
+    # than that - the page and index overhead goes with it - so the guess
+    # overshot: asked for 88 MB it produced 72, having thrown away about
+    # thirteen thousand abstracts it did not need to. Abstracts are what the
+    # engine reads to answer anything the measurements do not cover, so that
+    # is coverage given away for nothing.
+    #
+    # Dropping cannot be undone within a run, so each round now takes a
+    # deliberate fraction of what it thinks is needed, vacuums, and measures
+    # the real file again. It converges from above and stops as soon as it is
+    # inside the budget, keeping as many abstracts as the budget allows.
+    TIMID = 0.6                 # take this much of the estimate, then look
+    MAX_ROUNDS = 12
+    DROPPABLE = """
+        SELECT p.openalex_id FROM papers p
+        WHERE p.abstract IS NOT NULL AND p.abstract != ''
+          AND p.openalex_id NOT IN (SELECT openalex_id FROM evidence)
+          AND p.openalex_id NOT IN (SELECT openalex_id FROM properties)
+        ORDER BY coalesce(p.cited_by_count, 0) ASC,
+                 coalesce(p.year, 0) ASC
+        LIMIT ?"""
+
     conn = db.connect(path)
     try:
-        if size_mb(path) > budget:
-            # Never these: a measurement has to keep the sentence it came from.
-            conn.execute("""
-                CREATE TEMP TABLE must_keep AS
-                SELECT openalex_id FROM evidence
-                UNION SELECT openalex_id FROM properties""")
-            protected = conn.execute("SELECT count(*) FROM must_keep").fetchone()[0]
+        had = conn.execute("SELECT count(*) FROM papers WHERE abstract IS NOT NULL"
+                           " AND abstract != ''").fetchone()[0]
+        protected = conn.execute(
+            "SELECT count(*) FROM (SELECT openalex_id FROM evidence"
+            " UNION SELECT openalex_id FROM properties) m"
+            " JOIN papers p ON p.openalex_id = m.openalex_id"
+            " WHERE p.abstract IS NOT NULL AND p.abstract != ''").fetchone()[0]
+    finally:
+        conn.close()
 
-            have = conn.execute(
-                "SELECT count(*) FROM papers WHERE abstract IS NOT NULL"
-                " AND abstract != ''").fetchone()[0]
-            over = size_mb(path) - budget
+    dropped, rounds = 0, 0
+    while size_mb(path) > budget and rounds < MAX_ROUNDS:
+        rounds += 1
+        conn = db.connect(path)
+        try:
+            left = conn.execute(
+                "SELECT count(*) FROM papers p WHERE p.abstract IS NOT NULL"
+                " AND p.abstract != ''"
+                " AND p.openalex_id NOT IN (SELECT openalex_id FROM evidence)"
+                " AND p.openalex_id NOT IN (SELECT openalex_id FROM properties)"
+            ).fetchone()[0]
+            if not left:
+                break
             per_abstract = (conn.execute(
                 "SELECT coalesce(avg(length(abstract)), 0) FROM papers"
                 " WHERE abstract IS NOT NULL AND abstract != ''"
             ).fetchone()[0] or 1) / 1048576
-            # Dropping text frees roughly its own size once vacuumed.
-            to_drop = min(max(0, int(over / max(per_abstract, 1e-9)) + 500),
-                          max(0, have - protected))
-
-            if to_drop:
-                conn.execute("""
-                    UPDATE papers SET abstract = ''
-                    WHERE openalex_id IN (
-                      SELECT p.openalex_id FROM papers p
-                      WHERE p.abstract IS NOT NULL AND p.abstract != ''
-                        AND p.openalex_id NOT IN (SELECT openalex_id FROM must_keep)
-                      ORDER BY coalesce(p.cited_by_count, 0) ASC,
-                               coalesce(p.year, 0) ASC
-                      LIMIT ?)""", (to_drop,))
-                conn.commit()
-                dropped = conn.total_changes
-            print(f"  abstracts: {have} present, {protected} protected by a "
-                  f"measurement, {dropped} of the least-cited dropped")
-    finally:
-        conn.close()
-    if dropped:
+            over = size_mb(path) - budget
+            want = int(over / max(per_abstract, 1e-9) * TIMID) + 200
+            take = min(want, left)
+            before_changes = conn.total_changes
+            conn.execute(f"UPDATE papers SET abstract = ''"
+                         f" WHERE openalex_id IN ({DROPPABLE})", (take,))
+            conn.commit()
+            dropped += conn.total_changes - before_changes
+        finally:
+            conn.close()
         vacuum(path)
+
+    if had:
+        print(f"  abstracts: {had} present, {protected} protected by a "
+              f"measurement, {dropped} of the least-cited dropped"
+              + (f" over {rounds} rounds" if rounds else ""))
 
     conn = db.connect(path)
     try:

@@ -6,12 +6,24 @@ toxicity and production. It answers from stored data and nothing else:
 reference entries for the fundamentals, measurements pulled out of published
 papers, and calculators you can audit.
 
-**285 reference entries · 4,745 measurements · 37,027 papers · 34 compounds ·
-28 calculators.** The measurements come in two halves: 2,794 battery
+**285 reference entries · 9,230 measurements · 83,409 papers · 34 compounds ·
+28 calculators.** The measurements come in two halves: 4,595 battery
 performance figures — capacity, retention, cycle life, rate, efficiency — and
-1,951 material properties across twelve families, from thermal conductivity and
+4,635 material properties across twelve families, from thermal conductivity and
 sheet resistance to Young's modulus, surface area, optical transmittance, water
-permeance and EMI shielding. Two ways to ask. **Instant** runs on rules alone: no model,
+permeance and EMI shielding.
+
+Of the 83,409 papers, 68,037 were matched by a search requiring a graphene
+term in the title, and 15,372 only by one that also reads the abstract — so
+the second group includes papers that mention graphene rather than study it.
+11,052 papers name graphene nowhere in their title or abstract at all: those
+come from two searches that deliberately collect battery work without it, so
+the library can describe the field graphene sits in. They contribute 1,372 of
+the measurements, each labelled with the material it was measured on, and the
+engine does not draw on them to answer a question about graphene. Both numbers
+are worth knowing before anyone quotes the total.
+
+Two ways to ask. **Instant** runs on rules alone: no model,
 no network, the same answer every time. **Agent** gives a language model
 fifteen tools over the same data, checks every number and every citation it
 produces against what the tools actually returned, and makes it correct itself
@@ -109,10 +121,10 @@ sending the link to anyone.
 
 | Source | What it gives | Licence |
 |---|---|---|
-| [OpenAlex](https://openalex.org) | 37,027 paper records and abstracts, 2019 onward | CC0 |
+| [OpenAlex](https://openalex.org) | 83,409 paper records, 2019 onward, 18,699 of them shipping with their abstract | CC0 |
 | [Wikipedia](https://en.wikipedia.org) | 285 reference entries across 19 categories, stored verbatim with a link to each original | CC BY-SA 4.0 |
 | [PubChem](https://pubchem.ncbi.nlm.nih.gov) | 34 compounds: formula, mass, structure | public domain |
-| This repository | 4,745 measurements extracted from the abstracts (2,794 battery, 1,951 material property), and 28 calculators | the repository's licence |
+| This repository | 9,230 measurements extracted from the abstracts (4,595 battery, 4,635 material property) across 6,967 papers, and 28 calculators | the repository's licence |
 
 All of it is open and checkable. Nothing is paid for, and nothing is behind a
 login. Every reference entry shows which source it came from and links to it,
