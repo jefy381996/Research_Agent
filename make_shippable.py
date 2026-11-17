@@ -1,21 +1,52 @@
 #!/usr/bin/env python3
-"""Strip the derived tables so the database fits a git host.
+"""Get the database under the size a git host will take, losing as little as
+possible.
+
+Two things are dropped, in this order.
 
 `chunks` and `paper_sections` are a second and third copy of every abstract.
-Keeping them trebles the file, pushing it past the 100 MB a git host accepts.
-They rebuild from the abstracts in a few seconds, and the service does that on
-first boot, so they are removed before committing.
+They rebuild from the abstracts in seconds and the service does that on first
+boot, so they go first and cost nothing.
+
+Abstracts are the remainder, and at a hundred thousand papers they are most of
+the file. They cannot all be kept, so they are kept in order of what they are
+for: every paper a measurement was read from, because a figure without its
+sentence is exactly what this tool refuses to publish; then the most-cited of
+the rest, until the budget runs out. A paper whose abstract is dropped keeps
+its title, journal, year and DOI, stays searchable by those, and still links to
+the published original - it simply stops contributing passages.
+
+The budget is a target for the finished file, not for the abstracts alone;
+indexes and page overhead are measured rather than assumed.
 """
+import argparse
 import os
 import sqlite3
-import sys
 
 import db
 
+DEFAULT_BUDGET_MB = 88          # GitHub refuses above 100; leave room to grow
+
+
+def size_mb(path):
+    return os.path.getsize(path) / 1048576
+
+
+def vacuum(path):
+    plain = sqlite3.connect(path)
+    plain.execute("VACUUM")
+    plain.close()
+
 
 def main():
-    path = sys.argv[1] if len(sys.argv) > 1 else db.DB_PATH
-    before = os.path.getsize(path) / 1048576
+    ap = argparse.ArgumentParser(description="Shrink the database for shipping.")
+    ap.add_argument("path", nargs="?", default=db.DB_PATH)
+    ap.add_argument("--budget-mb", type=float, default=DEFAULT_BUDGET_MB,
+                    help="target size of the finished file")
+    args = ap.parse_args()
+    path, budget = args.path, args.budget_mb
+
+    before = size_mb(path)
     conn = db.connect(path)
     try:
         kept = {t: conn.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
@@ -27,14 +58,98 @@ def main():
         conn.commit()
     finally:
         conn.close()
-    plain = sqlite3.connect(path)
-    plain.execute("VACUUM")
-    plain.close()
-    after = os.path.getsize(path) / 1048576
-    print(f"{path}: {before:.0f} MB -> {after:.0f} MB")
+    vacuum(path)
+    after_derived = size_mb(path)
+
+    # Abstracts, if the file is still too big.
+    #
+    # One pass of this used to guess how many to drop from the average length,
+    # on the assumption that dropping text frees its own size. It frees more
+    # than that - the page and index overhead goes with it - so the guess
+    # overshot: asked for 88 MB it produced 72, having thrown away about
+    # thirteen thousand abstracts it did not need to. Abstracts are what the
+    # engine reads to answer anything the measurements do not cover, so that
+    # is coverage given away for nothing.
+    #
+    # Dropping cannot be undone within a run, so each round now takes a
+    # deliberate fraction of what it thinks is needed, vacuums, and measures
+    # the real file again. It converges from above and stops as soon as it is
+    # inside the budget, keeping as many abstracts as the budget allows.
+    TIMID = 0.6                 # take this much of the estimate, then look
+    MAX_ROUNDS = 12
+    DROPPABLE = """
+        SELECT p.openalex_id FROM papers p
+        WHERE p.abstract IS NOT NULL AND p.abstract != ''
+          AND p.openalex_id NOT IN (SELECT openalex_id FROM evidence)
+          AND p.openalex_id NOT IN (SELECT openalex_id FROM properties)
+        ORDER BY coalesce(p.cited_by_count, 0) ASC,
+                 coalesce(p.year, 0) ASC
+        LIMIT ?"""
+
+    conn = db.connect(path)
+    try:
+        had = conn.execute("SELECT count(*) FROM papers WHERE abstract IS NOT NULL"
+                           " AND abstract != ''").fetchone()[0]
+        protected = conn.execute(
+            "SELECT count(*) FROM (SELECT openalex_id FROM evidence"
+            " UNION SELECT openalex_id FROM properties) m"
+            " JOIN papers p ON p.openalex_id = m.openalex_id"
+            " WHERE p.abstract IS NOT NULL AND p.abstract != ''").fetchone()[0]
+    finally:
+        conn.close()
+
+    dropped, rounds = 0, 0
+    while size_mb(path) > budget and rounds < MAX_ROUNDS:
+        rounds += 1
+        conn = db.connect(path)
+        try:
+            left = conn.execute(
+                "SELECT count(*) FROM papers p WHERE p.abstract IS NOT NULL"
+                " AND p.abstract != ''"
+                " AND p.openalex_id NOT IN (SELECT openalex_id FROM evidence)"
+                " AND p.openalex_id NOT IN (SELECT openalex_id FROM properties)"
+            ).fetchone()[0]
+            if not left:
+                break
+            per_abstract = (conn.execute(
+                "SELECT coalesce(avg(length(abstract)), 0) FROM papers"
+                " WHERE abstract IS NOT NULL AND abstract != ''"
+            ).fetchone()[0] or 1) / 1048576
+            over = size_mb(path) - budget
+            want = int(over / max(per_abstract, 1e-9) * TIMID) + 200
+            take = min(want, left)
+            before_changes = conn.total_changes
+            conn.execute(f"UPDATE papers SET abstract = ''"
+                         f" WHERE openalex_id IN ({DROPPABLE})", (take,))
+            conn.commit()
+            dropped += conn.total_changes - before_changes
+        finally:
+            conn.close()
+        vacuum(path)
+
+    if had:
+        print(f"  abstracts: {had} present, {protected} protected by a "
+              f"measurement, {dropped} of the least-cited dropped"
+              + (f" over {rounds} rounds" if rounds else ""))
+
+    conn = db.connect(path)
+    try:
+        left = conn.execute(
+            "SELECT count(*) FROM papers WHERE abstract IS NOT NULL"
+            " AND abstract != ''").fetchone()[0]
+    finally:
+        conn.close()
+
+    after = size_mb(path)
+    print(f"{path}: {before:.0f} MB -> {after_derived:.0f} MB (derived tables) "
+          f"-> {after:.0f} MB")
     for name, count in kept.items():
         print(f"  kept {name:12} {count}")
+    print(f"  abstracts kept {left}")
     print("  dropped chunks and paper_sections; the service rebuilds them on boot")
+    if after > 100:
+        raise SystemExit(f"ERROR: still {after:.0f} MB, over the 100 MB a git "
+                         f"host accepts. Lower --budget-mb and run again.")
 
 
 if __name__ == "__main__":

@@ -38,6 +38,57 @@ ABSTRACT_LIMIT = 1200
 MAX_PASSAGES = 6000     # most-cited first; the browser bundle stays under ~10 MB
 
 
+
+# The only two of the sixty-two searches that do not require a graphene term.
+NO_GRAPHENE_SEARCHES = frozenset({"battery-basics", "beyond-lithium"})
+
+
+def provenance(conn):
+    """How each paper was found, which is not the same as what it is about.
+
+    Most searches require a graphene term in the title, so the paper is about
+    graphene. The `abs-*` searches also read the abstract and so additionally
+    find papers that mention it. Two searches collect battery work with no
+    graphene requirement at all, deliberately, so the library can describe the
+    field graphene sits in. Reporting the total without this split overstates
+    what the library is, so the numbers travel with it.
+    """
+    title_matched = abstract_only = 0
+    for (sq,) in conn.execute("SELECT source_queries FROM papers"):
+        parts = [q for q in (sq or "").split("|") if q]
+        if parts and all(q.startswith("abs-") for q in parts):
+            abstract_only += 1
+        else:
+            title_matched += 1
+    # Counted from how the paper was found, not from its text. Reading the
+    # text gave a different answer before and after shipping, because the
+    # abstracts that do not fit the size budget are dropped: a paper that
+    # named graphene only in a dropped abstract then looked as though it
+    # never named it. Two of the sixty-two searches - battery-basics and
+    # beyond-lithium - ask for no graphene term at all, deliberately, so the
+    # library can describe the field graphene sits in. Papers found only by
+    # those are the ones that may have nothing to do with graphene, and that
+    # is a fact about the search, which pruning cannot change.
+    context = 0
+    context_rows = 0
+    for (sq,) in conn.execute("SELECT source_queries FROM papers"):
+        parts = {q for q in (sq or "").split("|") if q}
+        if parts and parts <= NO_GRAPHENE_SEARCHES:
+            context += 1
+    for table in ("evidence", "properties"):
+        for (sq,) in conn.execute(
+                f"SELECT p.source_queries FROM {table} e"
+                f" JOIN papers p ON p.openalex_id = e.openalex_id"):
+            parts = {q for q in (sq or "").split("|") if q}
+            if parts and parts <= NO_GRAPHENE_SEARCHES:
+                context_rows += 1
+    contributing = conn.execute(
+        "SELECT count(*) FROM (SELECT openalex_id FROM evidence"
+        " UNION SELECT openalex_id FROM properties)").fetchone()[0]
+    return {"title_matched": title_matched, "abstract_only": abstract_only,
+            "context_only": context, "context_measurements": context_rows,
+            "papers_with_measurement": contributing}
+
 def main():
     parser = argparse.ArgumentParser(description="Build the static mirror.")
     parser.add_argument("--db", default=None)
@@ -63,6 +114,11 @@ def main():
     # the rest fill the budget, so nothing cited by an answer is ever missing.
     cited = {r["openalex_id"] for r in rows}
     passages, seen = [], set()
+    # A ceiling on the total, not a floor with every cited paper on top of it.
+    # The static copy has to stay inside what a browser will download and what
+    # an artifact host will take, and at a hundred thousand papers the old rule
+    # had no upper bound at all. Papers behind a measurement go in first.
+    preferred, filler = [], []
     for record in conn.execute(
             "SELECT openalex_id, title, year, journal, doi, abstract FROM papers"
             " WHERE abstract IS NOT NULL AND abstract != ''"
@@ -70,12 +126,17 @@ def main():
         wid = record["openalex_id"]
         if wid in seen:
             continue
-        if len(passages) >= args.max_passages and wid not in cited:
-            continue
         seen.add(wid)
-        passages.append({"i": wid, "t": record["title"], "y": record["year"],
-                         "j": record["journal"], "d": record["doi"],
-                         "x": record["abstract"][:args.passage_chars]})
+        bucket = preferred if wid in cited else filler
+        if len(bucket) >= args.max_passages:
+            if len(preferred) >= args.max_passages:
+                break
+            continue
+        bucket.append({"i": wid, "t": record["title"], "y": record["year"],
+                       "j": record["journal"], "d": record["doi"],
+                       "x": record["abstract"][:args.passage_chars]})
+    passages = preferred[:args.max_passages]
+    passages += filler[:max(0, args.max_passages - len(passages))]
 
     one = lambda sql: conn.execute(sql).fetchone()[0]
     concepts = [dict(r) for r in conn.execute(
@@ -106,7 +167,13 @@ def main():
                                          "material_system")},
         "stats": {
             "papers": one("SELECT count(*) FROM papers"),
-            "papers_with_text": one("SELECT count(*) FROM paper_sections"),
+            # Abstracts, not paper_sections: the derived index is stripped
+            # before shipping and rebuilt on boot, so counting it here
+            # reported nought papers with text in every static build.
+            "papers_with_text": one(
+                "SELECT count(*) FROM papers WHERE abstract IS NOT NULL"
+                " AND abstract != ''"),
+            **provenance(conn),
             "papers_reusable": one(
                 "SELECT count(*) FROM papers WHERE full_text_reusable='yes'"),
             "evidence_rows": len(rows),

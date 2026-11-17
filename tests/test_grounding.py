@@ -32,6 +32,15 @@ class TestGrounding(unittest.TestCase):
         cls.conn = db.connect()
         if cls.conn.execute("SELECT count(*) FROM evidence").fetchone()[0] == 0:
             raise unittest.SkipTest("database is empty; run the pipeline first")
+        # The shipped database has its passage index stripped to fit a git
+        # host, and the service rebuilds it on first boot. Questions answered
+        # from passages rather than from a measurement cannot be tested
+        # against that copy, so say so instead of failing as if the engine
+        # had regressed.
+        if cls.conn.execute("SELECT count(*) FROM chunks").fetchone()[0] == 0:
+            raise unittest.SkipTest(
+                "passage index is empty (this is the shipped database); "
+                "run build_index.py first")
 
     @classmethod
     def tearDownClass(cls):

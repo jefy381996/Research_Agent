@@ -92,6 +92,81 @@ const CASES = [
     console.log(`  ${ok ? "PASS" : "FAIL"}  want ${r.want.padEnd(8)} got ${String(r.got).padEnd(8)}`
       + ` ${r.q.slice(0, 54)}${r.detail ? "  [" + r.detail + "]" : ""}`);
   }
+  /* ── the figures the page puts on screen ──────────────
+     papers_with_text was counted from paper_sections, a derived table that is
+     stripped before shipping and rebuilt on boot, so every static build
+     reported nought papers with text. Nothing asserted on it, so it shipped.
+     These are cheap and would have caught it. */
+  const extra = [];
+  const S = await page.evaluate(() => window.DATA.stats);
+  const chk = (label, ok, detail) => extra.push({ label, ok, detail });
+
+  chk("the library reports some papers", S.papers > 0, `papers=${S.papers}`);
+  chk("and some of them have text", S.papers_with_text > 0,
+    `papers_with_text=${S.papers_with_text}`);
+  chk("text count never exceeds the paper count",
+    S.papers_with_text <= S.papers, `${S.papers_with_text} > ${S.papers}`);
+  chk("measurements come from a countable set of papers",
+    S.papers_with_measurement > 0 && S.papers_with_measurement <= S.papers,
+    `contributing=${S.papers_with_measurement}`);
+  chk("both halves of the measurements are present",
+    S.evidence_rows > 0 && S.property_rows > 0,
+    `evidence=${S.evidence_rows} properties=${S.property_rows}`);
+
+  // How papers were found must account for all of them, exactly once.
+  chk("the provenance split adds up to the whole library",
+    S.title_matched + S.abstract_only === S.papers,
+    `${S.title_matched} + ${S.abstract_only} != ${S.papers}`);
+  chk("the battery-context papers are a subset, not a surprise",
+    S.context_only >= 0 && S.context_only <= S.papers, `context=${S.context_only}`);
+  chk("and so are the measurements they account for",
+    S.context_measurements >= 0 &&
+    S.context_measurements <= S.evidence_rows + S.property_rows,
+    `context_rows=${S.context_measurements}`);
+
+  // The strip is what a visitor actually reads.
+  const strip = await page.evaluate(() =>
+    [...document.querySelectorAll("#strip .stat")].map((e) => ({
+      v: e.querySelector(".v").textContent.trim(),
+      k: e.querySelector(".k").textContent.trim(),
+    })));
+  chk("the stat strip rendered", strip.length >= 4, `${strip.length} stats`);
+  chk("no figure on it is zero or blank",
+    strip.every((x) => x.v && x.v !== "0"), JSON.stringify(strip));
+  const measured = strip.find((x) => x.k === "measurements");
+  chk("the strip counts both halves, not just the battery one",
+    !!measured && measured.v.replace(/,/g, "") ===
+      String(S.evidence_rows + S.property_rows),
+    measured ? measured.v : "(missing)");
+  const papers = strip.find((x) => x.k === "papers");
+  chk("and agrees with the data on papers",
+    !!papers && papers.v.replace(/,/g, "") === String(S.papers),
+    papers ? papers.v : "(missing)");
+
+  // Nothing written for a smaller library may be left hard-coded in copy.
+  const stale = await page.evaluate(() => {
+    const d = document.createElement("div");
+    d.innerHTML = ["ask", "sources", "evidence", "properties", "explore",
+                   "calculator", "mydata", "notebook"]
+      .map((v) => (typeof primerHTML === "function" ? primerHTML(v) : "")).join("");
+    const txt = d.textContent;
+    return {
+      tokens: txt.match(/\{[a-zA-Z]+\}/g) || [],
+      old: txt.match(/\b(?:37,027|19,208|4,745|2,794|1,951|2,228)\b/g) || [],
+    };
+  });
+  chk("every figure in the primers was filled from the data",
+    stale.tokens.length === 0, stale.tokens.join(","));
+  chk("no count from an older build is hard-coded in the copy",
+    stale.old.length === 0, stale.old.join(","));
+
+  for (const e of extra) {
+    pass += e.ok ? 1 : 0;
+    results.push({ q: e.label, want: "ok", got: e.ok ? "ok" : "BAD", detail: e.detail });
+    console.log(`  ${e.ok ? "PASS" : "FAIL"}  ${e.label}`
+      + (e.ok ? "" : `\n        ${e.detail || ""}`));
+  }
+
   console.log(`\nUI scorecard: ${pass}/${results.length}`);
   if (errors.length) console.log("console errors:\n  " + errors.slice(0, 5).join("\n  "));
 

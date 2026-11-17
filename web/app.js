@@ -578,7 +578,8 @@ async function askMine(question, why) {
    the way in and the way out; it is never the record. A spoken number cannot
    be clicked to see the sentence it came from, so the screen keeps that job. */
 
-let VOICE = { on: false, handsFree: false, last: "", busy: false };
+let VOICE = { on: false, handsFree: false, last: "", busy: false,
+              lastQuestion: "", pending: "" };
 
 /* What to say out loud. The screen can hold sixty cards; an ear cannot, so
    each kind of answer gets one or two sentences and the detail stays visible
@@ -679,6 +680,52 @@ function runVoiceCommand(cmd) {
   }
 }
 
+/* "And for rGO?" means the previous question with one thing changed.
+   Spoken, that is simply how people ask; typed, nobody does it. Voice.followUp
+   spots the shape, and this works out what to change, because this is the side
+   that knows what the library calls things.
+
+   It only merges when it is sure: the words have to name something in the
+   vocabulary, and the previous question has to be a real question. Anything
+   else is treated as a new question, because guessing wrong here answers
+   something the person did not ask while looking as though it did. The merged
+   question is shown on screen, never applied silently. */
+function mergeFollowUp(term, lastQuestion) {
+  if (!term || !lastQuestion) return null;
+  const now = understand(term);
+  const before = understand(lastQuestion);
+
+  const filled = Object.keys(now.facets).filter((k) => now.facets[k]);
+  // Nothing recognised, or it carries its own metric: not a follow-up we can
+  // resolve, so let it stand on its own.
+  if (!filled.length || now.metrics.length) return null;
+  if (!before.metrics.length && !Object.keys(before.facets).some((k) => before.facets[k]))
+    return null;
+
+  // The new term goes in as a placeholder, not as itself. Writing it in
+  // directly meant the next entry in the vocabulary matched the word just
+  // inserted and deleted it again - "tin" replaced "silicon", then the rule
+  // for tin removed it, leaving a question about neither.
+  const SLOT = "\u0001";
+  let merged = lastQuestion;
+  let substituted = false;
+  filled.forEach((key) => {
+    (V[key] || []).forEach(([, re]) => {
+      const g = new RegExp(re.source, "gi");
+      // The first mention becomes the new thing; later ones go, so the
+      // question does not end up naming both.
+      merged = merged.replace(g, () => {
+        if (substituted) return " ";
+        substituted = true;
+        return SLOT;
+      });
+    });
+  });
+  if (!substituted) merged = merged.replace(/[.?!]+$/, "") + " " + SLOT;
+  merged = merged.replace(SLOT, term).replace(/\s+/g, " ").trim();
+  return merged.toLowerCase() === lastQuestion.toLowerCase() ? null : merged;
+}
+
 function heard(transcript) {
   // Correct here as well as in the recogniser callback. This is the entry
   // point every path ends up at, and a raw transcript reaching the engine
@@ -690,12 +737,38 @@ function heard(transcript) {
   const cmd = Voice.parseCommand(text);
   if (cmd && runVoiceCommand(cmd)) return;
 
-  vbar(true, text);
-  $("ask").value = text;
-  if (VOICE.busy) return;
+  // A follow-up carries the previous question with it.
+  let question = text;
+  const term = Voice.followUp(text);
+  if (term) {
+    const merged = mergeFollowUp(Voice.fixTerms(term), VOICE.lastQuestion);
+    if (merged) question = merged;
+  }
+
+  vbar(true, question === text ? text : `${text} → ${question}`);
+  $("ask").value = question;
+
+  // Speaking while an answer is still being worked out used to throw the
+  // words away, which in a conversation reads as not being heard at all.
+  // The most recent one is kept and asked as soon as the engine is free.
+  if (VOICE.busy) {
+    VOICE.pending = question;
+    vbar(true, `One moment — then: ${question}`);
+    return;
+  }
+  runHeard(question);
+}
+
+function runHeard(question) {
   VOICE.busy = true;
+  VOICE.lastQuestion = question;
   const engine = MODE === "agent" ? askAgent : ask;
-  Promise.resolve(engine(text)).finally(() => { VOICE.busy = false; });
+  Promise.resolve(engine(question)).finally(() => {
+    VOICE.busy = false;
+    const next = VOICE.pending;
+    VOICE.pending = "";
+    if (next) runHeard(next);
+  });
 }
 
 function startListening(quietly) {
@@ -756,7 +829,8 @@ function wireVoice() {
     VOICE.handsFree = !VOICE.handsFree;
     hf.setAttribute("aria-pressed", String(VOICE.handsFree));
     if (VOICE.handsFree) {
-      vbar(true, "Hands-free. Ask away — I will answer out loud and keep listening.");
+      vbar(true, "Hands-free. Ask away, follow up with \u201cwhat about rGO\u201d, "
+        + "and say \u201cstop\u201d to cut me off.");
       startListening(true);
     } else {
       Voice.shutUp();
@@ -1064,7 +1138,7 @@ function wireMine() {
 }
 
 /* ── telling a non-specialist what a screen is ──────────── */
-/* A table of 2,794 rows with a column called "coulombic efficiency" tells a
+/* A table of several thousand rows with a column called "coulombic efficiency" tells a
    chemist a great deal and a research director nothing at all. Each of these
    screens opens with the same three things in plain words: what it holds, what
    one row of it means, and what to do with it. It can be folded away, and the
@@ -1102,7 +1176,9 @@ const PRIMERS = {
     lead: "Every paper that contributed at least one measurement, and how many it gave.",
     points: [
       ["These are the receipts",
-       "The library draws on 37,027 papers. These are the ones a number was actually read from, so they are the ones worth checking."],
+       "The library draws on {papers} papers. These {contributing} are the ones a number was actually read from, so they are the ones worth checking."],
+      ["Not all {papers} are about graphene",
+       "{titleMatched} were found by a search that required graphene in the paper's title. {abstractOnly} were found only by one that reads the abstract as well, so that group includes papers that mention graphene rather than study it. A further {contextOnly} came from two searches that ask for battery work with no graphene term at all \u2014 deliberately, so the library can describe the field graphene sits in. They account for {contextRows} of the measurements, each labelled with the material it was measured on, and none of them is used to answer a question about graphene."],
       ["Follow the DOI",
        "Each row links to the published paper. Nothing in this tool asks to be taken on trust."],
     ],
@@ -1131,15 +1207,39 @@ const PRIMERS = {
 
 function primerKey(view) { return "gba.primer." + view; }
 
+// Primer copy is written once and read against a library that grows every
+// week, so any figure in it is a token filled from the loaded data rather
+// than a number typed into the sentence.
+function primerFill(text) {
+  const s = (DATA && DATA.stats) || {};
+  const of = {
+    papers: s.papers,
+    measurements: (s.evidence_rows || 0) + (s.property_rows || 0),
+    concepts: s.concepts,
+    contributing: s.papers_with_measurement,
+    titleMatched: s.title_matched,
+    abstractOnly: s.abstract_only,
+    contextOnly: s.context_only,
+    contextRows: s.context_measurements,
+  };
+  return String(text).replace(
+    /\{(papers|measurements|concepts|contributing|titleMatched|abstractOnly|contextOnly|contextRows)\}/g,
+    (whole, key) => {
+      const n = of[key];
+      return (n === undefined || n === null) ? whole : fmt(n);
+    });
+}
+
 function primerHTML(view) {
   const d = PRIMERS[view];
   if (!d) return "";
+  const f = (t) => esc(primerFill(t));
   return `<section class="primer" data-primer="${view}">
     <button class="primer-x" aria-label="Hide this explanation">&times;</button>
-    <h3>${esc(d.title)}</h3>
-    <p class="lead">${esc(d.lead)}</p>
+    <h3>${f(d.title)}</h3>
+    <p class="lead">${f(d.lead)}</p>
     <dl>${d.points.map(([k, v], i) => `<div style="--i:${i}">
-      <dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>
+      <dt>${f(k)}</dt><dd>${f(v)}</dd></div>`).join("")}</dl>
   </section>`;
 }
 
@@ -1888,10 +1988,11 @@ function renderAnswer(a) {
   if (a.kind === "refused") {
     blocks.push(`<div class="refusal"><h3>Not in the library</h3>
       <p>This question ${esc(a.reason)}. ${esc(a.why)}</p>
-      <p class="dim">The library holds ${fmt(DATA.stats.evidence_rows)} measurements from
-        ${fmt(DATA.stats.papers)} papers across graphene — batteries, electronics, sensors,
-        membranes, composites, biomedicine and more — plus ${fmt(DATA.stats.concepts)} reference
-        entries.</p>
+      <p class="dim">The library holds ${fmt((DATA.stats.evidence_rows || 0)
+          + (DATA.stats.property_rows || 0))} measurements, read from
+        ${fmt(DATA.stats.papers_with_measurement || 0)} of its ${fmt(DATA.stats.papers)}
+        papers across graphene — batteries, electronics, sensors, membranes, composites,
+        biomedicine and more — plus ${fmt(DATA.stats.concepts)} reference entries.</p>
       ${(() => {
         // Say what is actually about to happen. This used to be decided by
         // whether the agent was reachable, while the handover was decided by
@@ -2454,6 +2555,9 @@ function handoffBanner(from, why) {
 
 async function ask(question, opts = {}) {
   if (busy || !question.trim()) return;
+  // Spoken follow-ups refer to whatever was asked last, including a question
+  // that was typed rather than said.
+  if (!opts.from) VOICE.lastQuestion = question;
   busy = true;
   $("send").disabled = true;
   $("hero").hidden = true; $("chips").hidden = true;
@@ -3308,6 +3412,7 @@ function agentSources(refs) {
 
 async function askAgent(question, opts = {}) {
   if (busy || !question.trim()) return;
+  if (!opts.from) VOICE.lastQuestion = question;
   busy = true; $("send").disabled = true;
   $("hero").hidden = true; $("chips").hidden = true;
   let failed = null;              // set when the run ends without an answer

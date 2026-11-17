@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
-"""Collect graphene-battery paper metadata from OpenAlex into a CSV.
+"""Collect graphene paper metadata from OpenAlex into a CSV.
 
-Ten title-anchored searches cover the sub-domains of graphene battery
-research. Results are unioned and de-duplicated on the OpenAlex work id.
+Two kinds of search run. Most require a graphene-family term in the title, so
+the paper is about graphene. The rest, labelled `abs-*`, match the title or the
+abstract, which also finds papers that only mention graphene; they are kept
+because they carry real measurements, and `source_queries` records which
+searches found each paper, so the two are never reported as one number.
+Results are unioned and de-duplicated on the OpenAlex work id.
+
+OpenAlex meters requests against a budget. When that budget runs out mid-run
+the collector writes what it has and records which searches finished, so the
+next run resumes instead of paying for the same pages twice.
 
 Why the work id and not the DOI: a meaningful share of OpenAlex works carry
 no DOI. Keying on DOI would collapse every DOI-less paper into a single row.
@@ -16,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import os
 import sys
 import tempfile
@@ -29,14 +38,16 @@ API = "https://api.openalex.org/works"
 
 BASE_FILTERS = ("from_publication_date:2019-01-01", "type:article")
 
-# Ten searches. Each requires a graphene-family term in the title, so a paper
-# that merely mentions graphene in passing is not pulled in.
+# The title-anchored searches come first: each requires a graphene-family term
+# in the title, so the paper is about graphene rather than citing it. The
+# `abs-*` searches at the end match the abstract too and deliberately cast
+# wider; `source_queries` keeps them distinguishable.
 SEARCHES = [
     # Application: graphene in batteries, by sub-domain.
     ("battery",        'title.search:graphene AND (battery OR batteries)', None),
     ("anode",          'title.search:graphene AND (anode OR anodes)', None),
     ("cathode",        'title.search:graphene AND (cathode OR cathodes)', None),
-    ("electrode",      'title.search:graphene AND (electrode OR electrodes)', 2500),
+    ("electrode",      'title.search:graphene AND (electrode OR electrodes)', 6000),
     ("graphene-oxide", 'title.search:"graphene oxide" AND (battery OR anode OR cathode)', None),
     ("rgo",            'title.search:("reduced graphene oxide" OR rGO) AND (battery OR anode OR cathode)', None),
     ("lithium-ion",    'title.search:graphene AND ("lithium-ion" OR "lithium ion" OR "Li-ion")', None),
@@ -44,44 +55,69 @@ SEARCHES = [
     ("lithium-sulfur", 'title.search:graphene AND ("lithium-sulfur" OR "lithium sulfur" OR "Li-S")', None),
     ("solid-state",    'title.search:graphene AND ("solid-state" OR "solid state") AND (battery OR electrolyte)', None),
     ("silicon",        'title.search:graphene AND (silicon OR Si) AND (anode OR battery)', None),
-    ("supercapacitor", 'title.search:graphene AND (supercapacitor OR supercapacitors OR "energy storage")', 2000),
+    ("supercapacitor", 'title.search:graphene AND (supercapacitor OR supercapacitors OR "energy storage")', 5000),
     ("separator",      'title.search:graphene AND (separator OR interlayer OR "current collector")', None),
 
     # Fundamentals: what graphene is, how it is made, how it is measured.
-    ("synthesis",      'title.search:graphene AND (synthesis OR fabrication OR production OR preparation OR growth)', 2500),
+    ("synthesis",      'title.search:graphene AND (synthesis OR fabrication OR production OR preparation OR growth)', 6000),
     ("cvd",            'title.search:graphene AND ("chemical vapor deposition" OR CVD OR exfoliation)', None),
-    ("properties",     'title.search:graphene AND (properties OR conductivity OR mechanical OR thermal OR electronic)', 2500),
+    ("properties",     'title.search:graphene AND (properties OR conductivity OR mechanical OR thermal OR electronic)', 6000),
     ("characterisation", 'title.search:graphene AND (Raman OR XPS OR "X-ray diffraction" OR microscopy OR spectroscopy)', None),
-    ("reduction",      'title.search:"graphene oxide" AND (reduction OR reduced OR functionalization OR doping)', 2000),
-    ("structure",      'title.search:graphene AND (structure OR defects OR edge OR layer OR nanoribbon)', 2000),
+    ("reduction",      'title.search:"graphene oxide" AND (reduction OR reduced OR functionalization OR doping)', 5000),
+    ("structure",      'title.search:graphene AND (structure OR defects OR edge OR layer OR nanoribbon)', 5000),
     ("review",         'title.search:graphene AND (review OR advances OR progress OR perspective) AND (energy OR battery OR storage)', None),
 
     # Battery fundamentals, so the library can explain the field graphene sits in.
-    ("battery-basics", 'title.search:("lithium-ion battery" OR "lithium ion battery") AND (mechanism OR fundamentals OR review OR degradation OR "solid electrolyte interphase")', 1500),
-    ("beyond-lithium", 'title.search:("sodium-ion" OR "potassium-ion" OR "zinc-ion" OR "magnesium") AND (battery OR batteries) AND (anode OR cathode OR electrolyte)', 1500),
+    ("battery-basics", 'title.search:("lithium-ion battery" OR "lithium ion battery") AND (mechanism OR fundamentals OR review OR degradation OR "solid electrolyte interphase")', 3800),
+    ("beyond-lithium", 'title.search:("sodium-ion" OR "potassium-ion" OR "zinc-ion" OR "magnesium") AND (battery OR batteries) AND (anode OR cathode OR electrolyte)', 3800),
 
     # Graphene beyond energy storage. The tool is about graphene, not only
     # graphene in batteries, so every major application domain is represented.
-    ("electronics",    'title.search:graphene AND (transistor OR electronics OR "field-effect" OR circuit OR interconnect)', 1400),
-    ("sensors",        'title.search:graphene AND (sensor OR sensors OR sensing OR biosensor OR detection)', 1400),
-    ("membranes",      'title.search:graphene AND (membrane OR filtration OR desalination OR "water treatment" OR separation)', 1400),
-    ("composites",     'title.search:graphene AND (composite OR composites OR polymer OR reinforcement OR nanocomposite)', 1400),
-    ("coatings",       'title.search:graphene AND (coating OR corrosion OR barrier OR anti-corrosion OR tribolog)', 1200),
-    ("thermal",        'title.search:graphene AND ("thermal conductivity" OR "heat dissipation" OR "thermal management" OR phonon)', 1200),
-    ("photonics",      'title.search:graphene AND (photonic OR optoelectronic OR photodetector OR laser OR plasmonic OR modulator)', 1400),
-    ("solar",          'title.search:graphene AND (solar OR photovoltaic OR "perovskite solar" OR "dye-sensitized")', 1200),
-    ("catalysis",      'title.search:graphene AND (catalysis OR catalyst OR electrocatalysis OR "oxygen reduction" OR "hydrogen evolution")', 1400),
-    ("hydrogen",       'title.search:graphene AND ("hydrogen storage" OR "gas storage" OR adsorption OR "CO2 capture")', 1200),
-    ("biomedical",     'title.search:graphene AND (biomedical OR "drug delivery" OR tissue OR antibacterial OR bioimaging OR therapy)', 1400),
-    ("toxicity",       'title.search:graphene AND (toxicity OR cytotoxicity OR biocompatibility OR safety OR "environmental impact")', 1000),
-    ("mechanical",     'title.search:graphene AND (mechanical OR strength OR elastic OR fracture OR stiffness OR "Young modulus")', 1200),
-    ("spintronics",    'title.search:graphene AND (spintronics OR magnetic OR magnetism OR valleytronics OR "spin transport")', 1000),
-    ("quantum",        'title.search:graphene AND (quantum OR "quantum Hall" OR superconduct OR topological OR "Dirac fermion")', 1200),
-    ("fuelcell",       'title.search:graphene AND ("fuel cell" OR "proton exchange" OR electrolyser OR electrolyzer)', 1000),
-    ("shielding",      'title.search:graphene AND ("EMI shielding" OR "electromagnetic" OR microwave OR absorption)', 1000),
-    ("printing",       'title.search:graphene AND (ink OR printing OR printable OR flexible OR wearable OR stretchable)', 1200),
-    ("production",     'title.search:graphene AND ("large-scale" OR "mass production" OR scalable OR industrial OR "roll-to-roll")', 1000),
-    ("metrology",      'title.search:graphene AND (metrology OR standard OR "quality control" OR classification OR characterization)', 1000),
+    ("electronics",    'title.search:graphene AND (transistor OR electronics OR "field-effect" OR circuit OR interconnect)', 3500),
+    ("sensors",        'title.search:graphene AND (sensor OR sensors OR sensing OR biosensor OR detection)', 3500),
+    ("membranes",      'title.search:graphene AND (membrane OR filtration OR desalination OR "water treatment" OR separation)', 3500),
+    ("composites",     'title.search:graphene AND (composite OR composites OR polymer OR reinforcement OR nanocomposite)', 3500),
+    ("coatings",       'title.search:graphene AND (coating OR corrosion OR barrier OR anti-corrosion OR tribolog)', 3000),
+    ("thermal",        'title.search:graphene AND ("thermal conductivity" OR "heat dissipation" OR "thermal management" OR phonon)', 3000),
+    ("photonics",      'title.search:graphene AND (photonic OR optoelectronic OR photodetector OR laser OR plasmonic OR modulator)', 3500),
+    ("solar",          'title.search:graphene AND (solar OR photovoltaic OR "perovskite solar" OR "dye-sensitized")', 3000),
+    ("catalysis",      'title.search:graphene AND (catalysis OR catalyst OR electrocatalysis OR "oxygen reduction" OR "hydrogen evolution")', 3500),
+    ("hydrogen",       'title.search:graphene AND ("hydrogen storage" OR "gas storage" OR adsorption OR "CO2 capture")', 3000),
+    ("biomedical",     'title.search:graphene AND (biomedical OR "drug delivery" OR tissue OR antibacterial OR bioimaging OR therapy)', 3500),
+    ("toxicity",       'title.search:graphene AND (toxicity OR cytotoxicity OR biocompatibility OR safety OR "environmental impact")', 2500),
+    ("mechanical",     'title.search:graphene AND (mechanical OR strength OR elastic OR fracture OR stiffness OR "Young modulus")', 3000),
+    ("spintronics",    'title.search:graphene AND (spintronics OR magnetic OR magnetism OR valleytronics OR "spin transport")', 2500),
+    ("quantum",        'title.search:graphene AND (quantum OR "quantum Hall" OR superconduct OR topological OR "Dirac fermion")', 3000),
+    ("fuelcell",       'title.search:graphene AND ("fuel cell" OR "proton exchange" OR electrolyser OR electrolyzer)', 2500),
+    ("shielding",      'title.search:graphene AND ("EMI shielding" OR "electromagnetic" OR microwave OR absorption)', 2500),
+    ("printing",       'title.search:graphene AND (ink OR printing OR printable OR flexible OR wearable OR stretchable)', 3000),
+    ("production",     'title.search:graphene AND ("large-scale" OR "mass production" OR scalable OR industrial OR "roll-to-roll")', 2500),
+    ("metrology",      'title.search:graphene AND (metrology OR standard OR "quality control" OR classification OR characterization)', 2500),
+
+    # Everything above searches titles only, which is precise and narrow: a
+    # paper reporting a graphene membrane may name it only in the abstract.
+    # These read the abstract too, and carry the larger share of the corpus.
+    # OpenAlex sorts by citations, so a cap takes the papers the field reads.
+    ("abs-core",       'title_and_abstract.search:graphene', 20000),
+    ("abs-oxide",      'title_and_abstract.search:"graphene oxide"', 9000),
+    ("abs-energy",     'title_and_abstract.search:graphene AND (battery OR anode OR cathode OR supercapacitor OR "energy storage")', 9000),
+    ("abs-composite",  'title_and_abstract.search:graphene AND (composite OR polymer OR nanocomposite OR filler)', 7000),
+    ("abs-electronic", 'title_and_abstract.search:graphene AND (transistor OR electronic OR photonic OR optoelectronic OR device)', 6000),
+    ("abs-sensing",    'title_and_abstract.search:graphene AND (sensor OR sensing OR biosensor OR detection)', 6000),
+    ("abs-thermal",    'title_and_abstract.search:graphene AND (thermal OR "heat transfer" OR phonon OR "thermal conductivity")', 6000),
+    ("abs-membrane",   'title_and_abstract.search:graphene AND (membrane OR filtration OR desalination OR permeation)', 5000),
+    ("abs-catalysis",  'title_and_abstract.search:graphene AND (catalyst OR catalysis OR electrocatalyst OR "oxygen reduction")', 5000),
+    ("abs-mechanical", 'title_and_abstract.search:graphene AND (mechanical OR strength OR modulus OR fracture OR tensile)', 5000),
+    ("abs-bio",        'title_and_abstract.search:graphene AND (biomedical OR drug OR cell OR tissue OR toxicity OR antibacterial)', 5000),
+    ("abs-synthesis",  'title_and_abstract.search:graphene AND (synthesis OR growth OR exfoliation OR "chemical vapor deposition")', 6000),
+    ("abs-2d",         'title_and_abstract.search:("two-dimensional material" OR "2D material" OR MXene OR "transition metal dichalcogenide") AND graphene', 4000),
+    ("abs-coating",    'title_and_abstract.search:graphene AND (coating OR corrosion OR barrier OR lubricant OR tribology)', 4000),
+    ("abs-shielding",  'title_and_abstract.search:graphene AND (shielding OR electromagnetic OR microwave OR absorber)', 3000),
+    ("abs-printing",   'title_and_abstract.search:graphene AND (ink OR printing OR flexible OR wearable OR stretchable)', 4000),
+    ("abs-quantum",    'title_and_abstract.search:graphene AND (quantum OR superconduct OR topological OR "Dirac" OR spin)', 4000),
+    ("abs-solar",      'title_and_abstract.search:graphene AND (solar OR photovoltaic OR perovskite OR "light harvesting")', 4000),
+    ("abs-hydrogen",   'title_and_abstract.search:graphene AND (hydrogen OR "fuel cell" OR adsorption OR "gas separation")', 4000),
+    ("abs-environment",'title_and_abstract.search:graphene AND (adsorbent OR "water treatment" OR "heavy metal" OR dye OR pollutant)', 4000),
 ]
 
 # Broad fundamentals searches are capped. OpenAlex returns most-cited first,
@@ -111,6 +147,9 @@ LICENCE_RESTRICTED = {
     "publisher-specific-oa", "other-oa", "publisher-specific-open-access",
 }
 
+CHECKPOINT_EVERY = 5            # searches between partial writes
+DEFAULT_PROGRESS = "data/.collect-progress.json"
+
 MAX_PAGE_RETRIES = 4
 BACKOFF_BASE = 2
 MAX_RETRY_AFTER = 120
@@ -129,13 +168,17 @@ def load_env(path=".env"):
 
 
 def api_key():
+    """The key is an optimisation, not a requirement.
+
+    OpenAlex serves this data to anonymous clients; a key buys a higher rate
+    limit and a more generous pool, nothing else. Refusing to run without one
+    made the collector stricter than the service it calls, so it now says what
+    it is doing and carries on.
+    """
     key = os.environ.get("OPENALEX_API_KEY", "").strip()
     if not key:
-        sys.exit(
-            "ERROR: OPENALEX_API_KEY is not set.\n"
-            "  Local: copy .env.example to .env and fill it in.\n"
-            "  CI:    set the OPENALEX_API_KEY repository secret."
-        )
+        print("  note     : no OPENALEX_API_KEY set; using the anonymous pool,\n"
+              "             which is slower. Set one to collect faster.")
     return key
 
 
@@ -225,6 +268,15 @@ def flatten(work, current_year, retrieved_at, label):
     }
 
 
+class CollectionStopped(RuntimeError):
+    """OpenAlex stopped serving this run.
+
+    Raised instead of exiting, so whatever has already been collected is
+    written out and the searches that finished are recorded. Twenty minutes of
+    paging is not thrown away because the last request was refused.
+    """
+
+
 def fetch_page(session, query_filter, cursor, key):
     params = {
         "filter": query_filter,
@@ -234,7 +286,10 @@ def fetch_page(session, query_filter, cursor, key):
         "cursor": cursor,
     }
     url = API + "?" + urllib.parse.urlencode(params)
-    headers = {"Authorization": f"Bearer {key}", "Accept": "application/json"}
+    headers = {"Accept": "application/json",
+               "User-Agent": "graphene-research-agent/1.0"}
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
 
     last = ""
     for attempt in range(1, MAX_PAGE_RETRIES + 1):
@@ -253,17 +308,23 @@ def fetch_page(session, query_filter, cursor, key):
                 except (TypeError, ValueError):
                     wait = BACKOFF_BASE ** attempt
                 if wait > MAX_RETRY_AFTER:
-                    sys.exit(f"ERROR: rate limited for {wait}s. Nothing written.\n  {last}")
+                    raise CollectionStopped(
+                        f"OpenAlex asked us to wait {wait}s "
+                        f"({wait / 3600:.1f} hours), which is longer than this "
+                        f"run can sensibly sleep.\n  {last}")
                 time.sleep(wait)
                 continue
             if resp.status_code in (401, 403):
-                sys.exit(f"ERROR: authentication rejected. Nothing written.\n  {last}")
+                raise CollectionStopped(
+                    f"OpenAlex rejected our credentials.\n  {last}")
             if resp.status_code < 500:
-                sys.exit(f"ERROR: request rejected. Nothing written.\n  {last}")
+                raise CollectionStopped(
+                    f"OpenAlex rejected the request.\n  {last}")
         if attempt < MAX_PAGE_RETRIES:
             time.sleep(BACKOFF_BASE ** attempt)
 
-    sys.exit(f"ERROR: page failed after {MAX_PAGE_RETRIES} attempts. Nothing written.\n  {last}")
+    raise CollectionStopped(
+        f"a page failed after {MAX_PAGE_RETRIES} attempts.\n  {last}")
 
 
 def read_existing(path):
@@ -279,6 +340,57 @@ def read_existing(path):
     except OSError as exc:
         sys.exit(f"ERROR: cannot read existing {path}: {exc}")
     return rows
+
+
+def load_progress(path):
+    """Labels of searches that finished in an earlier run."""
+    if not path or not os.path.exists(path):
+        return set()
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        return set(data.get("done") or [])
+    except (OSError, ValueError) as exc:
+        print(f"  note     : ignoring unreadable progress file ({exc})")
+        return set()
+
+
+def save_progress(path, done):
+    if not path:
+        return
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"done": sorted(done),
+                       "saved_at": datetime.now(timezone.utc)
+                       .replace(microsecond=0).isoformat()}, fh, indent=1)
+    except OSError as exc:
+        print(f"  warning  : could not save progress ({exc})")
+
+
+def clear_progress(path):
+    try:
+        if path and os.path.exists(path):
+            os.unlink(path)
+    except OSError:
+        pass
+
+
+def merge_and_write(out, collected):
+    """Union what this run collected with whatever the CSV already held.
+
+    The CSV is the durable accumulator: a run that stops early writes through
+    here, and the next run reads it back, so progress survives a budget that
+    runs out mid-way.
+    """
+    existing = read_existing(out)
+    merged = dict(existing)
+    merged.update(collected)
+    rows = sorted(merged.values(),
+                  key=lambda r: (-float(r.get("citations_per_year") or 0),
+                                 str(r.get("title", ""))))
+    write_atomic(out, rows)
+    return rows, existing
 
 
 def write_atomic(path, rows):
@@ -345,6 +457,13 @@ def main():
     parser.add_argument("--out", help="CSV path to write, e.g. data/papers.csv")
     parser.add_argument("--dry-run", action="store_true",
                         help="Report counts per search and write nothing.")
+    parser.add_argument("--progress", default=DEFAULT_PROGRESS,
+                        help="where to record which searches finished, so an "
+                             "interrupted run resumes instead of re-paying "
+                             "for the same pages")
+    parser.add_argument("--restart", action="store_true",
+                        help="ignore any recorded progress and run every "
+                             "search again")
     args = parser.parse_args()
     if not args.dry_run and not args.out:
         parser.error("either --out PATH or --dry-run is required")
@@ -366,36 +485,82 @@ def main():
     session = requests.Session()
     session.headers["User-Agent"] = "research-agent/0.4 (graphene battery evidence)"
 
+    if args.restart and not args.dry_run:
+        clear_progress(args.progress)
+    done = set() if args.dry_run else load_progress(args.progress)
+    if done:
+        print(f"  resuming : {len(done)} of {len(SEARCHES)} searches already "
+              f"done in an earlier run; skipping them")
+    print()
+
     collected, skipped_total, reported = {}, 0, 0
+    stopped, finished = None, 0
     for label, search, cap in SEARCHES:
-        total, skipped = run_search(session, label, search, cap, key, current_year,
-                                    retrieved_at, collected, args.dry_run)
+        if label in done:
+            continue
+        try:
+            total, skipped = run_search(session, label, search, cap, key,
+                                        current_year, retrieved_at, collected,
+                                        args.dry_run)
+        except CollectionStopped as exc:
+            stopped = str(exc)
+            break
         reported += total
         skipped_total += skipped
+        done.add(label)
+        finished += 1
+        # Partial writes, so a budget that runs out costs one interval of
+        # paging rather than the whole run.
+        if not args.dry_run and finished % CHECKPOINT_EVERY == 0:
+            rows, _ = merge_and_write(args.out, collected)
+            save_progress(args.progress, done)
+            print(f"    checkpoint: {len(rows)} rows on disk, "
+                  f"{len(done)}/{len(SEARCHES)} searches done", flush=True)
 
     print()
     print(f"Sum of per-search counts (with overlap): {reported}")
     if args.dry_run:
+        if stopped:
+            sys.exit(f"DRY RUN STOPPED after {len(done)}/{len(SEARCHES)} "
+                     f"searches: {stopped}")
         print("DRY RUN complete. No file was written.")
         return
 
     if not collected:
+        if stopped:
+            save_progress(args.progress, done)
+            sys.exit(f"STOPPED before any new rows were collected: {stopped}\n"
+                     f"  {len(done)}/{len(SEARCHES)} searches recorded as done; "
+                     f"re-run to resume.")
+        if len(done) >= len(SEARCHES):
+            # A previous run finished every search but was killed before it
+            # could clear the record. There is nothing left to pay for.
+            clear_progress(args.progress)
+            print(f"All {len(SEARCHES)} searches were already done in an "
+                  f"earlier run; nothing to collect.")
+            print(f"  {args.out} is left as it is. Use --restart to collect "
+                  f"the whole set again.")
+            return
         sys.exit("ERROR: collected zero rows. Nothing written.")
 
-    existing = read_existing(args.out)
-    merged = dict(existing)
+    rows, existing = merge_and_write(args.out, collected)
     new_ids = set(collected) - set(existing)
-    merged.update(collected)
-    rows = sorted(merged.values(),
-                  key=lambda r: (-float(r.get("citations_per_year") or 0),
-                                 str(r.get("title", ""))))
-    write_atomic(args.out, rows)
 
-    print(f"Unique papers after de-duplication    : {len(collected)}")
+    print(f"Unique papers this run                : {len(collected)}")
     print(f"Records skipped                       : {skipped_total}")
     print(f"New this run                          : {len(new_ids)}")
     print(f"Updated existing                      : {len(set(collected) & set(existing))}")
     print(f"Total rows in CSV                     : {len(rows)}")
+    print(f"Searches completed                    : {len(done)}/{len(SEARCHES)}")
+
+    if stopped:
+        save_progress(args.progress, done)
+        sys.exit(f"\nSTOPPED EARLY: {stopped}\n"
+                 f"  {len(rows)} rows were written to {args.out} and "
+                 f"{len(done)}/{len(SEARCHES)} searches recorded as done.\n"
+                 f"  Re-run the same command to resume from search "
+                 f"{len(done) + 1}; nothing already paid for is fetched twice.")
+    clear_progress(args.progress)
     print(f"Written to                            : {args.out}")
 
 
