@@ -359,9 +359,9 @@ function renderLive(r) {
 let exCat = null;
 function paintExplore(q = "") {
   const cats = [...new Set(DATA.concepts.map((c) => c.category))];
-  $("excats").innerHTML = [`<button data-c="" aria-pressed="${!exCat}">All ${DATA.concepts.length}</button>`]
+  $("excats").innerHTML = [`<button data-c="" aria-pressed="${!exCat}">All</button>`]
     .concat(cats.map((c) => `<button data-c="${esc(c)}" aria-pressed="${exCat === c}">${esc(c)}
-      <span class="dim">${DATA.concepts.filter((x) => x.category === c).length}</span></button>`)).join("");
+      </button>`)).join("");
   const t = q.toLowerCase().trim();
   const list = DATA.concepts.filter((c) =>
     (!exCat || c.category === exCat)
@@ -535,7 +535,7 @@ async function askMine(question, why) {
   blocks.push(`<div class="headline mine"><div class="lbl">from your own data
       &middot; ${a.sets} set${a.sets === 1 ? "" : "s"}</div>
     ${s ? `<div class="big">${sig(s.median)}<u>${esc(s.unit)}</u></div>
-      <div class="sub">median ${esc(s.label.toLowerCase())} of <b>${s.n}</b>
+      <div class="sub">median ${esc(s.label.toLowerCase())} across the
         measurement${s.n === 1 ? "" : "s"} you added${s.n > 1
           ? ` &middot; range ${sig(s.min)}&ndash;${sig(s.max)} ${esc(s.unit)}` : ""}</div>`
      : `<div class="big txt">${n}</div>
@@ -596,14 +596,14 @@ function spokenAnswer(a) {
     }
     case "property": {
       const s = a.stats, f = a.family;
-      return `Across ${s.n} measurements from ${a.papers} papers, the median `
+      return `Across the measurements in the library, the median `
         + `${f.label.toLowerCase()} is ${sig(s.median)} ${f.unit}. `
         + `Half of them fall between ${sig(s.p25)} and ${sig(s.p75)}.`;
     }
     case "quantitative": {
-      if (!a.primary) return `I found ${a.rows.length} matching measurements, but none of them state the figure you asked for.`;
+      if (!a.primary) return "I found matching measurements, but none of them state the figure you asked for.";
       const p = a.primary;
-      return `Across ${p.n} measurements, the median ${p.label.toLowerCase()} is `
+      return `Across the measurements, the median ${p.label.toLowerCase()} is `
         + `${n(p.median, p.median < 10 ? 2 : 0)} ${p.unit}, with half between `
         + `${n(p.p25)} and ${n(p.p75)}.`;
     }
@@ -1176,9 +1176,9 @@ const PRIMERS = {
     lead: "Every paper that contributed at least one measurement, and how many it gave.",
     points: [
       ["These are the receipts",
-       "The library draws on {papers} papers. These {contributing} are the ones a number was actually read from, so they are the ones worth checking."],
-      ["Not all {papers} are about graphene",
-       "{titleMatched} were found by a search that required graphene in the paper's title. {abstractOnly} were found only by one that reads the abstract as well, so that group includes papers that mention graphene rather than study it. A further {contextOnly} came from two searches that ask for battery work with no graphene term at all \u2014 deliberately, so the library can describe the field graphene sits in. They account for {contextRows} of the measurements, each labelled with the material it was measured on, and none of them is used to answer a question about graphene."],
+       "Every paper listed here gave up at least one number. They are the ones worth checking."],
+      ["Not every paper here is about graphene",
+       "Most were found by a search that required graphene in the paper's title. Some were found only once the abstract was read as well, so that group includes papers that mention graphene rather than study it. A few come from searches that ask for battery work with no graphene term at all \u2014 deliberately, so the library can describe the field graphene sits in. Those are labelled with the material they were measured on, and none of them is used to answer a question about graphene."],
       ["Follow the DOI",
        "Each row links to the published paper. Nothing in this tool asks to be taken on trust."],
     ],
@@ -1306,10 +1306,10 @@ function paintProps(q = "") {
   const all = DATA.properties || [];
   const fams = DATA.property_families || [];
   const count = (k) => all.filter((r) => r.property_key === k).length;
-  $("prfams").innerHTML = [`<button data-f="" aria-pressed="${!prFam}">All <span class="dim">${fmt(all.length)}</span></button>`]
+  $("prfams").innerHTML = [`<button data-f="" aria-pressed="${!prFam}">All</button>`]
     .concat(fams.filter((f) => count(f.key)).map((f) =>
       `<button data-f="${esc(f.key)}" aria-pressed="${prFam === f.key}">${esc(f.label)}
-        <span class="dim">${count(f.key)}</span></button>`)).join("");
+        </button>`)).join("");
 
   const term = q.toLowerCase().trim();
   const list = all.filter((r) =>
@@ -1324,7 +1324,7 @@ function paintProps(q = "") {
     const s = spread(list.filter((r) => r.confidence === "verified")
       .map((r) => Number(r.value)));
     $("prstat").innerHTML = `<div class="pstat">
-      <div><b>${sig(s.median)}</b><u>${esc(fam.unit)}</u><span>median of ${s.n} verified</span></div>
+      <div><b>${sig(s.median)}</b><u>${esc(fam.unit)}</u><span>median, verified rows</span></div>
       <div><b>${sig(s.p25)}&ndash;${sig(s.p75)}</b><u>${esc(fam.unit)}</u><span>middle half</span></div>
       <div><b>${sig(s.min)}&ndash;${sig(s.max)}</b><u>${esc(fam.unit)}</u><span>full range</span></div>
     </div>`;
@@ -1342,10 +1342,10 @@ function paintProps(q = "") {
   const CAP = 120;
   const shown = Math.min(CAP, list.length);
   const what = prFam
-    ? `${fmt(list.length)} measurements of ${fam.label.toLowerCase()}`
-    : `${fmt(list.length)} measurements across ${fams.filter((f) => count(f.key)).length} properties`;
+    ? `Measurements of ${fam.label.toLowerCase()}`
+    : "Measurements across every property family here";
   $("pr-sub").textContent = list.length > CAP
-    ? `${what}, highest first. Showing the top ${shown} \u2014 narrow with the search box.`
+    ? `${what}, highest first \u2014 narrow with the search box.`
     : `${what}, each read from one sentence of one paper.`;
   $("prgrid").innerHTML = list.slice(0, CAP).map((r, i) => prCard(r, i)).join("");
 }
@@ -1513,7 +1513,7 @@ function histogram(values, unit, label) {
   });
   const mx = x(s.median);
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img"
-    aria-label="${esc(`Distribution of ${label}: ${values.length} measurements from ${fmt(s.min, 0)} to ${fmt(s.max, 0)} ${unit}, median ${fmt(s.median, 0)}`)}">
+    aria-label="${esc(`Distribution of ${label}: from ${fmt(s.min, 0)} to ${fmt(s.max, 0)} ${unit}, median ${fmt(s.median, 0)}`)}">
     <line class="ax" x1="${P.l}" y1="${P.t + ih}" x2="${W - P.r}" y2="${P.t + ih}"></line>
     ${bars}
     <line class="med" x1="${mx}" y1="${P.t - 4}" x2="${mx}" y2="${P.t + ih}"></line>
@@ -1978,7 +1978,7 @@ function topRows(rows, field, k = 5) {
 function metricCard(s) {
   return `<div class="metric"><div class="mv">${fmt(s.median, s.median < 10 ? 2 : 0)}<u>${esc(s.unit)}</u></div>
     <div class="mk">${esc(s.label)}</div>
-    <div class="mr">${fmt(s.min, 0)}–${fmt(s.max, 0)} &middot; n=${s.n}</div></div>`;
+    <div class="mr">${fmt(s.min, 0)}–${fmt(s.max, 0)}</div></div>`;
 }
 
 function renderAnswer(a) {
@@ -1988,11 +1988,9 @@ function renderAnswer(a) {
   if (a.kind === "refused") {
     blocks.push(`<div class="refusal"><h3>Not in the library</h3>
       <p>This question ${esc(a.reason)}. ${esc(a.why)}</p>
-      <p class="dim">The library holds ${fmt((DATA.stats.evidence_rows || 0)
-          + (DATA.stats.property_rows || 0))} measurements, read from
-        ${fmt(DATA.stats.papers_with_measurement || 0)} of its ${fmt(DATA.stats.papers)}
-        papers across graphene — batteries, electronics, sensors, membranes, composites,
-        biomedicine and more — plus ${fmt(DATA.stats.concepts)} reference entries.</p>
+      <p class="dim">The library holds measurements read out of published papers across
+        graphene — batteries, electronics, sensors, membranes, composites, biomedicine and
+        more — alongside definitions from open reference sources.</p>
       ${(() => {
         // Say what is actually about to happen. This used to be decided by
         // whether the agent was reachable, while the handover was decided by
@@ -2026,7 +2024,7 @@ function renderAnswer(a) {
       const pr = a.property, f = pr.family, s = pr.stats;
       blocks.push(`<div class="card"><h3>What this library measures it at</h3>
         <div class="pstat"><div><b>${sig(s.median)}</b><u>${esc(f.unit)}</u>
-            <span>median of ${s.n} measurements</span></div>
+            <span>median across the measurements</span></div>
           <div><b>${sig(s.p25)}&ndash;${sig(s.p75)}</b><u>${esc(f.unit)}</u>
             <span>middle half</span></div>
           <div><b>${sig(s.min)}&ndash;${sig(s.max)}</b><u>${esc(f.unit)}</u>
@@ -2074,7 +2072,7 @@ function renderAnswer(a) {
         / a.context.n * 100;
       blocks.push(`<div class="card"><h3>How that input compares with the library</h3>
         ${histogram(a.context.values, "mAh/g", "specific capacity")}
-        <p class="sub" style="margin:12px 0 0">Across ${a.context.n} measurements of
+        <p class="sub" style="margin:12px 0 0">Across the measurements of
           ${esc(subject(a.facets))}, the median is <b>${fmt(a.context.median, 0)} mAh/g</b>.
           ${a.calc.inputs.capacity_mah_g ? `Your ${fmt(a.calc.inputs.capacity_mah_g, 0)} mAh/g sits above
           ${fmt(pct, 0)}% of them.` : ""}</p></div>`);
@@ -2138,7 +2136,7 @@ function renderAnswer(a) {
     const scope = a.application ? ` in ${a.application}s` : a.material ? ` for ${a.material}` : "";
     blocks.push(`<div class="headline"><div class="lbl">median ${esc(f.label.toLowerCase())}${esc(scope)}</div>
       <div class="big">${sig(s.median)}<u>${esc(f.unit)}</u></div>
-      <div class="sub">from <b>${s.n}</b> measurements across <b>${a.papers}</b> papers
+      <div class="sub">across the measurements in the library
         &middot; middle half <b>${sig(s.p25)}&ndash;${sig(s.p75)}</b>
         &middot; full range ${sig(s.min)}&ndash;${sig(s.max)} ${esc(f.unit)}</div></div>`);
 
@@ -2159,7 +2157,7 @@ function renderAnswer(a) {
             <span class="dim">${esc(f.unit)}</span></td></tr>`).join("")}</tbody></table></div>`;
 
     blocks.push(`<div class="grid2">
-      <div class="card"><h3>How those ${s.n} measurements are spread</h3>
+      <div class="card"><h3>How the measurements are spread</h3>
         ${histogram(trimTails(a.rows.map((r) => Number(r.value))), f.unit,
                     `${f.label} distribution`)}
         <p class="sub" style="margin:12px 0 0">Each bar counts measurements, not papers. A
@@ -2184,11 +2182,11 @@ function renderAnswer(a) {
   if (p) {
     blocks.push(`<div class="headline"><div class="lbl">median ${esc(p.label)} &middot; ${esc(subject(a.facets))}</div>
       <div class="big">${fmt(p.median, p.median < 10 ? 2 : 0)}<u>${esc(p.unit)}</u></div>
-      <div class="sub">from <b>${p.n}</b> measurements across <b>${papers}</b> papers
+      <div class="sub">across the measurements in the library
         &middot; middle half <b>${fmt(p.p25, 0)}–${fmt(p.p75, 0)}</b>
         &middot; full range ${fmt(p.min, 0)}–${fmt(p.max, 0)} ${esc(p.unit)}</div></div>`);
     blocks.push(`<div class="grid2">
-      <div class="card"><h3>How those ${p.n} measurements are spread</h3>
+      <div class="card"><h3>How the measurements are spread</h3>
         ${histogram(p.values, p.unit, p.label)}</div>
       <div class="card"><h3>Conditions reported alongside</h3>
         <div class="metrics">${a.secondary.length ? a.secondary.map(metricCard).join("")
@@ -2220,9 +2218,9 @@ function renderAnswer(a) {
 
 function gapBlock(a, papers, flagged, years) {
   const bits = [];
-  bits.push(`Drawn from <b>${a.rows.length}</b> measurements in <b>${papers}</b> papers`);
+  bits.push("Drawn from measurements read out of published papers");
   if (years.length) bits.push(`published <b>${Math.min(...years)}–${Math.max(...years)}</b>`);
-  if (flagged) bits.push(`<b>${flagged}</b> flagged by an automated check and kept, not hidden`);
+  if (flagged) bits.push("some flagged by an automated check and kept, not hidden");
   let s = bits.join(", ") + ".";
   if (a.missing && a.missing.length)
     s += ` These papers do not state <b>${a.missing.map(esc).join(", ")}</b>.`;
@@ -2309,18 +2307,18 @@ function traceFor(a) {
       ["Collecting source sentences", "one per cited number", ""]);
   else if (a.kind === "passages")
     s.push(["Searching measurements", "no numeric match", "0"],
-      ["Reading paper abstracts", "keyword match", `${a.passages.length}`]);
+      ["Reading paper abstracts", "keyword match", ""]);
   else if (a.kind === "refused")
-    s.push(["Searching measurements", "no close match", `${a.searched || 0}`],
-      ["Reading paper abstracts", "no close match", "0"]);
+    s.push(["Searching measurements", "no close match", ""],
+      ["Reading paper abstracts", "no close match", ""]);
   else {
-    s.push(["Searching measurements", subject(a.facets), `${a.rows.length}`]);
-    if (a.kind === "comparison") s.push(["Grouping by material system", "median per group", `${a.groups.length}`]);
-    if (a.kind === "trend") s.push(["Grouping by publication year", "median per year", `${a.years.length}`]);
+    s.push(["Searching measurements", subject(a.facets), ""]);
+    if (a.kind === "comparison") s.push(["Grouping by material system", "median per group", ""]);
+    if (a.kind === "trend") s.push(["Grouping by publication year", "median per year", ""]);
     if (a.kind === "quantitative" && a.primary)
-      s.push(["Computing the spread", a.primary.label, `n=${a.primary.n}`]);
+      s.push(["Computing the spread", a.primary.label, ""]);
     if (a.kind === "quantitative" && a.siblings && a.siblings.length)
-      s.push(["Comparing with other systems", "median per system", `${a.siblings.length}`]);
+      s.push(["Comparing with other systems", "median per system", ""]);
     s.push(["Collecting source sentences", "one per cited number", ""]);
   }
   return s;
@@ -2889,8 +2887,8 @@ function more() {
   $("gb").insertAdjacentHTML("beforeend", page.map((r) =>
     `<tr class="${r.confidence === "flagged" ? "fl" : ""}" data-id="${r.id}" tabindex="0">${
       COLS.map(([, , c, f]) => `<td class="${c}">${f(r)}</td>`).join("")}</tr>`).join(""));
-  $("rc").textContent = `${T.total.toLocaleString("en-GB")} measurement${T.total === 1 ? "" : "s"}`;
-  $("rd").textContent = `showing ${T.rows.length.toLocaleString("en-GB")}`;
+  $("rc").textContent = T.total === 1 ? "One measurement" : "Measurements";
+  $("rd").textContent = T.total ? "" : "nothing matches these filters";
   $("ge").hidden = T.total !== 0;
   $("mtable").hidden = T.layout !== "table";
   $("mcards").hidden = T.layout !== "cards";
@@ -2930,7 +2928,7 @@ function paintFacets() {
       return `<button class="fi" data-f="${k}" data-v="${esc(it.value)}" aria-pressed="${
         String(T.filters[FP[k]] === it.value)}">${col ? `<i class="dot" style="background:${col}"></i>` : ""}
         <span>${k === "confidence" && it.value === "flagged" ? "&#9873; " : ""}${esc(it.value)}</span>
-        <span class="n">${it.count.toLocaleString("en-GB")}</span></button>`;
+        </button>`;
     }).join("");
   });
   document.querySelectorAll(".fi").forEach((b) => b.addEventListener("click", () => {
@@ -2990,8 +2988,8 @@ $("more").addEventListener("click", () => {
     ${(c.voltage_range_v || [0, 5]).join("–")} V, retention arithmetic, group outliers beyond
     ${c.outlier_sigma ?? 3.5} robust sigma, and unit mix-ups. <b>They cannot</b> tell whether a
     plausible number was measured under the conditions a row claims, catch a paper that is itself
-    wrong, or judge whether a comparison is fair. ${fmt(DATA.stats.verified)} rows passed every
-    check; ${fmt(DATA.stats.flagged)} are flagged and kept, never deleted.`;
+    wrong, or judge whether a comparison is fair. Rows that fail a check are flagged and kept,
+    with the reason shown, never deleted.`;
 });
 
 /* ── calculators ────────────────────────────────────────── */
@@ -3225,16 +3223,11 @@ async function loadData() {
     return;
   }
   hideSkel();
-  const s = DATA.stats;
-  document.title = `Graphene Research Agent · ${fmt(s.evidence_rows)} measurements`;
-  $("strip").innerHTML = [
-    [fmt((s.evidence_rows || 0) + (s.property_rows || 0)), "measurements"],
-    [fmt(s.papers), "papers"],
-    [fmt(s.property_families || 0), "properties measured"],
-    [`${s.year_range[0]}–${s.year_range[1]}`, "published"],
-    [fmt(DATA.concepts.length), "reference entries"],
-  ].map(([v, k], i) => `<div class="stat" style="--i:${i}"><div class="v">${esc(v)}</div>
-      <div class="k">${esc(k)}</div></div>`).join("");
+  // No figure describing the size of the library appears anywhere on screen.
+  // The hero carried a strip of them and the title carried a count; both are
+  // gone. The figures are still in the data, because the engine needs them,
+  // and nothing reads them out.
+  document.title = "Graphene Research Agent";
 
   $("chips").innerHTML = CHIPS.map((q, i) =>
     `<button style="--i:${i}" data-q="${esc(q)}">${esc(q)}</button>`).join("");

@@ -41,15 +41,18 @@ async function open(browser) {
   page.on("pageerror", (e) => errors.push(String(e.message)));
   page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
 
-  /* Read the headline figures, not the sidebar: the per-tab counts were
-     removed, but the claim they were used to check - that a supplied figure
-     never becomes countable as published evidence - is unchanged. */
-  // textContent, not innerText: the second read happens while the Ask view is
-  // hidden, where innerText has no layout to work from and returns the raw
-  // source instead of the rendered, upper-cased text. The figures are what is
-  // being compared, so take only those.
-  const libraryFigures = () => page.evaluate(() =>
-    (document.getElementById("strip").textContent.match(/[\d,]+(?:\u2013[\d,]+)?/g) || []).join(" "));
+  /* The claim being checked has not changed - a figure a researcher supplies
+     never becomes countable as published evidence - but there is nowhere left
+     on screen to read it off. The library's figures were in a strip across the
+     hero and were taken down, so this now reads them from the loaded data
+     instead, which is where they were coming from and is the stronger check:
+     it would catch a supplied figure being counted even if nothing displayed
+     the total at all. */
+  const libraryFigures = () => page.evaluate(() => {
+    const s = (window.DATA && window.DATA.stats) || {};
+    return JSON.stringify([s.papers, s.evidence_rows, s.property_rows,
+                           s.papers_with_measurement, s.concepts]);
+  });
   const libraryBefore = await libraryFigures();
 
   await page.click('[data-view="mydata"]');
