@@ -124,24 +124,43 @@ const CASES = [
     S.context_measurements <= S.evidence_rows + S.property_rows,
     `context_rows=${S.context_measurements}`);
 
-  // The strip is what a visitor actually reads.
-  const strip = await page.evaluate(() =>
-    [...document.querySelectorAll("#strip .stat")].map((e) => ({
-      v: e.querySelector(".v").textContent.trim(),
-      k: e.querySelector(".k").textContent.trim(),
-    })));
-  chk("the stat strip rendered", strip.length >= 4, `${strip.length} stats`);
-  chk("no figure on it is zero or blank",
-    strip.every((x) => x.v && x.v !== "0"), JSON.stringify(strip));
-  const measured = strip.find((x) => x.k === "measurements");
-  chk("the strip counts both halves, not just the battery one",
-    !!measured && measured.v.replace(/,/g, "") ===
-      String(S.evidence_rows + S.property_rows),
-    measured ? measured.v : "(missing)");
-  const papers = strip.find((x) => x.k === "papers");
-  chk("and agrees with the data on papers",
-    !!papers && papers.v.replace(/,/g, "") === String(S.papers),
-    papers ? papers.v : "(missing)");
+  // The client does not want the size of the library on screen. It used to be
+  // in a strip across the hero and in the page title; these assert it has not
+  // crept back. The figures still exist in the data - the engine needs them -
+  // so this checks what is rendered, not what is loaded.
+  chk("no strip of figures remains in the hero",
+    await page.evaluate(() => document.querySelectorAll("#strip, .statstrip, .stat").length) === 0);
+  chk("the page title carries no count",
+    !/\d/.test(await page.title()), await page.title());
+
+  const heroText = await page.evaluate(() => {
+    const h = document.getElementById("hero");
+    return h ? h.textContent.replace(/\s+/g, " ").trim() : "(no hero)";
+  });
+  chk("the hero shows no digits at all", !/\d/.test(heroText), heroText.slice(0, 150));
+
+  // Every figure describing the library, in the copy that describes it.
+  const sized = [S.papers, S.papers_with_text, S.papers_with_measurement,
+                 S.evidence_rows, S.property_rows, S.concepts,
+                 (S.evidence_rows || 0) + (S.property_rows || 0),
+                 S.title_matched, S.abstract_only, S.context_only,
+                 S.context_measurements].filter((n) => n && n >= 100);
+  const copy = await page.evaluate(() => {
+    const d = document.createElement("div");
+    d.innerHTML = ["ask", "sources", "evidence", "properties", "explore",
+                   "calculator", "mydata", "notebook"]
+      .map((v) => (typeof primerHTML === "function" ? primerHTML(v) : "")).join("");
+    return d.textContent.replace(/\s+/g, " ");
+  });
+  const leaked = sized.filter((n) =>
+    copy.includes(n.toLocaleString("en-GB")) || copy.includes(String(n)));
+  chk("no library figure appears in any primer", leaked.length === 0, leaked.join(","));
+
+  // And the tab labels, which is where this started.
+  const tabs = await page.evaluate(() =>
+    [...document.querySelectorAll(".sitem, .tab")].map((e) => e.textContent.trim()));
+  chk("no tab label carries a number",
+    tabs.every((t) => !/\d/.test(t)), tabs.filter((t) => /\d/.test(t)).join(" | "));
 
   // Nothing written for a smaller library may be left hard-coded in copy.
   const stale = await page.evaluate(() => {
