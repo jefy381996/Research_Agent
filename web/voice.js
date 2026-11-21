@@ -112,16 +112,95 @@
     [/\b(?:see|c)\s*(?:vee|v)\s*(?:dee|d)\b/gi, "CVD"],
     [/\byoungs\b/gi, "Young's"],
     [/\bgraphine\b|\bgraphean\b|\bgrafeen\b/gi, "graphene"],
+    // "graphing" is a real word, so it is never snapped on its own; but
+    // "reduced graphing oxide" is what Whisper wrote for "reduced graphene
+    // oxide" in the round-trip test, and in that company it is not graphing.
+    [/\bgraphing(?=\s+oxide\b)/gi, "graphene"],
+    [/\b(reduced|single[- ]layer|few[- ]layer|multilayer)\s+graphing\b/gi, "$1 graphene"],
+    [/\bgraphing(?=\s+(?:anode|cathode|film|sheet|composite|membrane|aerogel))/gi, "graphene"],
     [/\bohms per square\b/gi, "sheet resistance"],
     [/\bwatts per met(?:re|er) kelvin\b/gi, "thermal conductivity"],
     [/\bsquare met(?:re|er)s per gram\b/gi, "surface area"],
     [/\bsilicon? anode\b/gi, "silicon anode"],
   ];
 
+  /* The list above is every mishearing somebody thought of. There is always
+     one nobody thought of: the round-trip test, where Kokoro speaks a
+     sentence and Whisper writes it down, produced "reduced graphing oxide".
+     "graphing" was not on the list, and neither were gapheene, garphene or
+     graffine when they were tried.
+
+     So the list is a floor, not the method. Any word close enough to a term
+     this library actually uses is snapped to it. Close enough means within
+     two edits and sharing a first letter, which keeps "graphene" from
+     swallowing unrelated words while catching the ways it gets mangled. This
+     is only safe because the subject is fixed: in an application about
+     graphene, a word two edits from "graphene" is graphene. */
+  /* Kept deliberately short. The first attempt listed every term the library
+     uses and turned "graphic design" into "graphite design" and "anodes" into
+     "anode", because ordinary English words and plurals sit within two edits
+     of short terms. Only words that are distinctive enough that nothing else
+     comes near them, and that a recogniser is actually observed to mangle,
+     belong here. Anode, cathode, lithium and the rest are left out on
+     purpose: they are ordinary enough that recognisers get them right, and
+     close enough to other words to be dangerous. */
+  const SNAP = [
+    "graphene", "graphane", "supercapacitor", "coulombic",
+    "exfoliation", "transmittance", "permeance", "nanosheet", "nanotube",
+  ];
+  /* Real words that sit near a term and must survive untouched. */
+  const NEVER = new Set(["graphic", "graphics", "graphical", "graphing",
+    "grapheme", "grammar", "granite", "grape", "grapes"]);
+  const SNAP_MIN = 5;      // shorter words are too easy to reach by accident
+  const SNAP_MAX_EDITS = 2;
+
+  function editsWithin(a, b, cap) {
+    if (Math.abs(a.length - b.length) > cap) return false;
+    let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= a.length; i++) {
+      const row = [i];
+      let best = i;
+      for (let j = 1; j <= b.length; j++) {
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+        row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + cost);
+        if (row[j] < best) best = row[j];
+      }
+      if (best > cap) return false;         // no path back under the cap
+      prev = row;
+    }
+    return prev[b.length] <= cap;
+  }
+
+  function snap(word) {
+    const low = word.toLowerCase();
+    if (low.length < SNAP_MIN) return word;
+    // A plural or an -ing of a term is the term, correctly inflected, and
+    // rewriting it to the stem mangles the sentence: "silicon anodes reach"
+    // became "silicon anode reach" before this was here.
+    const stem = low.replace(/(?:es|s)$/, "");
+    for (const term of SNAP) {
+      if (low === term || stem === term) return word;
+    }
+    for (const term of SNAP) {
+      if (low[0] !== term[0]) continue;
+      if (editsWithin(low, term, SNAP_MAX_EDITS)) {
+        // Only when no real word explains it better.
+        return NEVER.has(low) ? word : term;
+      }
+    }
+    return word;
+  }
+
   /* A recogniser trained on ordinary English, pointed at a materials lab. */
   function fixTerms(transcript) {
     let s = String(transcript == null ? "" : transcript).trim();
     HEARD.forEach(([re, word]) => { s = s.replace(re, word); });
+    // Then the general case, on whatever the named rules did not catch.
+    s = s.replace(/[A-Za-z][A-Za-z'-]*/g, (w) => {
+      // Leave anything the named rules already turned into a library term.
+      if (/^(rGO|GO|CVD|BET|SEI|LIB|CE)$/.test(w)) return w;
+      return snap(w);
+    });
     return s.replace(/\s+/g, " ").trim();
   }
 
@@ -361,6 +440,7 @@
 
   function listen(opts) {
     opts = opts || {};
+    if (local.ears) return localListen(opts);
     if (!Rec) { announce("unsupported"); return false; }
     onPartial = opts.onPartial || null;
     onHeard = opts.onHeard || null;
@@ -384,6 +464,7 @@
 
   function stopListening() {
     wantListening = false;
+    if (global.LocalSpeech && global.LocalSpeech.isMicOpen()) global.LocalSpeech.closeMic();
     clearTimeout(restartTimer);
     restartTimer = null;
     rapid = 0;
@@ -410,6 +491,8 @@
   }
 
   function speak(text, done) {
+    if (local.voice && global.LocalSpeech && global.LocalSpeech.ready().voice)
+      return localSpeak(text, done);
     if (!synth) { if (done) done(); return false; }
     const said = sayable(text);
     if (!said) { if (done) done(); return false; }
@@ -435,19 +518,99 @@
   }
 
   function shutUp() {
+    if (global.LocalSpeech && global.LocalSpeech.isSpeaking()) {
+      global.LocalSpeech.stop();
+      speaking = false;
+      echoUntil = Date.now() + ECHO_TAIL_MS;
+    }
     if (!synth) return;
     try { synth.cancel(); } catch (e) {}
     speaking = false;
     echoUntil = Date.now() + ECHO_TAIL_MS;
   }
 
+  /* ── the local engine, when it is loaded ──────────────── */
+
+  /* Whisper and Kokoro are a different shape from the browser's recogniser:
+     one hands over a finished utterance rather than a stream of words, and
+     the other returns audio rather than speaking by itself. The difference is
+     absorbed here, so the rest of the app goes on calling listen and speak
+     without knowing which engine answered. Everything either engine produces
+     still goes through fixTerms, because a recogniser trained on ordinary
+     English mishears a materials lab whoever wrote it - the round-trip test
+     has Whisper turning "graphene" into "graphing". */
+  let local = { ears: false, voice: false };
+
+  function useLocal(which) {
+    local = { ears: !!(which && which.ears), voice: !!(which && which.voice) };
+    return local;
+  }
+
+  function usingLocal() { return { ears: local.ears, voice: local.voice }; }
+
+  function localListen(opts) {
+    const LS = global.LocalSpeech;
+    if (!LS) return false;
+    onPartial = opts.onPartial || null;
+    onHeard = opts.onHeard || null;
+    onState = opts.onState || onState;
+    wantListening = true;
+    LS.openMic({
+      onSpeech: (ev) => {
+        if (ev.type === "start") {
+          // Somebody started talking. The browser's echo cancellation means
+          // this is them and not us, so the answer stops.
+          if (LS.isSpeaking()) LS.stop();
+          if (speaking) shutUp();
+          announce("hearing");
+          return;
+        }
+        if (ev.type !== "utterance") return;
+        announce("thinking");
+        LS.transcribe(ev.audio).then((text) => {
+          const clean = fixTerms(String(text || "").trim());
+          // Whisper fills silence with its own punctuation and stock phrases.
+          if (!clean || /^[\s.,!?-]*$/.test(clean) || /^\(.*\)$/.test(clean)) {
+            announce("listening");
+            return;
+          }
+          if (onHeard) onHeard(clean);
+        }).catch((e) => announce("error", String(e && e.message || e)));
+      },
+    }).then(() => announce("listening"))
+      .catch((e) => {
+        wantListening = false;
+        const why = /denied|not allowed|NotAllowed/i.test(String(e)) ? "not-allowed" : String(e && e.message || e);
+        announce("error", why);
+      });
+    return true;
+  }
+
+  function localSpeak(text, done) {
+    const LS = global.LocalSpeech;
+    const said = sayable(text);
+    if (!LS || !said) { if (done) done(); return false; }
+    spokenNow = said;
+    LS.speak(said, {
+      onStart: () => { speaking = true; announce("speaking"); },
+      onEnd: () => {
+        speaking = false;
+        echoUntil = Date.now() + ECHO_TAIL_MS;
+        announce("spoke");
+        if (done) done();
+      },
+    });
+    return true;
+  }
+
   global.Voice = {
     supported, listen, stopListening, speak, shutUp,
+    useLocal, usingLocal,
     isListening: () => listening,
     isSpeaking: () => speaking,
     wantsToListen: () => wantListening,
     onState: (fn) => { onState = fn; },
     // pure, and therefore the parts worth testing
-    sayable, fixTerms, parseCommand, isEcho, isStopPhrase, followUp,
+    sayable, fixTerms, parseCommand, isEcho, isStopPhrase, followUp, snap,
   };
 })(window);

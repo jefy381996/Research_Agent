@@ -1468,3 +1468,11 @@ html.booting .hero .badge i{animation:boot-wipe 900ms var(--e-out) both 400ms}
   .minestrip{padding:14px}
   .minestrip .mcards{grid-template-columns:1fr}
 }
+
+/* The download bar for the local speech engine. A hundred and sixty megabytes
+   with no sign of progress reads as a hang, so it always has a bar. */
+.vprog{display:inline-block;width:94px;height:4px;border-radius:999px;
+  background:var(--line);overflow:hidden;vertical-align:middle;margin:0 2px}
+.vprog i{display:block;height:100%;width:0;border-radius:999px;background:var(--accent);
+  transition:width 220ms var(--e-out)}
+.mode.talk[aria-pressed="true"] #lvlabel{font-weight:600}

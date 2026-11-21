@@ -642,6 +642,87 @@ function spokenAgentAnswer(text) {
   return sentences.slice(0, 2).join(" ") || "The answer is on screen.";
 }
 
+/* ── speech that runs on this machine ─────────────────── */
+
+/* Nothing is downloaded until somebody asks. The button says what it will
+   cost before it costs it, because a hundred and sixty megabytes arriving
+   unannounced on a conference connection is the fastest way to lose a demo.
+   If the machine cannot run it, the button says why rather than disappearing,
+   and the browser's own voice carries on as it did. */
+let LOCAL = { plan: null, loading: false, on: false };
+
+function vprog(frac, label) {
+  const bar = $("vprog"), fill = $("vbarfill");
+  if (!bar || !fill) return;
+  if (frac === null) { bar.hidden = true; return; }
+  bar.hidden = false;
+  fill.style.width = `${Math.round(frac * 100)}%`;
+  if (label) vbar(true, label);
+}
+
+async function localOffer() {
+  const btn = $("localvoice");
+  if (!btn || !window.LocalSpeech) return;
+  let cap;
+  try { cap = await LocalSpeech.inspect(); }
+  catch (e) { return; }
+  const plan = LocalSpeech.plan(cap);
+  LOCAL.plan = plan;
+  btn.hidden = false;
+  if (!plan.ears) {
+    btn.disabled = true;
+    btn.title = plan.why;
+    $("lvlabel").textContent = "On-device speech";
+    return;
+  }
+  $("lvlabel").textContent = plan.cached
+    ? "On-device speech"
+    : `On-device speech (${plan.mb} MB)`;
+  btn.title = plan.cached
+    ? "Already downloaded. Runs entirely on this machine."
+    : `${plan.why} One download of about ${plan.mb} MB, kept for next time.`;
+}
+
+async function localToggle() {
+  const btn = $("localvoice");
+  if (!btn || LOCAL.loading || !LOCAL.plan || !LOCAL.plan.ears) return;
+  if (LOCAL.on) {                       // back to the browser's own engine
+    LOCAL.on = false;
+    Voice.useLocal({ ears: false, voice: false });
+    btn.setAttribute("aria-pressed", "false");
+    vprog(null);
+    vbar(true, "Back to the browser's own speech.");
+    return;
+  }
+  LOCAL.loading = true;
+  btn.disabled = true;
+  vbar(true, LOCAL.plan.cached ? "Starting the speech engine…"
+    : `Downloading about ${LOCAL.plan.mb} MB, once…`);
+  vprog(0);
+  try {
+    const got = await LocalSpeech.load(LOCAL.plan, (f, label) => vprog(f, label));
+    LOCAL.on = true;
+    Voice.useLocal(got);
+    btn.setAttribute("aria-pressed", "true");
+    $("lvlabel").textContent = "On-device speech";
+    vprog(null);
+    vbar(true, got.voice
+      ? "Running on this machine. Nothing is sent anywhere."
+      : "Listening runs on this machine. The voice is the browser's own, "
+        + "because this device has no graphics card to run the better one.");
+  } catch (e) {
+    LOCAL.on = false;
+    Voice.useLocal({ ears: false, voice: false });
+    vprog(null);
+    // A failed download must not take the working engine down with it.
+    vbar(true, "Could not start on-device speech. The browser's own is still "
+      + "working, so carry on.");
+  } finally {
+    LOCAL.loading = false;
+    btn.disabled = false;
+  }
+}
+
 function vbar(show, text) {
   const bar = $("vbar");
   if (!bar) return;
@@ -786,6 +867,8 @@ function startListening(quietly) {
     onHeard: heard,
     onState: (state, detail) => {
       if (state === "listening" && !VOICE.busy) vbar(true, "Listening…");
+      if (state === "hearing") vbar(true, "…");
+      if (state === "thinking") vbar(true, "Working out what you said…");
       if (state === "error") {
         const why = detail === "not-allowed"
           ? "Microphone blocked. Allow it in the address bar to ask out loud."
@@ -3236,6 +3319,10 @@ async function loadData() {
   paintFacets(); head(); loadNotes(); probeAgent();
   myLoad(); wireMine();
   wireVoice();
+  const lv = $("localvoice");
+  if (lv) lv.addEventListener("click", localToggle);
+  // Asks the machine what it can do; downloads nothing.
+  localOffer();
   // The opening sequence is one-shot. Clearing the class once it has played
   // stops every later tab switch from replaying the whole arrival.
   setTimeout(() => document.documentElement.classList.remove("booting"), 2200);
