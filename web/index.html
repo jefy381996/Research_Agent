@@ -72,6 +72,7 @@
     <div class="vbar" id="vbar" hidden>
       <span class="vdot"></span>
       <span class="vtext" id="vtext">Listening&hellip;</span>
+      <span class="vprog" id="vprog" hidden><i id="vbarfill"></i></span>
       <button class="lnk" id="vstop">Stop</button>
     </div>
     <form class="composer" id="form"><div class="inner">
@@ -93,6 +94,9 @@
         <button type="button" class="mode talk" id="handsfree" aria-pressed="false"
           title="Keep listening, and answer out loud">
           <svg class="ic" viewBox="0 0 22 22"><use href="#i-wave"/></svg>Hands-free</button>
+        <button type="button" class="mode talk" id="localvoice" aria-pressed="false" hidden
+          title="Run speech on this machine instead of the browser's service">
+          <svg class="ic" viewBox="0 0 22 22"><use href="#i-wave"/></svg><span id="lvlabel">Better voice</span></button>
         <span id="hint" class="hintline">Rules only. Instant and free.</span>
       </div>
     </div></form>
@@ -274,6 +278,7 @@
 
 <script src="lattice.js"></script>
 <script src="research-anim.js"></script>
+<script src="speech.js"></script>
 <script src="voice.js"></script>
 <script src="calc.js"></script>
 <script src="app.js"></script>
