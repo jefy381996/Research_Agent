@@ -36,7 +36,10 @@
   const MODELS = {
     earsSmall: { id: "onnx-community/whisper-tiny.en", dtype: "q8", mb: 39 },
     earsLarge: { id: "onnx-community/whisper-base", dtype: "q8", mb: 73 },
-    voice: { id: "onnx-community/Kokoro-82M-v1.0-ONNX", mb: 83 },
+    // q8, not fp32. The first version advertised 83 MB and then asked for
+    // fp32, which is 310 MB: four times what the button promised, on a
+    // connection somebody had agreed to spend 83 MB of.
+    voice: { id: "onnx-community/Kokoro-82M-v1.0-ONNX", dtype: "q8", mb: 88 },
   };
 
   const VOICE_NAME = "af_heart";
@@ -147,7 +150,25 @@
 
   /* ── loading ──────────────────────────────────────────── */
 
-  let mods = null, asr = null, tts = null, loadedPlan = null;
+  let mods = null, asr = null, tts = null, loadedPlan = null, voiceRejected = "";
+
+  const VOICE_MAX_FACTOR = 1.0;   // slower than speech itself is no use
+  const ASR_TIMEOUT_MS = 25000;
+  const VOICE_PROBE_MS = 12000;
+
+  async function timed(fn) {
+    const t = Date.now();
+    const value = await fn();
+    return { value, ms: Date.now() - t };
+  }
+
+  function withTimeout(promise, ms, what) {
+    let t;
+    return Promise.race([
+      promise.finally(() => clearTimeout(t)),
+      new Promise((_, rej) => { t = setTimeout(() => rej(new Error(what)), ms); }),
+    ]);
+  }
 
   async function libs() {
     if (mods) return mods;
@@ -177,23 +198,53 @@
 
     if (p.ears && !asr) {
       const m = MODELS[p.ears];
+      // Always on the processor. It was put on the graphics card wherever one
+      // existed, which is faster when it works, but a quantised model on the
+      // WebGPU backend is barely supported and hangs without erroring: the
+      // page sat on "working out what you said" for ever. On the processor it
+      // takes about two and a half seconds and it always comes back, and this
+      // is the path that can actually be tested.
       asr = await T.pipeline("automatic-speech-recognition", m.id, {
-        dtype: m.dtype,
-        device: p.voice ? "webgpu" : "wasm",
-        progress_callback: track("ears"),
+        dtype: m.dtype, device: "wasm", progress_callback: track("ears"),
       });
     }
     if (p.voice && !tts) {
-      tts = await K.KokoroTTS.from_pretrained(MODELS.voice.id, {
-        dtype: "fp32", device: "webgpu", progress_callback: track("voice"),
-      });
+      try {
+        tts = await K.KokoroTTS.from_pretrained(MODELS.voice.id, {
+          dtype: MODELS.voice.dtype, device: "webgpu",
+          progress_callback: track("voice"),
+        });
+        // Asking the adapter what it is cannot tell you how fast it is, and
+        // the only machine this was written on has no real card to measure.
+        // So measure the machine in front of us: speak one short line and
+        // time it. Slower than real time means every answer arrives after it
+        // would have been quicker to read, and the browser's own voice - flat
+        // but instant - is the better of the two.
+        say(0.97, "checking the voice is fast enough");
+        // With its own timeout, because the check for a voice that is too
+        // slow must not itself be able to hang. On a software adapter this
+        // generate never returns.
+        const probe = await timed(() => withTimeout(
+          tts.generate("Ready.", { voice: VOICE_NAME }),
+          VOICE_PROBE_MS, "the voice was too slow to answer at all"));
+        const factor = probe.ms / 1000 / (probe.value.audio.length / probe.value.sampling_rate);
+        if (factor > VOICE_MAX_FACTOR) {
+          tts = null;
+          voiceRejected = `it ran at ${factor.toFixed(1)} times slower than speech`;
+        }
+      } catch (e) {
+        tts = null;
+        voiceRejected = /too slow/.test(String(e && e.message || e))
+          ? "it was too slow to answer at all"
+          : "it would not start on this graphics card";
+      }
     }
     loadedPlan = p;
     say(1, "ready");
-    return { ears: !!asr, voice: !!tts };
+    return { ears: !!asr, voice: !!tts, voiceRejected };
   }
 
-  function ready() { return { ears: !!asr, voice: !!tts }; }
+  function ready() { return { ears: !!asr, voice: !!tts, voiceRejected }; }
 
   /* ── the microphone, and knowing when somebody is talking ─ */
 
@@ -324,9 +375,12 @@
 
   /* ── the two jobs ─────────────────────────────────────── */
 
+  /* A hang here used to be invisible: the strip said it was working something
+     out and then said it for ever. Nothing should be able to wait silently. */
   async function transcribe(audio) {
     if (!asr) throw new Error("the listener is not loaded");
-    const out = await asr(audio);
+    const out = await withTimeout(asr(audio), ASR_TIMEOUT_MS,
+      "the listener did not answer in time");
     return ((out && out.text) || "").trim();
   }
 

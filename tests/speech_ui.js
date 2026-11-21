@@ -156,6 +156,43 @@ const CAP = (over) => Object.assign({
   check("and 'graphing' on its own is still graphing",
     heard.graphingAlone === "I am graphing the results", heard.graphingAlone);
 
+  /* ── the three bugs that made it unusable ─────────────── */
+  /* All three were invisible on the machine this was written on, which has no
+     graphics card: the listener only went to the graphics card where one
+     existed, the voice only downloaded 310 MB where one existed, and neither
+     could hang where neither ran. The guards read the source, because that is
+     where the mistakes were. */
+  const src = await page.evaluate(async () => (await fetch("speech.js")).text());
+
+  check("the voice fetches the size the button promised",
+    sizes.voice.dtype === "q8",
+    `dtype=${sizes.voice.dtype} (fp32 is 310 MB against the ${sizes.voice.mb} MB advertised)`);
+  check("and the advertised size is in the range the q8 file actually is",
+    sizes.voice.mb >= 80 && sizes.voice.mb <= 95, `${sizes.voice.mb} MB`);
+
+  const asrBlock = (src.match(/automatic-speech-recognition[\s\S]{0,260}/) || [""])[0];
+  check("the listener is never put on the graphics card",
+    /device:\s*"wasm"/.test(asrBlock) && !/device:\s*p\.voice/.test(asrBlock),
+    asrBlock.replace(/\s+/g, " ").slice(0, 150));
+
+  check("transcribing cannot wait for ever",
+    /withTimeout\(\s*asr\(/.test(src.replace(/\s+/g, " ")) ||
+    /withTimeout\(asr\(/.test(src.replace(/\s+/g, "")),
+    "no timeout around the transcription call");
+  check("and neither can the check that the voice is fast enough",
+    /withTimeout\(/.test((src.match(/checking the voice is fast enough[\s\S]{0,420}/) || [""])[0]),
+    "the speed check itself could hang");
+  check("a voice that is too slow is dropped rather than used",
+    /VOICE_MAX_FACTOR/.test(src) && /voiceRejected/.test(src));
+  check("and what happened is reported back",
+    "voiceRejected" in (await page.evaluate(() => window.LocalSpeech.ready())));
+
+  const vj = await page.evaluate(async () => (await fetch("voice.js")).text());
+  check("repeated local failures hand the microphone back to the browser",
+    /localFails\s*>=\s*2/.test(vj) && /local-gave-up/.test(vj));
+  check("and the person is told that is what happened",
+    /local-gave-up/.test(await page.evaluate(async () => (await fetch("app.js")).text())));
+
   console.log(`\nSpeech scorecard: ${pass}/${total}`);
   if (fails.length) console.log("failed:\n  " + fails.join("\n  "));
   if (errors.length) console.log("console errors:\n  " + errors.slice(0, 5).join("\n  "));

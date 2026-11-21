@@ -688,6 +688,7 @@ async function localToggle() {
   if (!btn || LOCAL.loading || !LOCAL.plan || !LOCAL.plan.ears) return;
   if (LOCAL.on) {                       // back to the browser's own engine
     LOCAL.on = false;
+    Voice.stopListening();
     Voice.useLocal({ ears: false, voice: false });
     btn.setAttribute("aria-pressed", "false");
     vprog(null);
@@ -708,8 +709,12 @@ async function localToggle() {
     vprog(null);
     vbar(true, got.voice
       ? "Running on this machine. Nothing is sent anywhere."
-      : "Listening runs on this machine. The voice is the browser's own, "
-        + "because this device has no graphics card to run the better one.");
+      : got.voiceRejected
+        ? `Listening runs on this machine. The better voice was tried and `
+          + `dropped \u2014 ${got.voiceRejected} \u2014 so the browser's own is `
+          + `speaking, which is instant.`
+        : "Listening runs on this machine. The voice is the browser's own, "
+          + "because this device has no graphics card to run the better one.");
   } catch (e) {
     LOCAL.on = false;
     Voice.useLocal({ ears: false, voice: false });
@@ -867,12 +872,16 @@ function startListening(quietly) {
     onHeard: heard,
     onState: (state, detail) => {
       if (state === "listening" && !VOICE.busy) vbar(true, "Listening…");
-      if (state === "hearing") vbar(true, "…");
-      if (state === "thinking") vbar(true, "Working out what you said…");
+      if (state === "hearing") vbar(true, "I can hear you\u2026");
+      if (state === "thinking") vbar(true, "Working out what you said\u2026");
       if (state === "error") {
         const why = detail === "not-allowed"
           ? "Microphone blocked. Allow it in the address bar to ask out loud."
           : detail === "no-speech" ? "I did not catch that."
+          : detail === "local-gave-up"
+            ? "On-device listening kept failing, so the browser's own is back on."
+          : detail === "could-not-restart"
+            ? "Listening stopped and would not restart. Press the microphone again."
           : `Listening stopped: ${detail}`;
         vbar(true, why);
         if (detail === "not-allowed") stopVoice();

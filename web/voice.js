@@ -539,7 +539,7 @@
      still goes through fixTerms, because a recogniser trained on ordinary
      English mishears a materials lab whoever wrote it - the round-trip test
      has Whisper turning "graphene" into "graphing". */
-  let local = { ears: false, voice: false };
+  let local = { ears: false, voice: false }, localFails = 0;
 
   function useLocal(which) {
     local = { ears: !!(which && which.ears), voice: !!(which && which.voice) };
@@ -568,6 +568,7 @@
         if (ev.type !== "utterance") return;
         announce("thinking");
         LS.transcribe(ev.audio).then((text) => {
+          localFails = 0;
           const clean = fixTerms(String(text || "").trim());
           // Whisper fills silence with its own punctuation and stock phrases.
           if (!clean || /^[\s.,!?-]*$/.test(clean) || /^\(.*\)$/.test(clean)) {
@@ -575,7 +576,23 @@
             return;
           }
           if (onHeard) onHeard(clean);
-        }).catch((e) => announce("error", String(e && e.message || e)));
+        }).catch((e) => {
+          // Twice in a row is not bad luck. Rather than leave somebody
+          // talking to a listener that cannot answer, hand the microphone
+          // back to the browser's own engine and say so.
+          localFails += 1;
+          if (localFails >= 2) {
+            localFails = 0;
+            const opts2 = { onPartial, onHeard, onState };
+            LS.closeMic();
+            local = { ears: false, voice: false };
+            announce("error", "local-gave-up");
+            listen(opts2);
+          } else {
+            announce("error", String(e && e.message || e));
+            announce("listening");
+          }
+        });
       },
     }).then(() => announce("listening"))
       .catch((e) => {
