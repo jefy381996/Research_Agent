@@ -728,6 +728,117 @@ async function localToggle() {
   }
 }
 
+/* ── the phone layout ─────────────────────────────────── */
+
+/* The sections live in a drawer here rather than in a row along the bottom.
+   The same buttons are used, moved rather than duplicated, so a tab still
+   behaves identically and every test that drives them still drives them. */
+const PHONE = () => window.matchMedia("(max-width:780px)").matches;
+
+function drawer(open) {
+  const root = document.documentElement, scrim = $("scrim"), btn = $("drawer-open");
+  root.classList.toggle("drawer-open", open);
+  if (scrim) scrim.hidden = !open;
+  if (btn) btn.setAttribute("aria-expanded", String(open));
+  // A drawer over the page should not let the page behind it scroll.
+  document.body.style.overflow = open ? "hidden" : "";
+  if (open) {
+    const first = document.querySelector('.sitem[aria-selected="true"]') || $("side");
+    if (first && first.focus) first.focus({ preventScroll: true });
+  } else if (btn) { btn.focus({ preventScroll: true }); }
+}
+
+/* The voice settings are one button on a phone and a row on a desktop. The
+   controls themselves are moved between the two places rather than written
+   twice, so there is only ever one hands-free button in the document. */
+function voiceSheet(open) {
+  const sheet = $("vsheet"), slot = $("vsheet-slot"), ctl = $("voicectl");
+  if (!sheet || !slot || !ctl) return;
+  if (open) {
+    slot.appendChild(ctl);
+    sheet.hidden = false;
+    document.body.classList.add("vsheet-open");
+    const note = $("vsheet-note");
+    if (note) {
+      note.textContent = LOCAL.plan && !LOCAL.plan.ears
+        ? `Hands-free works here. ${LOCAL.plan.why}`
+        : "Hands-free keeps listening and reads answers out loud. "
+          + "On-device runs the speech on this phone instead of a service.";
+    }
+    markVoiceState();
+    const close = $("vsheet-close");
+    if (close) close.focus({ preventScroll: true });
+  } else {
+    sheet.hidden = true;
+    document.body.classList.remove("vsheet-open");
+    placeVoiceControls();
+    const open_ = $("voice-open");
+    if (open_) open_.focus({ preventScroll: true });
+  }
+}
+
+/* On a desktop the controls belong beside the mode switch. */
+function placeVoiceControls() {
+  const ctl = $("voicectl"), home = $("voice-open");
+  if (!ctl || !home || !home.parentNode) return;
+  if (ctl.parentNode !== home.parentNode) home.parentNode.insertBefore(ctl, home.nextSibling);
+}
+
+/* The sheet says "on" or "off" beside each setting, because a highlighted
+   button on its own is read as decoration as often as as state. */
+function markVoiceState() {
+  const hf = $("handsfree"), lv = $("localvoice");
+  if (hf) hf.dataset.state = hf.getAttribute("aria-pressed") === "true" ? "on" : "off";
+  if (lv) {
+    lv.dataset.state = lv.disabled ? "unavailable"
+      : lv.getAttribute("aria-pressed") === "true" ? "on" : "off";
+  }
+}
+
+function wireMobile() {
+  const open = $("drawer-open"), scrim = $("scrim");
+  if (open) open.addEventListener("click", () => drawer(true));
+  ["handsfree", "localvoice"].forEach((id) => {
+    const b = $(id);
+    if (b) b.addEventListener("click", () => setTimeout(markVoiceState, 0));
+  });
+  if (scrim) scrim.addEventListener("click", () => drawer(false));
+  // Choosing a section closes the drawer, as it would in an application.
+  document.querySelectorAll(".sitem").forEach((b) =>
+    b.addEventListener("click", () => { if (PHONE()) drawer(false); }));
+
+  const palm = $("pal-open-m"), pal = $("pal-open");
+  if (palm && pal) palm.addEventListener("click", () => pal.click());
+
+  const vopen = $("voice-open"), vclose = $("vsheet-close"), sheet = $("vsheet");
+  if (vopen) vopen.addEventListener("click", () => voiceSheet(true));
+  if (vclose) vclose.addEventListener("click", () => voiceSheet(false));
+  if (sheet) sheet.addEventListener("click", (e) => {
+    if (e.target === sheet) voiceSheet(false);     // tapping the dimmed area
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (sheet && !sheet.hidden) { voiceSheet(false); return; }
+    if (document.documentElement.classList.contains("drawer-open")) drawer(false);
+  });
+
+  // Rotating a phone, or opening on a tablet, must not strand the controls
+  // inside a sheet that is no longer shown.
+  window.matchMedia("(max-width:780px)").addEventListener("change", (m) => {
+    if (!m.matches) { voiceSheet(false); drawer(false); }
+  });
+  syncAppBar();
+}
+
+/* The bar says which section is open, because the drawer that said so is shut. */
+function syncAppBar() {
+  const t = $("abtitle");
+  if (!t) return;
+  const on = document.querySelector('.sitem[aria-selected="true"]');
+  t.textContent = on ? on.textContent.trim() : "Ask";
+}
+
 function vbar(show, text) {
   const bar = $("vbar");
   if (!bar) return;
@@ -2034,7 +2145,7 @@ function openProp(r) {
   ];
   openDrawer("Source", `
     <div class="m dim" style="font:450 12px var(--mono)">${esc(r.journal || "")}${r.year ? ` &middot; ${r.year}` : ""}
-      ${r.doi ? ` &middot; <a href="https://doi.org/${esc(r.doi)}" target="_blank" rel="noopener">${esc(r.doi)}</a>` : ""}</div>
+      &middot; ${sourceLink(r)}</div>
     <div style="font:500 15px/1.45 var(--sans);margin:8px 0 0;max-width:58ch">${esc(r.title || "")}</div>
     <h3>The sentence this row came from</h3>
     <blockquote class="quote">${highlightText(r.source_quote || "", [r.value_as_reported])}</blockquote>
@@ -2052,6 +2163,27 @@ function openProp(r) {
       inferred. A property measured on a suspended single sheet and the same property measured on a
       polymer composite differ by three orders of magnitude and both are correct; the sentence is
       there so you can see which one you are reading.</p>`);
+}
+
+/* Every row has to lead somewhere a person can check.
+   Nearly all of them carry a DOI, but about one in a thousand does not - a
+   university repository deposit, a journal that never registered one - and
+   the row with no DOI is not a rare one to meet: the measurements are sorted
+   by size, and the largest figure in the library sits in a thesis with no
+   DOI, so it is the first card anybody opens. OpenAlex has a page for every
+   work it knows, which links on to the publisher, so that is the fallback and
+   there is no row left that cannot be followed. */
+function sourceLink(r) {
+  const doi = (r.doi || "").trim();
+  if (doi) {
+    return `<a href="https://doi.org/${esc(doi)}" target="_blank" rel="noopener">${esc(doi)}</a>`;
+  }
+  const wid = (r.openalex_id || "").trim();
+  if (wid) {
+    return `<a href="https://openalex.org/${esc(wid)}" target="_blank" rel="noopener">`
+      + `no DOI &mdash; open the record</a>`;
+  }
+  return '<span class="dim">no link available</span>';
 }
 
 function passageCard(p, n) {
@@ -2361,6 +2493,7 @@ function show(v) {
   if (v === "evidence" && !$("gb").children.length) reload();
   if (v === "properties") paintProps($("prq").value);
   if (v === "mydata") paintMine();
+  syncAppBar();
 
   // Say in plain words what the screen is, before the data arrives.
   // .mid for the single-column screens; .pane for the two that carry a filter
@@ -2805,7 +2938,7 @@ function openRow(r) {
   ];
   openDrawer("Source", `
     <div class="m dim" style="font:450 12px var(--mono)">${esc(r.journal || "")}${r.year ? ` &middot; ${r.year}` : ""}
-      ${r.doi ? ` &middot; <a href="https://doi.org/${esc(r.doi)}" target="_blank" rel="noopener">${esc(r.doi)}</a>` : ""}</div>
+      &middot; ${sourceLink(r)}</div>
     <div style="font:500 15px/1.45 var(--sans);margin:8px 0 0;max-width:58ch">${esc(r.title || "")}</div>
     <h3>The sentence this row came from</h3>
     <blockquote class="quote">${highlight(r.source_quote || "", r)}</blockquote>
@@ -3328,6 +3461,7 @@ async function loadData() {
   paintFacets(); head(); loadNotes(); probeAgent();
   myLoad(); wireMine();
   wireVoice();
+  wireMobile();
   const lv = $("localvoice");
   if (lv) lv.addEventListener("click", localToggle);
   // Asks the machine what it can do; downloads nothing.

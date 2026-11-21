@@ -587,14 +587,117 @@ table.g td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
   .sname,.snote,.btn.wide span:not(.kbd){display:none}
   .sitem{justify-content:center;padding:11px 0}.btn.wide{justify-content:center}
   .sbrand{justify-content:center;padding:4px 0 16px}}
+/* ─────────────────── on a phone ───────────────────────
+   Eight sections will not fit across the bottom of a phone, and the attempt
+   produced a row of nine cramped targets with their labels shortened past
+   recognition - Measurements became "Battery", My data became "Mine". So the
+   sections move into a drawer, the way an Android application would do it,
+   and the screen is left to the thing somebody came for.
+
+   Everything below 780px: a bar at the top with the menu and search, a drawer
+   that slides over the content, and nothing else competing for the edges. */
+.appbar{display:none}
+.scrim{display:none}
+
 @media(max-width:780px){
   .shell{flex-direction:column}
-  .side{flex:0 0 auto;width:100%;flex-direction:row;align-items:center;gap:6px;
-    overflow-x:auto;padding:8px 10px;border-right:0;border-bottom:1px solid var(--line)}
-  .snav{display:flex;gap:4px}.sfoot{margin:0 0 0 auto;display:flex;padding:0}
-  .sbrand{display:none}.btn.wide{width:auto}
+
+  .appbar{display:flex;align-items:center;gap:4px;
+    position:sticky;top:0;z-index:60;height:56px;flex:0 0 56px;
+    padding:0 4px 0 2px;background:var(--bg);
+    border-bottom:1px solid var(--line);
+    padding-top:env(safe-area-inset-top,0px);
+    height:calc(56px + env(safe-area-inset-top,0px));
+    flex-basis:calc(56px + env(safe-area-inset-top,0px))}
+  .abtn{display:grid;place-items:center;width:48px;height:48px;flex:0 0 48px;
+    border:0;background:none;color:var(--ink);border-radius:999px;cursor:pointer;
+    -webkit-tap-highlight-color:transparent}
+  .abtn:active{background:var(--surf-2)}
+  .abtn .ic{width:22px;height:22px}
+  .abtitle{flex:1;min-width:0;font:600 17px var(--sans);letter-spacing:-.01em;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  /* The drawer: off screen until asked for, over the content, never pushing it. */
+  .side{position:fixed;top:0;left:0;bottom:0;z-index:80;
+    width:min(82vw,300px);flex:0 0 auto;
+    flex-direction:column;align-items:stretch;gap:0;
+    padding:calc(14px + env(safe-area-inset-top,0px)) 12px 14px;
+    background:var(--surf);border-right:1px solid var(--line);border-bottom:0;
+    overflow-y:auto;overscroll-behavior:contain;
+    transform:translateX(-102%);visibility:hidden;
+    transition:transform 260ms var(--e-out),visibility 0s linear 260ms;
+    box-shadow:none}
+  html.drawer-open .side{transform:none;visibility:visible;
+    transition:transform 260ms var(--e-out),visibility 0s;
+    box-shadow:0 0 0 100vmax rgba(0,0,0,.01),12px 0 40px rgba(0,0,0,.18)}
+  .sbrand{display:flex;justify-content:flex-start;padding:2px 6px 14px}
+  .sname{display:block}
+  .snav{display:flex;flex-direction:column;gap:2px}
+  .sitem{justify-content:flex-start;padding:0 12px;height:48px;border-radius:12px;
+    font-size:15px;gap:12px}
+  .sfoot{margin:14px 0 0;display:block;padding:0}
+  .btn.wide{width:100%;justify-content:flex-start;height:46px}
+  .btn.wide span:not(.kbd){display:inline}
+  .snote{display:block;margin-top:12px}
+  .kbd{display:none}
+
+  .scrim{display:block;position:fixed;inset:0;z-index:70;background:rgba(10,10,12,.44);
+    opacity:0;transition:opacity 220ms var(--e-out);-webkit-tap-highlight-color:transparent}
+  html.drawer-open .scrim{opacity:1}
+
   .ctitle{font-size:26px}.excards{grid-template-columns:1fr}
   .calcs{grid-template-columns:1fr}
+
+  /* Anything a thumb has to hit is at least 44px, which is where the old
+     layout failed: every control in the composer row was 38. */
+  .mode,.btn,.lnk.tap,.mic{min-height:44px}
+  .composer .btn.pri{min-height:48px}
+  #mic{width:48px;height:48px}
+
+  /* One way in to voice. Two buttons sitting side by side, both labelled with
+     the same waveform, were read as two halves of one setting. */
+  #voice-open{display:inline-flex}
+  .voicectl{display:none}
+  body.vsheet-open .voicectl{display:flex;flex-direction:column;gap:8px;width:100%}
+  /* In the sheet these are settings, so they have to read as on or off. The
+     filled treatment belongs to the one that is on; both were filled before,
+     which said both were running when neither was. */
+  body.vsheet-open .voicectl .mode{width:100%;justify-content:flex-start;height:48px;
+    gap:12px;padding:0 14px;border-radius:12px;font-size:14.5px;
+    border:1px solid var(--line);background:var(--surf);color:var(--ink);
+    box-shadow:none}
+  body.vsheet-open .voicectl .mode[aria-pressed="true"]{
+    background:var(--acc);border-color:var(--acc);color:var(--on-acc,#fff)}
+  body.vsheet-open .voicectl .mode[disabled]{opacity:.55}
+  body.vsheet-open .voicectl .mode::after{content:attr(data-state);margin-left:auto;
+    font:450 12px var(--mono);color:var(--ink-3)}
+  body.vsheet-open .voicectl .mode[aria-pressed="true"]::after{color:inherit;opacity:.85}
+}
+
+@media(min-width:781px){
+  #voice-open{display:none}
+  .voicectl{display:contents}
+}
+
+/* The sheet the voice settings live in on a phone. */
+.vsheet{position:fixed;inset:0;z-index:90;display:grid;align-items:end}
+.vsheet::before{content:"";position:absolute;inset:0;background:rgba(10,10,12,.44);
+  animation:fade-in 200ms var(--e-out) both}
+.vsheet-in{position:relative;background:var(--surf);
+  border-radius:18px 18px 0 0;border-top:1px solid var(--line);
+  padding:10px 16px calc(16px + env(safe-area-inset-bottom,0px));
+  animation:sheet-up 260ms var(--e-out) both;max-height:76vh;overflow-y:auto}
+@keyframes sheet-up{from{transform:translateY(100%)}}
+@keyframes fade-in{from{opacity:0}}
+.vgrab{width:38px;height:4px;border-radius:999px;background:var(--line);margin:0 auto 12px}
+.vsheet-in h3{margin:0 0 4px;font:600 17px var(--sans)}
+.vsheet-note{margin:0 0 14px;font:450 13px/1.5 var(--sans);color:var(--ink-3)}
+.vsheet-slot{display:block;margin-bottom:14px}
+#vsheet-close{justify-content:center;height:48px}
+@media(min-width:781px){.vsheet{display:none}}
+@media(prefers-reduced-motion:reduce){
+  .vsheet-in,.vsheet::before{animation:none}
+  .side{transition:none}
 }
 
 /* ═══════════════════════ motion ═══════════════════════
@@ -1014,44 +1117,22 @@ body{background:
 .disclose .inner2{padding:0 16px 16px;animation:rise-in 380ms var(--e-out) both}
 
 /* ═══════════════════ mobile ═══════════════════ */
+/* The sections used to live in a bar across the bottom: eight of them plus a
+   theme switch, at nine and a half pixels, with the labels shortened until
+   Measurements read "Battery" and My data read "Mine". They are in the drawer
+   now, with their real names, and this block no longer touches the navigation
+   at all - it only gives the content back the room the bar was taking. */
 @media(max-width:780px){
-  .shell{flex-direction:column}
-  .side{position:fixed;left:0;right:0;bottom:0;top:auto;z-index:40;
-    flex-direction:row;width:100%;height:auto;padding:6px 8px calc(6px + var(--safe-b));
-    border:0;border-top:1px solid var(--line);overflow:visible;
-    background:color-mix(in srgb,var(--surf) 94%,transparent)}
-  .sbrand,.sfoot .snote{display:none}
-  .snav{display:flex;width:100%;justify-content:space-around;gap:0}
-  .sitem{flex-direction:column;gap:3px;font-size:9.5px;padding:7px 3px;
-    border-radius:10px;min-width:0;letter-spacing:.01em}
-  /* Seven destinations and a theme switch do not fit a phone at full length,
-     and a clipped "easurement" is worse than a short word. The short form is
-     also the truer one: one tab holds battery performance, the other holds
-     material properties. */
-  .sitem[data-short]{font-size:0}
-  .sitem[data-short]::before{content:attr(data-short);display:block;position:static;
-    width:auto;height:auto;background:none;border-radius:0;inset:auto;order:2;
-    font:450 9.5px/1 var(--sans);letter-spacing:.01em}
-  .sitem[data-short] .ic{order:1}
-  .sitem[data-short][aria-selected="true"]::before{display:block;font-weight:600}
-  .sitem .ic{width:19px;height:19px}
-  .sitem[aria-selected="true"]::before{display:none}
-  .sitem[aria-selected="true"]{background:var(--acc-soft)}
-  .sfoot{position:fixed;top:10px;right:10px;margin:0;padding:0;flex-direction:row;
-    gap:6px;z-index:41}
-  .sfoot .btn.wide{width:auto;padding:8px 10px;background:var(--surf);
-    border:1px solid var(--line);box-shadow:var(--sh-1)}
-  .sfoot .btn.wide span:not(.kbd){display:none}
-  .sfoot .kbd{display:none}
   #main{padding-bottom:0}
-  .composer{position:sticky;bottom:0;padding:10px 12px calc(66px + var(--safe-b))}
+  .composer{position:sticky;bottom:0;
+    padding:10px 12px calc(10px + var(--safe-b))}
   .wrap{padding:20px 15px 10px}
   .hero h1{font-size:29px;max-width:20ch}
   .hero p{font-size:14.5px}
-  .statstrip{grid-template-columns:repeat(2,1fr);gap:16px}
-  .mid{padding:18px 15px calc(76px + var(--safe-b))}
-  .gw{padding-bottom:calc(60px + var(--safe-b))}
-  /* the drawer becomes a sheet that rises from the bottom */
+  .mid{padding:18px 15px calc(18px + var(--safe-b))}
+  .gw{padding-bottom:calc(12px + var(--safe-b))}
+
+  /* the source panel becomes a sheet that rises from the bottom */
   .drawer{top:auto;left:0;right:0;bottom:0;width:100%;height:84vh;
     border-radius:var(--r-l) var(--r-l) 0 0;border-left:0;border-top:1px solid var(--line);
     animation:sheet-in 360ms var(--e-out) both}
@@ -1069,54 +1150,57 @@ body{background:
   .headline .big{font-size:38px}
   .rail{max-height:200px}
   table.g td,table.g th{padding:8px 10px}
-  .btn,.mode,.chips button{min-height:38px}
+  /* 44 is the smallest a thumb reliably hits. It was 38, and the filter
+     chips, the category chips and the small text buttons were 16 to 29. */
+  .btn,.mode,.chips button{min-height:44px}
+  .fi{min-height:44px;padding-top:0;padding-bottom:0;align-items:center}
+  #excats button,#prfams button{min-height:44px;padding:0 14px;
+    display:inline-flex;align-items:center}
+  /* Needs the extra weight: the base rule sizes it at 26px and is written
+     later in the file, so a plain .primer-x here would lose. The cross
+     itself stays the size it was; only the room around it grows. */
+  .primer .primer-x{width:44px;height:44px;top:4px;right:4px;
+    display:grid;place-items:center}
+  /* A text button sits in a line of writing, so it keeps its size and gains
+     the room around it instead: the target grows, the layout does not move. */
+  .lnk{min-height:44px;display:inline-flex;align-items:center;
+    padding-left:4px;padding-right:4px;margin-left:-4px;margin-right:-4px}
+  h4 .lnk,.note .lnk{min-height:44px}
+  /* The same trick for a link inside a sentence, where a 44px box would
+     push the sentence apart. */
+  .srcs a,.sb a,td a{padding:11px 2px;margin:-11px 0}
 }
+
 @media(max-width:420px){
   .hero h1{font-size:25px}
   .statstrip{grid-template-columns:repeat(2,1fr)}
 }
 
 @media(max-width:780px){
-  /* The floating controls must not sit on top of anything tappable. Content
-     gets the room they occupy rather than competing with them. */
-  .sfoot{top:8px;right:8px;gap:5px}
-  .sfoot .btn.wide{padding:9px;border-radius:10px;box-shadow:var(--sh-2)}
-  .mid,.wrap{padding-top:56px}
-  .pane-h{padding-top:54px;flex-direction:column;align-items:stretch;gap:9px}
+  /* The footer used to float over the page as two round buttons, and the
+     content was padded down to clear them. Both live in the drawer now, so
+     the padding goes back and the page starts under the bar. */
+  .pane-h{flex-direction:column;align-items:stretch;gap:9px}
   .pane-h input[type=search]{width:100%!important}
   .pane-a{flex-wrap:wrap}
   .pane-a select{flex:1 1 auto;max-width:none}
-  .rail{padding-top:56px}
   .note{font-size:12px}
   table.g thead th{top:0}
 }
 
 @media(max-width:780px){
-  /* backdrop-filter on .side makes it the containing block for any fixed
-     descendant, so the footer buttons were landing inside the bottom bar
-     rather than at the top of the screen. They become part of the bar. */
-  .sfoot{position:static;margin:0;padding:0;display:flex;align-items:center;
-    gap:2px;flex:0 0 auto}
-  .sfoot #pal-open{display:none}            /* a keyboard affordance; not for touch */
-  .sfoot .btn.wide{width:auto;min-width:0;padding:7px 9px;border:0;
-    background:none;box-shadow:none;color:var(--ink-3);flex-direction:column;
-    gap:3px;font-size:9.5px}
-  .sfoot .btn.wide .ic{width:19px;height:19px}
-  .side{align-items:center;gap:0}
-  .snav{flex:1 1 auto}
+  /* In the drawer the footer is a normal stacked block: full-width rows with
+     their labels, not icons crammed into a bar. */
+  .sfoot{position:static;margin:16px 0 0;padding:14px 0 0;display:grid;gap:8px;
+    border-top:1px solid var(--line);flex:0 0 auto}
+  .sfoot .btn.wide{width:100%;justify-content:flex-start;gap:12px;
+    padding:0 12px;height:46px;border:0;background:none;box-shadow:none;
+    color:var(--ink);flex-direction:row;font-size:14.5px}
+  .sfoot .btn.wide:active{background:var(--surf-2)}
+  .sfoot .btn.wide .ic{width:20px;height:20px}
+  .snav{flex:0 0 auto}
   .mid,.wrap{padding-top:22px}
   .pane-h,.rail{padding-top:14px}
-
-  /* The opening screen should be readable in one glance, not a dashboard. */
-  .statstrip{grid-template-columns:repeat(3,1fr);gap:14px;margin-top:26px}
-  .statstrip .stat:nth-child(n+4){display:none}
-  .stat .v{font-size:19px}
-  .stat .k{font-size:9px}
-  .hero{margin-bottom:26px}
-  .hero .badge{font-size:10px}
-  .chips{gap:7px;margin-top:22px}
-  .chips button{padding:8px 14px;font-size:12.5px}
-  .chips button:nth-child(n+5){display:none}
 }
 
 /* ═══════════ while the agent is researching ═══════════ */
