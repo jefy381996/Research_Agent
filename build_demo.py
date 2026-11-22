@@ -89,6 +89,59 @@ def provenance(conn):
             "context_only": context, "context_measurements": context_rows,
             "papers_with_measurement": contributing}
 
+
+BRIEF_LIMIT = 24
+
+BRIEF_SQL = """
+    SELECT p.openalex_id, p.title, p.journal, p.publication_date, p.doi,
+           p.first_seen, p.year,
+           e.property_label AS label, e.value AS value, e.unit AS unit,
+           e.source_quote AS quote, e.material AS material
+      FROM papers p
+      JOIN (
+        SELECT openalex_id, property_label, value, unit, source_quote, material,
+               confidence, extracted_at
+          FROM properties
+        UNION ALL
+        SELECT openalex_id, 'specific capacity', specific_capacity_mah_g, 'mAh/g',
+               source_quote, material_system, confidence, extracted_at
+          FROM evidence WHERE specific_capacity_mah_g IS NOT NULL
+      ) e ON e.openalex_id = p.openalex_id
+     WHERE p.publication_date IS NOT NULL AND p.publication_date != ''
+       AND e.confidence = 'verified'
+     GROUP BY p.openalex_id
+     ORDER BY p.publication_date DESC, p.openalex_id
+     LIMIT ?
+"""
+
+
+def brief(conn, limit=BRIEF_LIMIT):
+    """The most recently published work in the library that reported a number.
+
+    Not a count of anything - the client does not want the size of the library
+    on screen, and a count is the least interesting thing about new work
+    anyway. What is useful is which papers are new, what each one measured,
+    and the sentence it said it in, so a researcher can see in ten seconds
+    whether any of it matters to them.
+
+    Ordered by publication date rather than by when it was collected, because
+    "published last week" is a fact about the field and "collected last week"
+    is a fact about us.
+    """
+    out = []
+    for r in conn.execute(BRIEF_SQL, (limit,)):
+        row = dict(r)
+        out.append({
+            "i": row["openalex_id"], "t": row["title"], "j": row["journal"],
+            "d": row["publication_date"], "doi": row["doi"],
+            "seen": row["first_seen"], "y": row["year"],
+            "label": row["label"], "value": row["value"], "unit": row["unit"],
+            "quote": row["quote"], "material": row["material"],
+        })
+    newest = out[0]["d"] if out else None
+    return {"items": out, "newest": newest}
+
+
 def main():
     parser = argparse.ArgumentParser(description="Build the static mirror.")
     parser.add_argument("--db", default=None)
@@ -165,6 +218,7 @@ def main():
         "facets": {k: facet(k) for k in ("confidence", "battery_type",
                                          "graphene_form", "electrode_role",
                                          "material_system")},
+        "brief": brief(conn),
         "stats": {
             "papers": one("SELECT count(*) FROM papers"),
             # Abstracts, not paper_sections: the derived index is stripped

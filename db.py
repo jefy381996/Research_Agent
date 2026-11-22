@@ -39,9 +39,15 @@ CREATE TABLE IF NOT EXISTS papers (
     source             TEXT DEFAULT 'openalex',
     source_queries     TEXT,
     is_preprint        TEXT DEFAULT 'no',
-    fetched_at         TEXT
+    fetched_at         TEXT,
+    -- When this paper first entered the library. fetched_at is rewritten on
+    -- every reload, so it cannot answer "what is new since last week": after
+    -- the second collection every paper claimed to have arrived that day.
+    -- This one is written on insert and never updated.
+    first_seen         TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_papers_year ON papers(year);
+CREATE INDEX IF NOT EXISTS idx_papers_first_seen ON papers(first_seen);
 CREATE INDEX IF NOT EXISTS idx_papers_cpy  ON papers(citations_per_year DESC);
 CREATE INDEX IF NOT EXISTS idx_papers_reuse ON papers(full_text_reusable);
 

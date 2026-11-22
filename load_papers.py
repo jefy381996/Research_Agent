@@ -19,7 +19,7 @@ FIELDS = [
     "openalex_id", "doi", "title", "year", "publication_date", "journal",
     "publisher", "authors", "cited_by_count", "citations_per_year", "abstract",
     "oa_status", "licence", "full_text_reusable", "pdf_url", "landing_url",
-    "source", "source_queries", "is_preprint", "fetched_at",
+    "source", "source_queries", "is_preprint", "fetched_at", "first_seen",
 ]
 
 
@@ -52,6 +52,9 @@ def to_row(csv_row):
         "source_queries": csv_row.get("source_queries") or None,
         "is_preprint": csv_row.get("is_preprint") or "no",
         "fetched_at": csv_row.get("retrieved_at") or None,
+        # Only ever used for rows being inserted; the update below keeps
+        # whatever the row already had.
+        "first_seen": csv_row.get("retrieved_at") or None,
     }
 
 
@@ -69,7 +72,10 @@ def main():
     errors = []
 
     placeholders = ",".join("?" * len(FIELDS))
-    assignments = ",".join(f"{f}=excluded.{f}" for f in FIELDS if f != "openalex_id")
+    # first_seen is deliberately absent from the update: a paper keeps the
+    # date it first arrived, however many times it is collected again.
+    assignments = ",".join(f"{f}=excluded.{f}" for f in FIELDS
+                           if f not in ("openalex_id", "first_seen"))
     sql = (f"INSERT INTO papers({','.join(FIELDS)}) VALUES({placeholders})"
            f" ON CONFLICT(openalex_id) DO UPDATE SET {assignments}")
 

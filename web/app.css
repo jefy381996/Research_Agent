@@ -1560,3 +1560,28 @@ html.booting .hero .badge i{animation:boot-wipe 900ms var(--e-out) both 400ms}
 .vprog i{display:block;height:100%;width:0;border-radius:999px;background:var(--accent);
   transition:width 220ms var(--e-out)}
 .mode.talk[aria-pressed="true"] #lvlabel{font-weight:600}
+
+/* ───────────────── what is new ─────────────────
+   A list of recent work, each entry carrying the number it reported and the
+   sentence it reported it in, so it can be judged without opening anything. */
+.briefwrap{display:grid;gap:12px;margin-top:18px;max-width:760px}
+.bitem{background:var(--surf);border:1px solid var(--line);border-radius:14px;
+  padding:16px 18px;animation:rise-in 420ms var(--e-out) both;
+  animation-delay:calc(var(--i,0) * 32ms)}
+.bhead{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.bhead time{font:450 11.5px var(--mono);color:var(--ink-3);letter-spacing:.02em}
+.btag{font:500 10.5px var(--mono);letter-spacing:.04em;text-transform:uppercase;
+  color:var(--acc);background:var(--acc-soft);border-radius:999px;padding:3px 9px}
+.bitem h3{margin:0 0 3px;font:500 15.5px/1.4 var(--sans);letter-spacing:-.005em}
+.bjournal{margin:0 0 10px;font:450 12.5px var(--sans);color:var(--ink-3)}
+.bfig{margin:0 0 10px;display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}
+.bfig b{font:500 23px var(--mono);letter-spacing:-.02em}
+.bfig u{text-decoration:none;font:450 12.5px var(--mono);color:var(--ink-2)}
+.bfig span{font:450 12.5px var(--sans);color:var(--ink-3)}
+.blink{margin:10px 0 0;font:450 12px var(--mono)}
+.newdot{width:7px;height:7px;border-radius:999px;background:var(--acc);
+  margin-left:auto;flex:0 0 auto}
+@media(max-width:780px){
+  .bitem{padding:14px 15px;border-radius:12px}
+  .bfig b{font-size:21px}
+}

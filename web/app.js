@@ -839,6 +839,83 @@ function syncAppBar() {
   t.textContent = on ? on.textContent.trim() : "Ask";
 }
 
+/* ── what is new ──────────────────────────────────────── */
+
+/* The thing a researcher wants on opening is not how large the library is -
+   it is what has turned up since they last looked. The list is ordered by
+   when the work was published rather than when it was collected, because the
+   first is a fact about the field and the second is a fact about us. */
+const SEEN_KEY = "gba.lastlook";
+
+function lastLook() {
+  try { return localStorage.getItem(SEEN_KEY) || ""; } catch (e) { return ""; }
+}
+function markLooked() {
+  try { localStorage.setItem(SEEN_KEY, new Date().toISOString()); } catch (e) {}
+}
+
+function briefItems() {
+  const b = (DATA && DATA.brief) || {};
+  return Array.isArray(b.items) ? b.items : [];
+}
+
+/* A dot on the tab when something has arrived since the last visit. */
+function markNew() {
+  const dot = $("newdot");
+  if (!dot) return;
+  const since = lastLook();
+  const items = briefItems();
+  const fresh = !since
+    ? items.length > 0
+    : items.some((it) => (it.seen || "") > since);
+  dot.hidden = !fresh;
+}
+
+function niceDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso + (iso.length === 10 ? "T00:00:00" : ""));
+  if (isNaN(d)) return esc(iso);
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+}
+
+function paintBrief() {
+  const host = $("briefwrap");
+  if (!host) return;
+  const items = briefItems();
+  const b = (DATA && DATA.brief) || {};
+  const sub = $("brief-sub");
+  if (sub) {
+    sub.textContent = b.newest
+      ? `The most recently published work in the library that reported a measurement. `
+        + `Newest here: ${niceDate(b.newest)}.`
+      : "The most recently published work in the library that reported a measurement.";
+  }
+  if (!items.length) {
+    host.innerHTML = `<div class="refusal"><h3>Nothing to report yet</h3>
+      <p>No recently published work in the library has a measurement attached.</p></div>`;
+    return;
+  }
+  const since = lastLook();
+  host.innerHTML = items.map((it, i) => {
+    const isNew = since && (it.seen || "") > since;
+    const value = it.value === null || it.value === undefined ? "" : sig(it.value);
+    return `<article class="bitem" style="--i:${i}">
+      <div class="bhead">
+        <time datetime="${esc(it.d || "")}">${esc(niceDate(it.d))}</time>
+        ${isNew ? '<span class="btag">new to you</span>' : ""}
+      </div>
+      <h3>${esc(it.t || "Untitled")}</h3>
+      <p class="bjournal">${esc(it.j || "")}</p>
+      ${value ? `<p class="bfig"><b>${esc(value)}</b><u>${esc(it.unit || "")}</u>
+        <span>${esc(it.label || "")}${it.material ? ` &middot; ${esc(it.material)}` : ""}</span></p>` : ""}
+      ${it.quote ? `<blockquote class="quote">${esc(String(it.quote).slice(0, 320))}</blockquote>` : ""}
+      <p class="blink">${sourceLink({ doi: it.doi, openalex_id: it.i })}</p>
+    </article>`;
+  }).join("");
+  markLooked();
+  markNew();
+}
+
 function vbar(show, text) {
   const bar = $("vbar");
   if (!bar) return;
@@ -2493,6 +2570,7 @@ function show(v) {
   if (v === "evidence" && !$("gb").children.length) reload();
   if (v === "properties") paintProps($("prq").value);
   if (v === "mydata") paintMine();
+  if (v === "brief") paintBrief();
   syncAppBar();
 
   // Say in plain words what the screen is, before the data arrives.
@@ -3462,6 +3540,7 @@ async function loadData() {
   myLoad(); wireMine();
   wireVoice();
   wireMobile();
+  markNew();
   const lv = $("localvoice");
   if (lv) lv.addEventListener("click", localToggle);
   // Asks the machine what it can do; downloads nothing.

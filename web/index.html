@@ -53,6 +53,7 @@
     </div>
     <nav class="snav" role="tablist" aria-label="Sections">
       <button role="tab" class="sitem" style="--n:0" data-short="Ask" data-view="ask" aria-selected="true"><svg class="ic" viewBox="0 0 22 22"><use href="#i-ask"/></svg>Ask</button>
+      <button role="tab" class="sitem" style="--n:1" data-short="Brief" data-view="brief" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-note"/></svg>Latest<span class="newdot" id="newdot" hidden aria-label="new since you last looked"></span></button>
       <button role="tab" class="sitem" style="--n:1" data-short="Know" data-view="explore" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-explore"/></svg>Knowledge</button>
       <button role="tab" class="sitem" style="--n:2" data-short="Battery" data-view="evidence" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-grid"/></svg>Measurements</button>
       <button role="tab" class="sitem" style="--n:3" data-short="Material" data-view="properties" aria-selected="false"><svg class="ic" viewBox="0 0 22 22"><use href="#i-atom"/></svg>Properties</button>
@@ -127,6 +128,15 @@
         <div class="vsheet-slot" id="vsheet-slot"></div>
         <button type="button" class="btn wide" id="vsheet-close">Done</button>
       </div>
+    </div>
+  </section>
+
+  <section class="view" data-view="brief" hidden aria-label="Latest">
+    <div class="mid">
+      <h2 class="ctitle">Latest from the literature</h2>
+      <p class="sub" id="brief-sub">The most recently published work in the library that
+        reported a measurement.</p>
+      <div class="briefwrap" id="briefwrap"></div>
     </div>
   </section>
 

@@ -179,6 +179,61 @@ const CASES = [
   chk("no count from an older build is hard-coded in the copy",
     stale.old.length === 0, stale.old.join(","));
 
+  /* ── what is new ──────────────────────────────────────── */
+  await page.evaluate(() => show("brief"));
+  await new Promise((r) => setTimeout(r, 1000));
+  const B = await page.evaluate(() => {
+    const items = [...document.querySelectorAll(".bitem")];
+    const data = (window.DATA.brief || {}).items || [];
+    const text = (document.getElementById("briefwrap") || {}).innerText || "";
+    return {
+      rendered: items.length, inData: data.length,
+      links: document.querySelectorAll(".blink a[href^='http']").length,
+      dated: data.every((d) => d.d),
+      ordered: data.every((d, i) => i === 0 || data[i - 1].d >= d.d),
+      quoted: data.filter((d) => d.quote).length,
+      valued: data.filter((d) => d.value !== null && d.value !== undefined).length,
+      headingHasCount: /\d/.test(
+        (document.querySelector('[data-view="brief"] .ctitle') || {}).textContent || ""),
+      // Only the app's own wording. A paper's quoted sentence is full of
+      // real figures - "91.9% retention after 10,000 cycles" - and those are
+      // the science, not a count of the library.
+      libraryCount: (() => {
+        const s = window.DATA.stats || {};
+        const sized = [s.papers, s.papers_with_text, s.papers_with_measurement,
+                       s.evidence_rows, s.property_rows, s.concepts,
+                       (s.evidence_rows || 0) + (s.property_rows || 0)]
+          .filter((n) => n && n >= 100);
+        const chrome = [...document.querySelectorAll(
+          '[data-view="brief"] .ctitle, [data-view="brief"] .sub,'
+          + ' .bitem .bhead, .bitem h3, .bitem .bjournal, .bitem .bfig, .bitem .blink')]
+          .map((e) => e.textContent).join(" ");
+        return sized.some((n) => chrome.includes(n.toLocaleString("en-GB"))
+                               || chrome.includes(String(n)));
+      })(),
+    };
+  });
+  chk("the latest view lists recent work", B.rendered > 0 && B.rendered === B.inData,
+    `${B.rendered} rendered of ${B.inData}`);
+  chk("newest first", B.ordered);
+  chk("every entry is dated", B.dated);
+  chk("every entry leads to its paper", B.links === B.rendered, `${B.links}/${B.rendered}`);
+  chk("every entry carries the number it reported", B.valued === B.inData,
+    `${B.valued}/${B.inData}`);
+  chk("and the sentence it reported it in", B.quoted === B.inData, `${B.quoted}/${B.inData}`);
+  chk("it counts nothing at the reader", !B.headingHasCount && !B.libraryCount,
+    "a library figure appears in the latest view");
+
+  // Ordered by publication, not by collection: the first is about the field,
+  // the second is about us.
+  const byPub = await page.evaluate(() => {
+    const d = (window.DATA.brief || {}).items || [];
+    const seen = new Set(d.map((x) => x.seen));
+    return { pubs: new Set(d.map((x) => x.d)).size, collections: seen.size };
+  });
+  chk("ordered by when the work was published, not when it was collected",
+    byPub.pubs > byPub.collections, JSON.stringify(byPub));
+
   for (const e of extra) {
     pass += e.ok ? 1 : 0;
     results.push({ q: e.label, want: "ok", got: e.ok ? "ok" : "BAD", detail: e.detail });
