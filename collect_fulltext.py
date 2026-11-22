@@ -37,6 +37,8 @@ import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
+import sqlite3
+
 import db
 
 REST = "https://www.ebi.ac.uk/europepmc/webservices/rest"
@@ -149,6 +151,26 @@ def lookup_many(dois: list[str]) -> dict:
     return out
 
 
+FULLTEXT_DB = "data/fulltext.db"
+
+
+def open_store(path):
+    """Full text lives in its own file, beside the library rather than in it.
+
+    Nine thousand papers is something like three hundred megabytes of body
+    text. The shipped database has to stay under the hundred a git host
+    accepts, and it was already at ninety-nine with the first twenty-nine
+    papers in it. Keeping the text in a separate file means the library
+    cannot be pushed over the limit by a collection run, and the text is
+    input to extraction rather than something anybody downloads: it is read
+    once to pull the measurements out, and the measurements are what ship.
+    """
+    store = sqlite3.connect(path)
+    store.row_factory = sqlite3.Row
+    ensure_table(store)
+    return store
+
+
 def ensure_table(conn):
     conn.executescript("""
     CREATE TABLE IF NOT EXISTS paper_fulltext (
@@ -172,6 +194,8 @@ def ensure_table(conn):
 def main():
     ap = argparse.ArgumentParser(description="Fetch open-access full text.")
     ap.add_argument("--db", default=None)
+    ap.add_argument("--fulltext-db", default=FULLTEXT_DB,
+                    help="where the body text is kept, outside the library")
     ap.add_argument("--limit", type=int, default=0,
                     help="stop after this many papers are tried (0 = all)")
     ap.add_argument("--measured-first", action="store_true",
@@ -185,8 +209,8 @@ def main():
                     help="how many full texts to fetch at once")
     args = ap.parse_args()
 
-    conn = db.connect(args.db)
-    ensure_table(conn)
+    conn = db.connect(args.db)          # the library: read only, here
+    store = open_store(args.fulltext_db)  # the text: written here
 
     # Only open-access papers are worth asking about, and the kind of open
     # access predicts the answer. Measured on a hundred of each: gold 54 per
@@ -196,18 +220,22 @@ def main():
     order = ("JOIN (SELECT openalex_id FROM evidence UNION SELECT openalex_id "
              "FROM properties) m ON m.openalex_id = p.openalex_id"
              if args.measured_first else "")
-    skip = "" if args.retry_missing else (
-        " AND p.openalex_id NOT IN (SELECT openalex_id FROM fulltext_tried)")
+    # What has already been tried and held lives in the other file, so the
+    # list of what to skip is read from there and passed in.
+    held = {r[0] for r in store.execute("SELECT openalex_id FROM paper_fulltext")}
+    seen = set() if args.retry_missing else {
+        r[0] for r in store.execute("SELECT openalex_id FROM fulltext_tried")}
     kinds = args.oa_status.split(",") if args.oa_status else []
     oa = (" AND p.oa_status IN (%s)" % ",".join("?" * len(kinds))) if kinds else ""
     sql = (f"SELECT p.openalex_id, p.doi, p.title FROM papers p {order}"
            f" WHERE p.doi IS NOT NULL AND p.doi != ''"
-           f"   AND p.openalex_id NOT IN (SELECT openalex_id FROM paper_fulltext)"
-           f"{skip}{oa}"
+           f"{oa}"
            f" ORDER BY CASE p.oa_status WHEN 'gold' THEN 0 WHEN 'diamond' THEN 1"
            f"   WHEN 'hybrid' THEN 2 WHEN 'bronze' THEN 3 ELSE 4 END,"
            f" p.citations_per_year DESC")
     todo = [dict(r) for r in conn.execute(sql, kinds)]
+    todo = [t for t in todo
+            if t["openalex_id"] not in held and t["openalex_id"] not in seen]
     if args.limit:
         todo = todo[:args.limit]
 
@@ -226,9 +254,9 @@ def main():
     now = lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
     def note(wid, outcome):
-        conn.execute("INSERT OR REPLACE INTO fulltext_tried"
-                     "(openalex_id, outcome, tried_at) VALUES(?,?,?)",
-                     (wid, outcome, now()))
+        store.execute("INSERT OR REPLACE INTO fulltext_tried"
+                      "(openalex_id, outcome, tried_at) VALUES(?,?,?)",
+                      (wid, outcome, now()))
 
     done = 0
     try:
@@ -277,7 +305,7 @@ def main():
                 elif len(body) < MIN_BODY:
                     counts["too-short"] += 1; note(wid, "too-short")
                 else:
-                    conn.execute(
+                    store.execute(
                         "INSERT OR REPLACE INTO paper_fulltext"
                         "(openalex_id, source, external_id, licence, chars, body, fetched_at)"
                         " VALUES(?,?,?,?,?,?,?)",
@@ -287,7 +315,7 @@ def main():
                     chars += len(body)
             # Every batch, not every hundred papers: a run that is cut off
             # should lose one query's worth of work, not a hundred.
-            conn.commit()
+            store.commit()
             rate = done / max(time.time() - started, 1e-9)
             left = (len(todo) - done) / max(rate, 1e-9)
             print(f"  {done:,}/{len(todo):,} tried, {counts['got']:,} with full text "
@@ -299,7 +327,7 @@ def main():
     except KeyboardInterrupt:
         stopped = "interrupted"
     finally:
-        conn.commit()
+        store.commit()
 
     tried = sum(counts.values())
     print()
@@ -309,10 +337,12 @@ def main():
     if tried:
         print(f"Coverage                    : {100 * counts['got'] / tried:.1f}%")
     print(f"Characters collected        : {chars:,}")
-    held = conn.execute("SELECT count(*), coalesce(sum(chars), 0) "
-                        "FROM paper_fulltext").fetchone()
-    print(f"Full texts held in total    : {held[0]:,} ({held[1] / 1e6:.1f}M characters)")
+    total = store.execute("SELECT count(*), coalesce(sum(chars), 0) "
+                          "FROM paper_fulltext").fetchone()
+    print(f"Full texts held in total    : {total[0]:,} ({total[1] / 1e6:.1f}M characters)")
+    print(f"Kept in                     : {args.fulltext_db} (outside the library)")
     conn.close()
+    store.close()
 
     if stopped:
         sys.exit(f"\nSTOPPED EARLY: {stopped}\n"

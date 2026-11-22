@@ -21,3 +21,4 @@ web/data.json
 *.db-wal
 *.db-shm
 data/.collect-progress.json
+data/fulltext.db
