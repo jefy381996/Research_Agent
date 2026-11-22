@@ -154,6 +154,34 @@ The agent adds five more files, used only when **Agent** mode is on:
 
 | Part | File | What it does |
 |---|---|---|
+## Speaking and listening
+
+Three ways, chosen in the interface, none of them required.
+
+| | Where it runs | Needs | Trade |
+|---|---|---|---|
+| **Browser** | the visitor's browser | nothing | instant, flat voice, no recogniser in Firefox, and in Chrome the audio goes to Google |
+| **On-device** | the visitor's machine | a 39&ndash;156 MB download, once | nothing leaves the machine; needs a capable machine, and the better voice needs a real graphics card |
+| **Hosted** | this service | `GROQ_API_KEY` | most accurate and no download; the audio is sent to the service |
+
+The hosted half is reached through this app rather than from the page,
+because a page holding the credential would hand it to everyone who opened
+the page. `/api/voice/status` reports which halves are configured, and the
+interface only offers what is actually there.
+
+The reading voice is optional and provider-agnostic. Any service speaking the
+OpenAI `audio/speech` shape works:
+
+| Setting | What it is |
+|---|---|
+| `TTS_URL` | the address to post to, e.g. `https://api.openai.com/v1/audio/speech` |
+| `TTS_API_KEY` | the key for it (`TTS_KEY_ENV` renames the variable if you need to) |
+| `TTS_MODEL` | the model, default `tts-1` |
+| `TTS_VOICE` | the voice, default `alloy` |
+
+With none of these set, the browser's own voice reads the answers and nothing
+is broken.
+
 | Provider | `llm.py` | One interface over Groq, OpenAI, Anthropic and Gemini. Switching provider is one environment variable |
 | Tools | `agent_tools.py` | Fifteen read-only tools over the same database. Every limit is clamped server-side, and `sql_query` accepts a single read-only `SELECT` on a read-only connection |
 | Sandbox | `sandbox.py` | Runs analysis the agent writes itself, under CPU, memory, file-size and process limits, in its own session, as an unprivileged user, with no keys in the environment |

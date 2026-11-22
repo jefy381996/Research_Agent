@@ -650,6 +650,7 @@ function spokenAgentAnswer(text) {
    If the machine cannot run it, the button says why rather than disappearing,
    and the browser's own voice carries on as it did. */
 let LOCAL = { plan: null, loading: false, on: false };
+let SERVER = { listen: false, speak: false, on: false };
 
 function vprog(frac, label) {
   const bar = $("vprog"), fill = $("vbarfill");
@@ -658,6 +659,51 @@ function vprog(frac, label) {
   bar.hidden = false;
   fill.style.width = `${Math.round(frac * 100)}%`;
   if (label) vbar(true, label);
+}
+
+/* The hosted option is only shown where there is a service behind it. A
+   static copy of this app has no server, so the button would be a promise it
+   could not keep. */
+async function serverOffer() {
+  const btn = $("servervoice");
+  if (!btn || !window.LocalSpeech) return;
+  let svc;
+  try { svc = await LocalSpeech.service(); } catch (e) { return; }
+  SERVER = svc || { listen: false, speak: false };
+  if (!SERVER.listen) return;             // stays hidden
+  btn.hidden = false;
+  btn.title = SERVER.speak
+    ? "Listening and the voice both run on the server. Nothing is downloaded."
+    : "Listening runs on the server, which is more accurate and needs no "
+      + "download. The voice stays the browser's own.";
+}
+
+async function serverToggle() {
+  const btn = $("servervoice");
+  if (!btn || !SERVER.listen) return;
+  if (SERVER.on) {
+    SERVER.on = false;
+    Voice.stopListening();
+    Voice.useLocal({ ears: false, voice: false });
+    btn.setAttribute("aria-pressed", "false");
+    vbar(true, "Back to the browser's own speech.");
+    markVoiceState();
+    return;
+  }
+  // Turning this on turns the on-device engine off: one set of ears at a time.
+  if (LOCAL.on) {
+    LOCAL.on = false;
+    const lv = $("localvoice");
+    if (lv) lv.setAttribute("aria-pressed", "false");
+  }
+  SERVER.on = true;
+  Voice.useLocal({ ears: true, voice: !!SERVER.speak, via: "service" });
+  btn.setAttribute("aria-pressed", "true");
+  vbar(true, SERVER.speak
+    ? "Speech runs on the server. Your voice is sent there to be read."
+    : "Listening runs on the server \u2014 more accurate, no download. "
+      + "Your voice is sent there to be written down.");
+  markVoiceState();
 }
 
 async function localOffer() {
@@ -694,6 +740,12 @@ async function localToggle() {
     vprog(null);
     vbar(true, "Back to the browser's own speech.");
     return;
+  }
+  if (SERVER.on) {                      // one set of ears at a time
+    SERVER.on = false;
+    const sv = $("servervoice");
+    if (sv) sv.setAttribute("aria-pressed", "false");
+    Voice.stopListening();
   }
   LOCAL.loading = true;
   btn.disabled = true;
@@ -793,12 +845,14 @@ function markVoiceState() {
     lv.dataset.state = lv.disabled ? "unavailable"
       : lv.getAttribute("aria-pressed") === "true" ? "on" : "off";
   }
+  const sv = $("servervoice");
+  if (sv) sv.dataset.state = sv.getAttribute("aria-pressed") === "true" ? "on" : "off";
 }
 
 function wireMobile() {
   const open = $("drawer-open"), scrim = $("scrim");
   if (open) open.addEventListener("click", () => drawer(true));
-  ["handsfree", "localvoice"].forEach((id) => {
+  ["handsfree", "localvoice", "servervoice"].forEach((id) => {
     const b = $(id);
     if (b) b.addEventListener("click", () => setTimeout(markVoiceState, 0));
   });
@@ -3543,8 +3597,12 @@ async function loadData() {
   markNew();
   const lv = $("localvoice");
   if (lv) lv.addEventListener("click", localToggle);
-  // Asks the machine what it can do; downloads nothing.
+  // Asks the machine what it can do, and the server what it offers.
+  // Neither downloads anything.
   localOffer();
+  serverOffer();
+  const sv = $("servervoice");
+  if (sv) sv.addEventListener("click", serverToggle);
   // The opening sequence is one-shot. Clearing the class once it has played
   // stops every later tab switch from replaying the whole arrival.
   setTimeout(() => document.documentElement.classList.remove("booting"), 2200);

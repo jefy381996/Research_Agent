@@ -193,6 +193,62 @@ const CAP = (over) => Object.assign({
   check("and the person is told that is what happened",
     /local-gave-up/.test(await page.evaluate(async () => (await fetch("app.js")).text())));
 
+  /* ── the hosted option ────────────────────────────────── */
+  /* This suite runs against the static copy, which has no server behind it,
+     so the hosted button must not be offered here: it would be a promise the
+     page cannot keep. */
+  const svc = await page.evaluate(async () => {
+    const s = await window.LocalSpeech.service();
+    const btn = document.getElementById("servervoice");
+    return { reported: s, offered: !!(btn && !btn.hidden) };
+  });
+  check("a page with no server behind it reports no hosted speech",
+    svc.reported.listen === false, JSON.stringify(svc.reported));
+  check("and does not offer the button", svc.offered === false);
+
+  // The recording posted to the service has to be a wav a recogniser accepts.
+  const wav = await page.evaluate(() => {
+    const a = new Float32Array(16000);
+    for (let i = 0; i < a.length; i++) a[i] = Math.sin(i / 8) * 0.2;
+    const b = window.LocalSpeech.toWav(a, 16000);
+    return b.size;
+  });
+  check("a recording is packaged as a wav of the right size",
+    wav === 44 + 16000 * 2, `${wav} bytes`);
+
+  const hdr = await page.evaluate(async () => {
+    const a = new Float32Array(800);
+    const buf = await window.LocalSpeech.toWav(a, 16000).arrayBuffer();
+    const d = new DataView(buf), t = (o) => String.fromCharCode(
+      d.getUint8(o), d.getUint8(o + 1), d.getUint8(o + 2), d.getUint8(o + 3));
+    return { riff: t(0), wave: t(8), fmt: d.getUint16(20, true),
+             ch: d.getUint16(22, true), rate: d.getUint32(24, true),
+             bits: d.getUint16(34, true) };
+  });
+  check("with a header a recogniser will accept",
+    hdr.riff === "RIFF" && hdr.wave === "WAVE" && hdr.fmt === 1 &&
+    hdr.ch === 1 && hdr.rate === 16000 && hdr.bits === 16, JSON.stringify(hdr));
+
+  // One set of ears at a time, whichever way round they are turned on.
+  const route = await page.evaluate(() => {
+    window.Voice.useLocal({ ears: true, voice: false, via: "service" });
+    const a = window.Voice.usingLocal();
+    window.Voice.useLocal({ ears: true, voice: false });
+    const b = window.Voice.usingLocal();
+    window.Voice.useLocal({ ears: false, voice: false });
+    return { service: a, device: b, off: window.Voice.usingLocal() };
+  });
+  check("the ears can be pointed at the service", route.service.via === "service");
+  check("and back at the machine", route.device.via === "device");
+  check("and switched off entirely", route.off.ears === false);
+
+  const appjs = await page.evaluate(async () => (await fetch("app.js")).text());
+  check("turning one engine on turns the other off",
+    /one set of ears at a time/.test(appjs) &&
+    /SERVER\.on = false/.test(appjs) && /LOCAL\.on = false/.test(appjs));
+  check("the hosted option says plainly that audio leaves the machine",
+    /sent there to be/.test(appjs));
+
   console.log(`\nSpeech scorecard: ${pass}/${total}`);
   if (fails.length) console.log("failed:\n  " + fails.join("\n  "));
   if (errors.length) console.log("console errors:\n  " + errors.slice(0, 5).join("\n  "));

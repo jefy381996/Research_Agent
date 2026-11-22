@@ -539,14 +539,20 @@
      still goes through fixTerms, because a recogniser trained on ordinary
      English mishears a materials lab whoever wrote it - the round-trip test
      has Whisper turning "graphene" into "graphing". */
-  let local = { ears: false, voice: false }, localFails = 0;
+  let local = { ears: false, voice: false, via: "device" }, localFails = 0;
 
   function useLocal(which) {
-    local = { ears: !!(which && which.ears), voice: !!(which && which.voice) };
+    local = {
+      ears: !!(which && which.ears),
+      voice: !!(which && which.voice),
+      via: (which && which.via) || "device",
+    };
     return local;
   }
 
-  function usingLocal() { return { ears: local.ears, voice: local.voice }; }
+  function usingLocal() {
+    return { ears: local.ears, voice: local.voice, via: local.via };
+  }
 
   function localListen(opts) {
     const LS = global.LocalSpeech;
@@ -567,7 +573,8 @@
         }
         if (ev.type !== "utterance") return;
         announce("thinking");
-        LS.transcribe(ev.audio).then((text) => {
+        const hear = local.via === "service" ? LS.cloudTranscribe : LS.transcribe;
+        hear(ev.audio).then((text) => {
           localFails = 0;
           const clean = fixTerms(String(text || "").trim());
           // Whisper fills silence with its own punctuation and stock phrases.
@@ -608,7 +615,8 @@
     const said = sayable(text);
     if (!LS || !said) { if (done) done(); return false; }
     spokenNow = said;
-    LS.speak(said, {
+    const read = local.via === "service" ? LS.cloudSpeak : LS.speak;
+    read(said, {
       onStart: () => { speaking = true; announce("speaking"); },
       onEnd: () => {
         speaking = false;

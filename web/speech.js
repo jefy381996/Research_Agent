@@ -373,6 +373,83 @@
     return out;
   }
 
+  /* ── the same microphone, answered by the service ─────── */
+
+  /* A third option, and on most machines the best one: the microphone, the
+     loudness test and the endpointing are all exactly as they are for the
+     on-device engine, but the finished utterance is posted to this app's own
+     server, which holds the credential and asks a hosted recogniser.
+     Nothing is downloaded, it runs on any machine, and the larger model is
+     more accurate - it writes "graphene" where the small local one writes
+     "graphing". The server never hands the page a key, which is the whole
+     reason the request goes through it.
+
+     What it gives up: the audio leaves the machine. That is a real trade and
+     it is stated in the interface rather than buried here. */
+  function toWav(audio, rate) {
+    const n = audio.length, buf = new ArrayBuffer(44 + n * 2);
+    const dv = new DataView(buf);
+    const str = (o, t) => { for (let i = 0; i < t.length; i++) dv.setUint8(o + i, t.charCodeAt(i)); };
+    str(0, "RIFF"); dv.setUint32(4, 36 + n * 2, true); str(8, "WAVEfmt ");
+    dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+    dv.setUint32(24, rate, true); dv.setUint32(28, rate * 2, true);
+    dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+    str(36, "data"); dv.setUint32(40, n * 2, true);
+    for (let i = 0; i < n; i++) {
+      const v = Math.max(-1, Math.min(1, audio[i]));
+      dv.setInt16(44 + i * 2, v < 0 ? v * 0x8000 : v * 0x7fff, true);
+    }
+    return new Blob([buf], { type: "audio/wav" });
+  }
+
+  async function service() {
+    try {
+      const r = await fetch("api/voice/status", { cache: "no-store" });
+      if (!r.ok) return { listen: false, speak: false };
+      return await r.json();
+    } catch (e) { return { listen: false, speak: false }; }
+  }
+
+  async function cloudTranscribe(audio) {
+    const form = new FormData();
+    form.append("file", toWav(audio, SAMPLE_RATE), "speech.wav");
+    const r = await withTimeout(
+      fetch("api/voice/transcribe", { method: "POST", body: form }),
+      ASR_TIMEOUT_MS, "the service did not answer in time");
+    if (!r.ok) throw new Error(`the service refused (${r.status})`);
+    const out = await r.json();
+    return ((out && out.text) || "").trim();
+  }
+
+  async function cloudSpeak(text, hooks) {
+    hooks = hooks || {};
+    cancelled = false;
+    if (hooks.onStart) hooks.onStart();
+    try {
+      const r = await fetch("api/voice/speak", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: String(text).slice(0, 4000) }),
+      });
+      if (!r.ok) throw new Error(String(r.status));
+      const blob = await r.blob();
+      if (cancelled) return false;
+      const url = URL.createObjectURL(blob);
+      const el = new Audio(url);
+      playing = { el };
+      await new Promise((resolve) => {
+        el.onended = resolve; el.onerror = resolve;
+        el.play().catch(resolve);
+      });
+      URL.revokeObjectURL(url);
+      return !cancelled;
+    } catch (e) {
+      return false;
+    } finally {
+      playing = null;
+      if (hooks.onEnd) hooks.onEnd(cancelled);
+    }
+  }
+
   /* ── the two jobs ─────────────────────────────────────── */
 
   /* A hang here used to be invisible: the strip said it was working something
@@ -435,6 +512,7 @@
   function stop() {
     cancelled = true;
     try { if (playing && playing.node) playing.node.stop(); } catch (e) {}
+    try { if (playing && playing.el) { playing.el.pause(); playing.el.currentTime = 0; } } catch (e) {}
   }
 
   function isSpeaking() { return !!playing; }
@@ -443,6 +521,7 @@
     inspect, plan, load, ready, sizes: MODELS,
     openMic, closeMic, isMicOpen: () => micOpen,
     transcribe, speak, stop, isSpeaking,
+    service, cloudTranscribe, cloudSpeak, toWav,
     // pure, and therefore the parts worth testing
     softwareAdapter, sentences,
     _rms: rms,
