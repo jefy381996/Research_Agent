@@ -55,6 +55,8 @@ PAUSE = 0.25                 # polite spacing between calls
 MAX_TRIES = 5
 MIN_BODY = 2500              # shorter than this is not a paper
 CHECKPOINT_EVERY = 100
+DEAD_BATCHES = 3             # this many wholly failed batches means it is gone
+SERVER_ERROR_TRIES = 2       # a 500 on one record is about that record
 
 
 class Stopped(RuntimeError):
@@ -82,6 +84,14 @@ def fetch(url, timeout=45, headers=None):
                 # nought per cent coverage for a whole run.
                 raise Stopped(f"Europe PMC refused the request: HTTP {exc.code}"
                               f" for {url.split('/')[-1]}")
+            # A 500 here is this record, not the service: Europe PMC cannot
+            # render the XML for some papers and says so every time. Measured
+            # on six, three of them answered 500 immediately and consistently.
+            # Trying five times with backoff spends half a minute to learn
+            # what the second attempt already knew.
+            if exc.code >= 500 and attempt >= SERVER_ERROR_TRIES:
+                raise Stopped(f"Europe PMC could not serve that record: "
+                              f"HTTP {exc.code}")
         except Exception as exc:               # network, timeout, bad bytes
             last = f"{type(exc).__name__}"
         if attempt < MAX_TRIES:
@@ -247,8 +257,12 @@ def main():
     print(f"  workers  : {args.workers}")
     print(flush=True)
 
-    counts = {"got": 0, "no-record": 0, "no-fulltext": 0, "too-short": 0}
+    counts = {"got": 0, "no-record": 0, "no-fulltext": 0, "too-short": 0,
+              "server-error": 0}
     chars = 0
+    refused = 0
+    dead_batches = 0
+    last_failure = ""
     stopped = None
     started = time.time()
     now = lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -277,20 +291,36 @@ def main():
                 if rec and rec.get("pmcid") and str(rec.get("inEPMC", "N")) == "Y":
                     wanted.append((paper["openalex_id"], rec["pmcid"]))
 
-            bodies = {}
+            bodies, failures = {}, []
             if wanted:
                 def grab(pair):
                     wid, pmcid = pair
                     try:
                         return wid, readable(fetch(f"{REST}/{pmcid}/fullTextXML",
-                                                   timeout=60, headers=XML_HEADERS))
-                    except Stopped:
-                        return wid, None            # None means the service stopped
+                                                   timeout=60, headers=XML_HEADERS)), None
+                    except Stopped as exc:
+                        return wid, None, str(exc)
                 with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
-                    for wid, body in pool.map(grab, wanted):
+                    for wid, body, why in pool.map(grab, wanted):
                         bodies[wid] = body
-                if any(v is None for v in bodies.values()):
-                    stopped = "Europe PMC stopped answering"
+                        if why:
+                            failures.append(why)
+
+            # One refusal is not a reason to abandon a three hour collection.
+            # The paper is left for a later run and the rest carries on; only
+            # when whole batches keep failing is the service actually gone.
+            # The first version stopped on the first refusal and reported it
+            # as "Europe PMC stopped answering", throwing away the code that
+            # said what had really happened.
+            if failures and len(failures) == len(wanted):
+                dead_batches += 1
+                last_failure = failures[0]
+                if dead_batches >= DEAD_BATCHES:
+                    stopped = f"{last_failure} ({dead_batches} batches in a row)"
+            else:
+                dead_batches = 0
+            if failures:
+                refused += len(failures)
 
             for paper in batch:
                 wid = paper["openalex_id"]
@@ -300,6 +330,14 @@ def main():
                     counts["no-record"] += 1; note(wid, "no-record"); continue
                 pmcid = rec.get("pmcid") or ""
                 body = bodies.get(wid) or ""
+                if wid in bodies and bodies[wid] is None:
+                    # Asked for and refused. Recorded as its own outcome so
+                    # the next run does not spend the same seconds on the
+                    # same broken record, and --retry-missing can still come
+                    # back to it if the service is ever fixed.
+                    counts["server-error"] += 1
+                    note(wid, "server-error")
+                    continue
                 if not body:
                     counts["no-fulltext"] += 1; note(wid, "no-fulltext")
                 elif len(body) < MIN_BODY:
@@ -320,7 +358,9 @@ def main():
             left = (len(todo) - done) / max(rate, 1e-9)
             print(f"  {done:,}/{len(todo):,} tried, {counts['got']:,} with full text "
                   f"({100 * counts['got'] / max(done, 1):.1f}%), "
-                  f"{chars / 1e6:.1f}M chars, ~{left / 60:.0f} min left", flush=True)
+                  f"{chars / 1e6:.1f}M chars"
+                  + (f", {refused} refused" if refused else "")
+                  + f", ~{left / 60:.0f} min left", flush=True)
             if stopped:
                 break
             time.sleep(PAUSE)
@@ -332,11 +372,14 @@ def main():
     tried = sum(counts.values())
     print()
     print(f"Papers tried                : {tried:,}")
-    for key in ("got", "no-record", "no-fulltext", "too-short"):
+    for key in ("got", "no-record", "no-fulltext", "too-short", "server-error"):
         print(f"  {key:<24}{counts[key]:>8,}")
     if tried:
         print(f"Coverage                    : {100 * counts['got'] / tried:.1f}%")
     print(f"Characters collected        : {chars:,}")
+    if refused:
+        print(f"Refused, to try again later : {refused:,}")
+        print(f"  last reason               : {last_failure}")
     total = store.execute("SELECT count(*), coalesce(sum(chars), 0) "
                           "FROM paper_fulltext").fetchone()
     print(f"Full texts held in total    : {total[0]:,} ({total[1] / 1e6:.1f}M characters)")
