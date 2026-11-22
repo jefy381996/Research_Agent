@@ -137,6 +137,104 @@ class TestContract(unittest.TestCase):
             X.rows_for_sentence("Graphene was prepared by chemical vapour "
                                 "deposition on copper foil.", "t", ""), [])
 
+    # --- a femtogram is not a farad ------------------------------------
+    #
+    # 58 rows in the library were biosensor detection limits filed as
+    # specific capacitance: "1.0 fg/mL" read as one farad per gram. The
+    # patterns are compiled case-insensitively, and f is the lowercase of F.
+    # The separator cannot be the discriminator, because papers really do
+    # write "292 Fg-1" with nothing between the F and the g - so these tests
+    # run in both directions, and the four that must survive matter as much
+    # as the three that must not.
+
+    def test_a_femtogram_per_millilitre_is_not_a_capacitance(self):
+        for text in (
+            "The dashed lines indicate the response to TNF-alpha (1 fg/ml).",
+            "The limit of detection of the immunosensor is 1.0 fg/mL.",
+            "Characterised across a concentration range from 1 to 1000 fg/ml.",
+            "A detection limit of 21 fg mL -1 over a linear range was found.",
+        ):
+            rows = [r for r in X.rows_for_sentence(text, "t", text)
+                    if r["property_key"] == "capacitance"]
+            self.assertEqual(rows, [], text)
+
+    def test_farads_per_gram_still_read_with_no_separator(self):
+        for text, want in (
+            ("The electrode gave a specific capacitance of 292 Fg-1.", 292.0),
+            ("A specific capacitance of 2119.28 Fg -1 was reached.", 2119.28),
+            ("The film showed a specific capacitance of 481 F/g in KOH.", 481.0),
+            ("Specific capacitance of 467.3 F g-1 at 1 A g-1.", 467.3),
+        ):
+            rows = [r for r in X.rows_for_sentence(text, "t", text)
+                    if r["property_key"] == "capacitance"]
+            self.assertEqual(len(rows), 1, text)
+            self.assertAlmostEqual(rows[0]["value"], want, places=2)
+
+    def test_a_chemical_formula_is_not_a_surface_area(self):
+        # m2/g is lowercase. "Au 4 M 2 /G" is a formula and "2 M" is a
+        # molarity; read case-insensitively, the formula came back as four
+        # square metres per gram.
+        text = ("ENRR was performed with the working electrode (either"
+                " Au 4 M 2 (SR) 8 or Au 4 M 2 /G (M = Pt, Pd)).")
+        rows = [r for r in X.rows_for_sentence(text, "t", text)
+                if r["property_key"] == "surface_area"]
+        self.assertEqual(rows, [])
+
+    def test_square_metres_per_gram_still_read_in_every_spelling(self):
+        for text, want in (
+            ("A high specific surface area of 2630 m 2 g -1 was measured.", 2630.0),
+            ("The surface area reached 367.2 m 2 /g after activation.", 367.2),
+            ("A BET area of 1520 m2/g was obtained for the aerogel.", 1520.0),
+        ):
+            rows = [r for r in X.rows_for_sentence(text, "t", text)
+                    if r["property_key"] == "surface_area"]
+            self.assertEqual(len(rows), 1, text)
+            self.assertAlmostEqual(rows[0]["value"], want, places=2)
+
+    # --- an uncertainty is not a value ----------------------------------
+
+    def test_an_error_bar_is_not_the_measurement(self):
+        # "670 +- 5 L m-2 h-1 bar-1" stored 5: the number nearest the unit.
+        text = ("PGO membranes show higher water permeance (~670 +- 5 L m -2"
+                " h -1 bar -1 ) than pristine GO-based membranes.")
+        rows = [r for r in X.rows_for_sentence(text, "t", text)
+                if r["property_key"] == "water_permeance"]
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(rows[0]["value"], 670.0, places=1)
+
+    def test_an_error_bar_written_with_the_sign_is_not_the_measurement(self):
+        text = ("An electrical conductivity of 1800 \u00b1 40 S/cm was"
+                " measured for the film.")
+        rows = [r for r in X.rows_for_sentence(text, "t", text)
+                if r["property_key"] == "electrical_conductivity"]
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(rows[0]["value"], 180000.0, places=1)
+
+    def test_a_figure_with_no_uncertainty_is_unaffected(self):
+        text = "The BET surface area was 224.10 m 2 g -1 for the composite."
+        rows = [r for r in X.rows_for_sentence(text, "t", text)
+                if r["property_key"] == "surface_area"]
+        self.assertAlmostEqual(rows[0]["value"], 224.10, places=2)
+
+    # --- a tiny measurement is not a zero -------------------------------
+
+    def test_a_value_below_a_millionth_survives_storage(self):
+        text = "The electronic conductivity is 4.85x10 -11 S cm -1 here."
+        rows = [r for r in X.rows_for_sentence(text, "t", text)
+                if r["property_key"] == "electrical_conductivity"]
+        self.assertEqual(len(rows), 1)
+        # 4.85e-11 S/cm is 4.85e-9 S/m. round(x, 6) made that 0.0.
+        self.assertGreater(rows[0]["value"], 0.0)
+        self.assertAlmostEqual(rows[0]["value"], 4.85e-9, places=12)
+
+    def test_no_row_carries_a_value_of_zero_or_less(self):
+        for text in ("The conductivity is 4.85x10 -11 S cm -1.",
+                     "A sheet resistance of 55 ohm/sq was measured.",
+                     "The thermal conductivity reached 2000 W/mK."):
+            for row in X.rows_for_sentence(text, "t", text):
+                self.assertGreater(row["value"], 0.0, f"{row['property_key']}"
+                                                      f" from {text!r}")
+
     def test_every_family_has_a_unit_and_a_sane_range(self):
         for fam in P.FAMILIES:
             self.assertTrue(fam["unit"], fam["key"])

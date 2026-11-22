@@ -1,4 +1,9 @@
 """Tests for the extraction rules the product's credibility rests on."""
+import os
+import shutil
+import sqlite3
+import sys
+import tempfile
 import unittest
 
 import extract_evidence as E
@@ -167,6 +172,93 @@ class TestPlausibility(unittest.TestCase):
         clean = [{"specific_capacity_mah_g": 900, "flags": []}]
         plausibility.assess(clean)
         self.assertEqual(clean[0]["confidence"], "verified")
+
+
+
+class SymbolsAreCaseSensitive(unittest.TestCase):
+    """Matched case-insensitively, \\bGO\\b matches the verb "go"."""
+
+    def test_the_verb_go_is_not_graphene_oxide(self):
+        self.assertIsNone(E._first_match(
+            E.GRAPHENE_FORMS, "we then go on to measure the sample"))
+
+    def test_graphene_oxide_is_still_found_by_its_symbol(self):
+        self.assertEqual(E._first_match(
+            E.GRAPHENE_FORMS, "the GO suspension was reduced at 90 C"),
+            "graphene oxide")
+
+    def test_shielding_effectiveness_is_not_selenium(self):
+        self.assertIsNone(E._first_match(
+            E.PARTNERS, "shielding effectiveness (SE) of the film is 42.5 dB"))
+
+    def test_selenium_is_still_found_by_name_and_by_symbol(self):
+        self.assertEqual(E._first_match(
+            E.PARTNERS, "a Selenium cathode was prepared"), "Se")
+        self.assertEqual(E._first_match(
+            E.PARTNERS, "the Se cathode delivered 600 mAh/g"), "Se")
+
+
+class AnUncertaintyIsNotAValue(unittest.TestCase):
+
+    def test_an_error_bar_is_not_the_capacity(self):
+        text = ("The anode delivered a reversible capacity of 617 +- 5 mAh"
+                " g -1 at 100 mA g -1 .")
+        row = E.extract_from_sentence(text, "t", text, "abstract")
+        self.assertIsNotNone(row)
+        self.assertAlmostEqual(row["specific_capacity_mah_g"], 617.0, places=1)
+
+    def test_a_capacity_with_no_uncertainty_is_unaffected(self):
+        text = "The anode delivered 372 mAh g -1 at 100 mA g -1 ."
+        row = E.extract_from_sentence(text, "t", text, "abstract")
+        self.assertAlmostEqual(row["specific_capacity_mah_g"], 372.0, places=1)
+
+
+class OneTableTwoReadings(unittest.TestCase):
+    """Abstract rows and full-text rows share the evidence table, and only
+    source_section tells them apart. The abstract extractor clears the rows
+    for the papers it is about to read, so a pattern fix propagates - and that
+    clear has to be scoped, or it takes the full-text rows with it. It did:
+    440 rows, silently, on the first run after the full-text pass landed."""
+
+    def test_reading_the_abstracts_leaves_the_full_text_rows_alone(self):
+        import extract_evidence as mod
+        import db as dbmod
+        folder = tempfile.mkdtemp()
+        path = os.path.join(folder, "library.db")
+        conn = dbmod.init(path)
+        conn.execute(
+            "INSERT INTO papers(openalex_id, title, abstract, year,"
+            " citations_per_year) VALUES(?,?,?,?,?)",
+            ("W1", "A graphene anode",
+             "The anode delivered a reversible capacity of 617 mAh g-1 at"
+             " 100 mA g-1 after 100 cycles.", 2024, 5.0))
+        conn.execute(
+            "INSERT INTO evidence(openalex_id, specific_capacity_mah_g,"
+            " source_quote, source_section, confidence, row_hash)"
+            " VALUES(?,?,?,?,?,?)",
+            ("W1", 128.1, "read from deep inside the paper", "fulltext",
+             "verified", "hash-from-full-text"))
+        conn.commit()
+        conn.close()
+
+        argv = sys.argv
+        try:
+            sys.argv = ["extract_evidence.py", "--db", path]
+            mod.main()
+        finally:
+            sys.argv = argv
+
+        check = sqlite3.connect(path)
+        kept = check.execute(
+            "SELECT count(*) FROM evidence WHERE source_section='fulltext'"
+        ).fetchone()[0]
+        from_abstract = check.execute(
+            "SELECT count(*) FROM evidence WHERE source_section='abstract'"
+        ).fetchone()[0]
+        check.close()
+        shutil.rmtree(folder, ignore_errors=True)
+        self.assertEqual(kept, 1, "the full-text row was deleted")
+        self.assertGreaterEqual(from_abstract, 1, "the abstract was not read")
 
 
 if __name__ == "__main__":

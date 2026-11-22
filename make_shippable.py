@@ -54,6 +54,10 @@ def main():
                           "compounds", "agent_cache")}
         conn.execute("DELETE FROM chunks")
         conn.execute("DELETE FROM paper_sections")
+        # Which papers the full-text pass has read. Working state for a
+        # collection that runs outside the library, of no use to anyone who
+        # downloads it.
+        conn.execute("DROP TABLE IF EXISTS fulltext_seen")
         conn.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')")
         conn.commit()
     finally:

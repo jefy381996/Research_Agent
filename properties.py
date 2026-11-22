@@ -23,7 +23,12 @@ from __future__ import annotations
 # or nothing at all - "280,000", "68 000", "68000" - and a space-grouped figure
 # cost ten real measurements before it was handled: "68 000" matched "000".
 NUM = (r"(\d{1,4}(?:[,\s]\d{3})*(?:\.\d+)?"
-       r"(?:\s*[x\u00d7]\s*10\s*-?\s*\d+)?)")
+       r"(?:\s*[x\u00d7]\s*10\s*-?\s*\d+)?)"
+       # An uncertainty is not a value: "670 +- 5 L m-2 h-1 bar-1" stored 5,
+       # because 5 is the number nearest the unit. Swallowing the "+- 5"
+       # makes 670 the leftmost match, so the figure read is the one the
+       # paper reported.
+       r"(?:\s*(?:\u00b1|\+\s*/?\s*-)\s*\d+(?:[.,]\d+)?)?")
 
 
 def _n(raw: str) -> float | None:
@@ -161,8 +166,12 @@ FAMILIES = [
         "aliases": ["surface area", "bet area", "specific area"],
         "low": 0.1, "high": 4000,
         "patterns": [
-            (NUM + r"\s*m\s*2" + PER + r"g" + E1 + r"(?![a-z])", 1.0),
-            (NUM + r"\s*m\s*2\s*g" + E1, 1.0),
+            # Lowercase, case-sensitively: m2/g is an area per gram, while
+            # "Au 4 M 2 /G" is a chemical formula and 2 M is a molarity.
+            # Compiled case-insensitively with the rest, "4 M 2 /G" came back
+            # as four square metres per gram.
+            (NUM + r"\s*(?-i:m)\s*2" + PER + r"(?-i:g)" + E1 + r"(?![a-z])", 1.0),
+            (NUM + r"\s*(?-i:m)\s*2\s*(?-i:g)" + E1, 1.0),
         ],
     },
     {
@@ -172,9 +181,15 @@ FAMILIES = [
         "aliases": ["specific capacitance", "capacitance", "supercapacitor"],
         "low": 0.1, "high": 5000,
         "patterns": [
-            (NUM + r"\s*F" + PER + r"g" + E1 + r"(?![a-z])", 1.0),
-            (NUM + r"\s*F\s*g" + E1, 1.0),
-            (NUM + r"\s*mF" + PER + r"c?m\s*2", None),   # areal: different unit
+            # (?-i:F) insists on the capital. These patterns are compiled
+            # case-insensitively with the rest, and without this a
+            # biosensor's "1 fg/mL" - one femtogram per millilitre - reads
+            # as one farad per gram. Papers do write "292 Fg-1" with no
+            # separator, so the separator cannot be what distinguishes them;
+            # the case can, and SI spelling is what journals enforce.
+            (NUM + r"\s*(?-i:F)" + PER + r"g" + E1 + r"(?![a-z])", 1.0),
+            (NUM + r"\s*(?-i:F)\s*g" + E1, 1.0),
+            (NUM + r"\s*(?-i:mF)" + PER + r"c?m\s*2", None),  # areal: other unit
         ],
     },
     {

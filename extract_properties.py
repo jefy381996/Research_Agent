@@ -74,6 +74,13 @@ _ALIAS_RE = {
     for fam in P.FAMILIES
 }
 
+# "Strength" alone is not tensile strength. A scaffold paper reporting a
+# maximum compressive strength of 12 MPa had it filed as a tensile strength,
+# because the alias "strength" matched and nothing checked which kind.
+_STRENGTH_DECOY = re.compile(
+    r"compressive|flexural|shear|yield\s+strength|bending|dielectric\s+strength",
+    re.I)
+
 # A percentage is a transmittance only next to the word; these are the phrases
 # that most often sit beside a stray percentage in a graphene abstract.
 _PCT_DECOYS = re.compile(
@@ -143,6 +150,10 @@ def rows_for_sentence(sentence: str, title: str, abstract: str,
                 continue
             if fam["key"] == "transmittance" and _PCT_DECOYS.search(work):
                 continue
+            if (fam["key"] == "tensile_strength"
+                    and _STRENGTH_DECOY.search(work)
+                    and not re.search(r"tensile\s+(?:strength|stress)", work, re.I)):
+                continue
         matches = list(rx.finditer(work))
         if not matches:
             continue
@@ -151,13 +162,18 @@ def rows_for_sentence(sentence: str, title: str, abstract: str,
         if value is None:
             continue
         value *= scale
+        if value <= 0:
+            continue           # a property of zero is a parse, not a result
         flags = _flags_for(fam, value, work)
         if _modelled_near(work, match.span()):
             flags.append("modelled_not_measured")
         found.append({
             "property_key": fam["key"],
             "property_label": fam["label"],
-            "value": round(value, 6),
+            # Six significant figures, not six decimal places: a carrier
+            # mobility or a conductivity is legitimately tiny, and
+            # round(4.85e-9, 6) is 0.0.
+            "value": float(f"{value:.6g}"),
             "unit": fam["unit"],
             "value_as_reported": match.group(0).strip(),
             "flags": flags,
@@ -207,17 +223,22 @@ def row_hash(row: dict) -> str:
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 
 
-def rows_for_paper(paper: dict) -> list[dict]:
+def rows_for_paper(paper: dict, section: str = "abstract",
+                   cap: int | None = None) -> list[dict]:
+    """Property rows from one paper's text. See rows_for_paper in
+    extract_evidence for why `cap` is a parameter and not a constant."""
+    cap = MAX_ROWS_PER_PAPER if cap is None else cap
     text = paper.get("abstract") or ""
     out: list[dict] = []
     for sentence in sentences(text):
-        for row in rows_for_sentence(sentence, paper.get("title") or "", text):
+        for row in rows_for_sentence(sentence, paper.get("title") or "", text,
+                                     section):
             row["openalex_id"] = paper["openalex_id"]
             if not verify_text(row):
                 continue
             row["row_hash"] = row_hash(row)
             out.append(row)
-            if len(out) >= MAX_ROWS_PER_PAPER:
+            if len(out) >= cap:
                 return out
     return out
 
@@ -238,6 +259,21 @@ def main():
 
     started = datetime.now(timezone.utc).isoformat(timespec="seconds")
     papers = conn.execute(query).fetchall()
+
+    # Clear this section's rows for the papers about to be read, the way the
+    # evidence extractor does. Identity-hash upsert alone keeps a re-run from
+    # duplicating, but it leaves behind rows the patterns no longer produce -
+    # so a fix to a pattern never reached the library. 58 biosensor detection
+    # limits sat in it as specific capacitance for exactly that reason.
+    ids = [p["openalex_id"] for p in papers]
+    for start in range(0, len(ids), 400):
+        batch = ids[start:start + 400]
+        conn.execute(
+            f"DELETE FROM properties WHERE openalex_id IN"
+            f" ({','.join('?' * len(batch))})"
+            f" AND coalesce(source_section,'abstract')='abstract'", batch)
+    conn.commit()
+
     added = failed = 0
     placeholders = ",".join("?" * len(INSERT_FIELDS))
     columns = ",".join(INSERT_FIELDS)

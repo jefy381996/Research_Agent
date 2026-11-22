@@ -82,7 +82,11 @@ def sentences(text: str) -> list[str]:
 
 
 # --- quantity patterns ------------------------------------------------------
-NUM = r"(\d{1,6}(?:[.,]\d+)?)"
+# An uncertainty is not a value. "617 +- 5 mAh g-1" stored 5, because 5 is
+# the number nearest the unit; swallowing the "+- 5" makes 617 the
+# leftmost match, so the figure read is the one the paper reported.
+NUM = (r"(\d{1,6}(?:[.,]\d+)?)"
+       r"(?:\s*(?:\u00b1|\+\s*/?\s*-)\s*\d+(?:[.,]\d+)?)?")
 
 CAPACITY_RE = re.compile(
     NUM + r"\s*(mA\s?h\s*(?:/|\s)?\s*g(?:\s*-\s*1)?|A\s?h\s*(?:/|\s)?\s*kg"
@@ -243,6 +247,28 @@ PARTNERS = [
     ("CNT", (r"carbon\s+nanotube", r"\bCNTs?\b")),
     ("hard carbon", (r"hard\s+carbon",)),
 ]
+
+def _case_strict(vocab):
+    """Chemical symbols and abbreviations are case-sensitive; words are not.
+
+    Matched case-insensitively, "\\bGO\\b" matches the verb "go" - so "we then
+    go on to measure the sample" was labelled graphene oxide. In twelve
+    hundred characters of abstract that is rare; in forty thousand characters
+    of body it fires constantly. "\\bSe\\b" matched "SE", shielding
+    effectiveness, and filed a silver-nanowire film as a selenium composite.
+
+    Any pattern carrying an uppercase letter is a formula or an initialism and
+    must match exactly. The spelled-out words stay case-insensitive, because a
+    title capitalises them.
+    """
+    return [(label, tuple(f"(?-i:{p})" if any(c.isupper() for c in p) else p
+                          for p in patterns))
+            for label, patterns in vocab]
+
+
+GRAPHENE_FORMS = _case_strict(GRAPHENE_FORMS)
+PARTNERS = _case_strict(PARTNERS)
+BATTERY_TYPES = _case_strict(BATTERY_TYPES)
 
 ELECTROLYTE_RE = [
     ("LiPF6", r"\bLiPF\s*6\b"), ("LiTFSI", r"\bLiTFSI\b"),
@@ -498,7 +524,14 @@ def verify_text(row, full_text):
     return rejections, True
 
 
-def rows_for_paper(paper, section="abstract"):
+def rows_for_paper(paper, section="abstract", cap=None):
+    """Findings from one paper's text.
+
+    `cap` limits the rows one paper may contribute. An abstract states a
+    handful of results, so the default is deliberately small; a full paper
+    reports many, and the caller raises it.
+    """
+    cap = MAX_ROWS_PER_PAPER if cap is None else cap
     text = paper["abstract"] or ""
     if not text:
         return [], []
@@ -523,7 +556,7 @@ def rows_for_paper(paper, section="abstract"):
             continue                             # nothing numeric survived
         row["openalex_id"] = paper["openalex_id"]
         out.append(row)
-        if len(out) >= MAX_ROWS_PER_PAPER:
+        if len(out) >= cap:
             break
     return out, rejections
 
@@ -635,9 +668,14 @@ def main():
     touched = sorted({p["openalex_id"] for p in papers})
     for start in range(0, len(touched), 400):
         batch = touched[start:start + 400]
+        # Scoped to the section this run writes. Unscoped, a re-run over the
+        # abstracts deleted every row the full-text pass had written for the
+        # same papers - 440 of them, silently, because both readings live in
+        # one table and only the section tells them apart.
         conn.execute(
             f"DELETE FROM evidence WHERE openalex_id IN"
-            f" ({','.join('?' * len(batch))})", batch)
+            f" ({','.join('?' * len(batch))})"
+            f" AND coalesce(source_section,'abstract')='abstract'", batch)
     conn.commit()
 
     written = 0
