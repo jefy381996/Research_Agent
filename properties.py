@@ -22,7 +22,12 @@ from __future__ import annotations
 # A figure as a paper writes it. Thousands are grouped with a comma, a space
 # or nothing at all - "280,000", "68 000", "68000" - and a space-grouped figure
 # cost ten real measurements before it was handled: "68 000" matched "000".
-NUM = (r"(\d{1,4}(?:[,\s]\d{3})*(?:\.\d+)?"
+# A figure may be written with thousands separators or without them, and
+# "\d{1,4}(?:[,\s]\d{3})*" only read the separated form: a mobility of
+# "11900 cm2 V-1 s-1" matched the last four digits and stored 1900, and
+# "250000" matched nothing at all and was lost in silence. The separated
+# form is tried first so "11,900" is still read whole.
+NUM = (r"((?:\d{1,3}(?:[,\s]\d{3})+|\d{1,7})(?:\.\d+)?"
        r"(?:\s*[x\u00d7]\s*10\s*-?\s*\d+)?)"
        # An uncertainty is not a value: "670 +- 5 L m-2 h-1 bar-1" stored 5,
        # because 5 is the number nearest the unit. Swallowing the "+- 5"

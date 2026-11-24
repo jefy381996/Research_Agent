@@ -191,6 +191,42 @@ class TestContract(unittest.TestCase):
             self.assertEqual(len(rows), 1, text)
             self.assertAlmostEqual(rows[0]["value"], want, places=2)
 
+    # --- a figure may be written without separators ---------------------
+
+    def test_a_five_digit_figure_keeps_its_leading_digit(self):
+        # "\d{1,4}(?:[,\s]\d{3})*" read only the separated form, so a mobility
+        # of 11900 matched the last four digits and stored 1900.
+        for text, want in (
+            ("The Hall sensors show mobilities up to 11900 cm2 V-1 s-1.", 11900.0),
+            ("The film reached a thermal conductivity of 12500 W m-1 K-1.", 12500.0),
+            ("An electrical conductivity of 10524 S m-1 was measured.", 10524.0),
+        ):
+            rows = X.rows_for_sentence(text, "t", text)
+            self.assertEqual(len(rows), 1, text)
+            self.assertAlmostEqual(rows[0]["value"], want, places=1)
+
+    def test_a_six_digit_figure_is_not_lost_in_silence(self):
+        text = "A carrier mobility of 250000 cm2 V-1 s-1 was measured."
+        rows = [r for r in X.rows_for_sentence(text, "t", text)
+                if r["property_key"] == "carrier_mobility"]
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(rows[0]["value"], 250000.0, places=1)
+
+    def test_separated_thousands_are_still_read_whole(self):
+        for text in ("The mobility reached 11,900 cm2 V-1 s-1 for the device.",
+                     "The mobility reached 11 900 cm2 V-1 s-1 for the device."):
+            rows = [r for r in X.rows_for_sentence(text, "t", text)
+                    if r["property_key"] == "carrier_mobility"]
+            self.assertEqual(len(rows), 1, text)
+            self.assertAlmostEqual(rows[0]["value"], 11900.0, places=1)
+
+    def test_a_list_of_figures_takes_the_one_at_the_unit(self):
+        text = "Surface areas of 285, 261, and 228 m 2 /g were measured."
+        rows = [r for r in X.rows_for_sentence(text, "t", text)
+                if r["property_key"] == "surface_area"]
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(rows[0]["value"], 228.0, places=1)
+
     # --- an uncertainty is not a value ----------------------------------
 
     def test_an_error_bar_is_not_the_measurement(self):

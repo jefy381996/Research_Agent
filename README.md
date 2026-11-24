@@ -6,33 +6,77 @@ toxicity and production. It answers from stored data and nothing else:
 reference entries for the fundamentals, measurements pulled out of published
 papers, and calculators you can audit.
 
-**285 reference entries · 10,176 measurements · 83,409 papers · 34 compounds ·
-28 calculators.** The measurements come in two halves: 5,071 battery
+**285 reference entries · 10,162 measurements · 83,409 papers · 34 compounds ·
+28 calculators.** The measurements come in two halves: 5,046 battery
 performance figures — capacity, retention, cycle life, rate, efficiency — and
-5,105 material properties across twelve families, from thermal conductivity and
+5,116 material properties across twelve families, from thermal conductivity and
 sheet resistance to Young's modulus, surface area, optical transmittance, water
-permeance and EMI shielding.
+permeance and EMI shielding. 7,626 of them are verified; the rest carry a flag
+saying what is doubtful about them, and the answering engine serves verified
+rows only.
 
-Most of those were read from abstracts. 1,048 came from the full text of 269
+Most were read from abstracts. 1,084 came from the full text of 274
 open-access papers, fetched from the Europe PMC open-access subset into a
 separate file that is not shipped: the body is forty thousand characters where
-an abstract is twelve hundred, and the conditions a researcher asks for —
-at what current, after how many cycles — are in the body. About 29% of the
-gold and diamond open-access papers tried could be retrieved in full.
+an abstract is twelve hundred, and the conditions a researcher asks for — at
+what current, after how many cycles — are in the body. About 29% of the gold
+and diamond open-access papers tried could be retrieved in full.
 
-Reading a body is not reading a longer abstract, and the difference is
-measured rather than assumed. Four hand audits of twenty rows each put the
-battery findings from full text at about seven eighths right, and the property
-rows at about two thirds. An abstract is the authors' own claims; a body also
-holds other groups' numbers, standards' minimums, textbook constants and
-control samples. Guards catch the classes that recur — a figure credited to
-another paper, a baseline in a from-to comparison, a control, a standard, a
-value every paper in the field quotes — and three rounds of them did not close
-the gap, because the tail is long. So the property rows read from bodies are
-stored flagged rather than verified: they are searchable and each carries the
-sentence it came from, and the answering engine serves verified rows only, so
-none of them can answer a question. Closing that gap wants a reader that can
-judge a sentence, not another pattern.
+### How much of it is right
+
+Measured, not asserted. Rows are drawn at random and judged one at a time
+against the sentence stored beside them, in samples of about twenty:
+
+| | rows | judged right |
+|---|---|---|
+| Battery findings from abstracts | 2,800 verified | 19 of 20 |
+| Material properties from abstracts | 4,461 verified | 18 of 19 |
+| Battery findings from full text | 360 verified | 13 of 15 |
+| Material properties from full text | 577, all flagged | about two thirds |
+
+Twenty rows is a small sample and the interval around each figure is wide, so
+these are the order of the thing and not a precise rate. What the audits are
+really for is finding the classes of error, and each round found some. The
+battery rows from abstracts were at 16 of 19 before the faults below were
+fixed, and the property rows at 15 of 18.
+
+An abstract is the authors' own claims about their own sample, which is why it
+reads so much more cleanly than a body. A body also holds other groups'
+numbers, standards' minimums, textbook constants and control samples. Guards
+refuse the classes that recur — a figure credited to another paper, a baseline
+in a from-to comparison, a control, a general claim, a value every paper in
+the field quotes — and three rounds of them did not close the gap on the
+property rows, because the tail is long: an error bar, a modulus quoted beside
+a strength, "are reported as", "agrees with a value of". So those rows are
+stored flagged rather than verified. They stay searchable and each carries its
+sentence, and none of them can answer a question. Closing that gap wants a
+reader that can judge a sentence, not another pattern.
+
+What the audits found, each of which had reached the shipped library:
+
+- A femtogram is not a farad. 58 rows were biosensor detection limits —
+  "1.0 fg/mL" — filed as specific capacitance, because the unit patterns are
+  compiled case-insensitively and f is the lowercase of F.
+- An uncertainty is not a value. "670 ± 5 L m⁻²h⁻¹bar⁻¹" stored 5, and
+  "617 ± 5 mAh g⁻¹" stored 5, because 5 is the number nearest the unit.
+- `round(x, 6)` is six decimal places, so a conductivity of 4.85×10⁻¹¹ S/cm
+  became exactly 0.0.
+- A pattern that cannot span a thousands separator matches the trailing group
+  on its own: "after 10,000 cycles" captured "000", and 314 rows carried a
+  cycle count of zero beside a real retention figure.
+- The same shape in the property patterns read only the separated form, so a
+  mobility of "11900 cm² V⁻¹s⁻¹" stored 1900 and "250000" was lost in silence.
+- A retention percentage is a battery figure only if what was retained is a
+  capacity and what it survived was charge cycling. Flexibility tests, a
+  stretching test and a solar cell's stability were all stored as capacity
+  retention; 471 rows retained a capacitance rather than a capacity and now
+  say so.
+- A capacity can be a setting rather than a result: "a cutoff specific
+  capacity of 600 mAh/g" is the number the experimenter chose.
+- Matched case-insensitively, `\bGO\b` matches the verb "go", so "we then go
+  on to measure the sample" was labelled graphene oxide.
+- PubMed leaves "[Formula: see text]" where a formula stood. It was shown to
+  anyone reading the source quote of 18 rows, and in one it split a number.
 
 Of the 83,409 papers, 68,037 were matched by a search requiring a graphene
 term in the title, and 15,372 only by one that reads the abstract as well — so
@@ -149,8 +193,8 @@ sending the link to anyone.
 | [OpenAlex](https://openalex.org) | 83,409 paper records, 2019 onward, 18,699 of them shipping with their abstract | CC0 |
 | [Wikipedia](https://en.wikipedia.org) | 285 reference entries across 19 categories, stored verbatim with a link to each original | CC BY-SA 4.0 |
 | [PubChem](https://pubchem.ncbi.nlm.nih.gov) | 34 compounds: formula, mass, structure | public domain |
-| This repository | 10,176 measurements extracted from the papers (5,071 battery, 5,105 material property) across 7,092 papers, and 28 calculators | the repository's licence |
-| [Europe PMC](https://europepmc.org) | open-access full text for 269 of those papers, read for measurements and not shipped | the publishers' open-access licences |
+| This repository | 10,162 measurements extracted from the papers (5,046 battery, 5,116 material property) across 7,051 papers, and 28 calculators | the repository's licence |
+| [Europe PMC](https://europepmc.org) | open-access full text for 274 of those papers, read for measurements and not shipped | the publishers' open-access licences |
 
 All of it is open and checkable. Nothing is paid for, and nothing is behind a
 login. Every reference entry shows which source it came from and links to it,

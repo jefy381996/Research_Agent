@@ -198,6 +198,199 @@ class SymbolsAreCaseSensitive(unittest.TestCase):
             E.PARTNERS, "the Se cathode delivered 600 mAh/g"), "Se")
 
 
+class SeparatedThousands(unittest.TestCase):
+    """A pattern that cannot span a thousands separator matches the trailing
+    group on its own. "after 10,000 cycles" captured "000", so 314 rows in the
+    library carried a cycle count of zero beside a real retention figure."""
+
+    def test_a_cycle_count_survives_its_separator(self):
+        for text, want in (
+            ("The electrode retained 92% of capacity after 10 000 cycles.", 10000),
+            ("The electrode retained 92% of capacity after 10,000 cycles.", 10000),
+            ("The electrode retained 92% of capacity after 10000 cycles.", 10000),
+            ("Zn cells retain 77.3% of capacity after 2,000 cycles at 30 C.", 2000),
+            ("The cell retained 90% of capacity after 500 cycles.", 500),
+        ):
+            row = E.extract_from_sentence(text, "t", text, "abstract")
+            self.assertIsNotNone(row, text)
+            self.assertEqual(row["cycle_count"], want, text)
+
+    def test_no_row_reports_a_retention_after_no_cycles(self):
+        text = "The supercapacitor retained 92% of capacity after 10 000 cycles."
+        row = E.extract_from_sentence(text, "t", text, "abstract")
+        self.assertNotEqual(row["cycle_count"], 0)
+
+    def test_a_capacity_survives_its_separator(self):
+        for text, want in (
+            ("The anode delivered 1,206.9 mAh g -1 at 0.2C after 100 cycles.", 1206.9),
+            ("A capacity of 1 675 mAh g -1 was reached for the cathode.", 1675.0),
+            ("The anode delivered 372 mAh g -1 at 100 mA g -1 .", 372.0),
+        ):
+            row = E.extract_from_sentence(text, "t", text, "abstract")
+            self.assertAlmostEqual(row["specific_capacity_mah_g"], want, places=1)
+
+
+class ASettingIsNotAResult(unittest.TestCase):
+    """A capacity can be the number the experimenter chose. "cycle stability
+    estimated with a cutoff specific capacity of 600 mAh/g" and "55 cycles at
+    a limited capacity of 1000 mAh g-1" are protocol: the cell never reached
+    them. Same reasoning as the theoretical-claim guard beside it."""
+
+    def test_a_cutoff_capacity_is_not_stored(self):
+        for text in (
+            "Furthermore, the cycle stability of the battery was estimated"
+            " with a cutoff specific capacity of 600 mAh/g at 200 mA/g.",
+            "The catalyst performed appreciable cycle stability up to 55"
+            " cycles at a limited capacity of 1000 mAh g-1.",
+        ):
+            row = E.extract_from_sentence(text, "t", text, "abstract")
+            if row is not None:
+                self.assertIsNone(row["specific_capacity_mah_g"], text[:60])
+
+    def test_the_retention_beside_a_setting_still_stands(self):
+        text = ("At a fixed capacity of 500 mAh g-1, the cell retained 90%"
+                " of capacity after 200 cycles.")
+        row = E.extract_from_sentence(text, "t", text, "abstract")
+        self.assertIsNotNone(row)
+        self.assertIsNone(row["specific_capacity_mah_g"])
+        self.assertAlmostEqual(row["capacity_retention_pct"], 90.0, places=1)
+
+    def test_a_delivered_capacity_is_unaffected(self):
+        for text, want in (
+            ("The anode delivered a reversible capacity of 617 mAh g -1 at"
+             " 100 mA g -1 after 100 cycles.", 617.0),
+            ("It can maintain the reversible capacity of 134 mAh g -1 after"
+             " 1000 cycles at 1.0 A g -1 .", 134.0),
+            ("The graphite anode has a theoretical capacity of 372 mAh g -1"
+             " but delivered 350 mAh g -1 .", 350.0),
+        ):
+            row = E.extract_from_sentence(text, "t", text, "abstract")
+            self.assertAlmostEqual(row["specific_capacity_mah_g"], want, places=1)
+
+    def test_a_density_retention_is_flagged(self):
+        text = ("A prototype pouch cell exhibits a high initial energy"
+                " density of 401.0 Wh kg -1 with 95.3% retention after 120"
+                " cycles.")
+        row = E.extract_from_sentence(text, "t", text, "abstract")
+        self.assertIsNotNone(row)
+        self.assertTrue(any("retention_of_another_quantity" in f
+                            for f in row["flags"]), row["flags"])
+
+    def test_a_capacity_retention_beside_a_density_is_not_flagged(self):
+        text = ("The cell showed a capacity retention of 87.1% after 1500"
+                " cycles and a high energy density of 300 Wh kg -1 .")
+        row = E.extract_from_sentence(text, "t", text, "abstract")
+        self.assertFalse(any("retention_of_another_quantity" in f
+                             for f in row["flags"]), row["flags"])
+
+
+class TheSourcesOwnMarkers(unittest.TestCase):
+    """PubMed leaves a marker where a formula, image or table stood. It is
+    shown to whoever reads the source quote, and in one abstract it split
+    "10 000 cycles" into "10[Formula: see text]000" and made the count zero."""
+
+    def test_the_marker_is_gone_from_the_stored_sentence(self):
+        text = ("After 10[Formula: see text]000 cycles, the 3D CoP/GH keeps a"
+                " stable specific capacity retention of 94.11%.")
+        stored = E.sentences(text)[0]
+        self.assertNotIn("Formula", stored)
+        self.assertIn("10 000 cycles", stored)
+
+    def test_a_number_the_marker_split_is_read_whole(self):
+        text = ("After 10[Formula: see text]000 cycles, the electrode keeps a"
+                " stable specific capacity retention of 94.11%.")
+        row = E.extract_from_sentence(E.sentences(text)[0], "t",
+                                      E.sentences(text)[0], "abstract")
+        self.assertEqual(row["cycle_count"], 10000)
+        self.assertAlmostEqual(row["capacity_retention_pct"], 94.11, places=2)
+
+    def test_the_quote_still_verifies_against_the_abstract(self):
+        # normalise strips the marker too, so both sides of the check agree.
+        abstract = ("We report a composite. After 10[Formula: see text]000"
+                    " cycles, the electrode keeps a capacity retention of"
+                    " 94.11%. It is promising.")
+        rows, _ = E.rows_for_paper(
+            {"openalex_id": "W1", "title": "t", "abstract": abstract})
+        self.assertTrue(rows)
+        self.assertEqual(rows[0]["confidence"] if "confidence" in rows[0]
+                         else "verified", rows[0].get("confidence", "verified"))
+        self.assertNotIn("Formula", rows[0]["source_quote"])
+
+
+class RetentionOfWhatAfterWhat(unittest.TestCase):
+    """A retention percentage is a battery figure only if what was retained is
+    a capacity and what it survived was charge cycling. Three of nineteen
+    verified rows in a hand audit were neither: a flexibility test, a solar
+    cell's stability, and a stretching test."""
+
+    def assertNoRow(self, text):
+        self.assertIsNone(
+            E.extract_from_sentence(text, "A graphene anode", text, "abstract"),
+            text[:70])
+
+    def test_bending_cycles_are_not_charge_cycles(self):
+        self.assertNoRow("The 3D printed MSC exhibits reliable flexibility"
+                         " with retention of 90.2% of its original"
+                         " capacitance after 500 bending cycles.")
+        self.assertNoRow("After 2000 bending cycles the sensor retained 95%"
+                         " of its response.")
+
+    def test_a_strain_is_not_a_cycle(self):
+        self.assertNoRow("The stretchable MSCs exhibit capacitance retention"
+                         " of 77.1% at 50% strain.")
+        self.assertNoRow("The device retained 85% of its capacitance at a"
+                         " strain of 100%.")
+
+    def test_a_solar_cells_stability_is_not_a_batterys(self):
+        self.assertNoRow("The devices exhibit a champion power conversion"
+                         " efficiency (PCE) of 24.11% and enhanced UV"
+                         " stability, retaining 81% of performance.")
+
+    def test_a_capacitance_retention_is_flagged_not_refused(self):
+        # The percentage and the cycle count are a real electrochemical
+        # measurement. They are just not a capacity's, and this is the
+        # battery table, so the row stays and carries the reason.
+        text = ("A symmetric supercapacitor exhibited a volumetric"
+                " capacitance of 155 F cm -3 and good stability with ~100%"
+                " retention after 10 000 cycles.")
+        row = E.extract_from_sentence(text, "t", text, "abstract")
+        self.assertIsNotNone(row)
+        self.assertEqual(row["capacity_retention_pct"], 100.0)
+        self.assertTrue(any("capacitance_not_capacity" in f
+                            for f in row["flags"]), row["flags"])
+
+    def test_a_real_capacity_retention_comes_through_clean(self):
+        for text in (
+            "The electrode retained 97.2% of its capacity after 100 cycles"
+            " at 100 mA g -1 .",
+            "It achieves cycling stability with nearly 100% capacity"
+            " retention over 1100 cycles.",
+            "The full cell delivers a capacity retention of 89.7% after 100"
+            " cycles at 1C.",
+            # The mechanical word is present but is not the kind of cycling.
+            "The lattice strain was relieved, and the electrode retained 90%"
+            " of its capacity after 500 cycles.",
+            "A tensile strain of 2.1% was measured while the anode retained"
+            " 88% of its capacity over 300 cycles.",
+        ):
+            row = E.extract_from_sentence(text, "A graphene anode", text,
+                                          "abstract")
+            self.assertIsNotNone(row, text[:60])
+            self.assertIsNotNone(row["capacity_retention_pct"], text[:60])
+            self.assertFalse(any("capacitance_not_capacity" in f
+                                 for f in row["flags"]), text[:60])
+
+    def test_a_capacity_in_a_bending_sentence_still_stands(self):
+        # Only the retention and the cycle count go; the capacity is real.
+        text = ("The anode delivered 617 mAh g -1 and the device survived"
+                " 1000 bending cycles.")
+        row = E.extract_from_sentence(text, "t", text, "abstract")
+        self.assertIsNotNone(row)
+        self.assertAlmostEqual(row["specific_capacity_mah_g"], 617.0, places=1)
+        self.assertIsNone(row["capacity_retention_pct"])
+        self.assertIsNone(row["cycle_count"])
+
+
 class AnUncertaintyIsNotAValue(unittest.TestCase):
 
     def test_an_error_bar_is_not_the_capacity(self):

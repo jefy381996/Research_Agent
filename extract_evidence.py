@@ -50,7 +50,17 @@ _SUBS = [
 ]
 
 
+# PubMed puts a marker where a formula, image or table stood. It is not part
+# of the sentence, it is shown to whoever reads the source quote, and in one
+# abstract it split "10 000 cycles" into "10[Formula: see text]000" and made
+# the cycle count zero. Stripped in both places so the quote that is stored
+# and the text it is verified against agree.
+SOURCE_MARKER = re.compile(r"\[(?:Formula|Image|Table|Figure)\s*:\s*see\s+"
+                           r"text\]", re.I)
+
+
 def normalise(text: str) -> str:
+    text = SOURCE_MARKER.sub(" ", text)
     for a, b in _SUBS:
         text = text.replace(a, b)
     return re.sub(r"\s+", " ", text)
@@ -65,7 +75,9 @@ _ABBREV = re.compile(
 def sentences(text: str) -> list[str]:
     if not text:
         return []
-    text = text.strip()
+    # Before splitting, so the sentence stored as the source quote is the
+    # sentence a reader sees, without the source's own markers in it.
+    text = re.sub(r"\s+", " ", SOURCE_MARKER.sub(" ", text)).strip()
     parts = re.split(r"(?<=[.!?])\s+", text)
     out: list[str] = []
     for part in parts:
@@ -82,10 +94,16 @@ def sentences(text: str) -> list[str]:
 
 
 # --- quantity patterns ------------------------------------------------------
+# A figure may carry thousands separators, and a pattern that cannot span one
+# matches the trailing group on its own: "after 10,000 cycles" and "after
+# 10 000 cycles" both captured "000" and stored a cycle count of zero. 314
+# rows in the library held one, next to a real retention percentage.
+GROUPED = r"\d{1,3}(?:[,\s]\d{3})+|\d{1,6}"
+
 # An uncertainty is not a value. "617 +- 5 mAh g-1" stored 5, because 5 is
 # the number nearest the unit; swallowing the "+- 5" makes 617 the
 # leftmost match, so the figure read is the one the paper reported.
-NUM = (r"(\d{1,6}(?:[.,]\d+)?)"
+NUM = (r"((?:" + GROUPED + r")(?:[.,]\d+)?)"
        r"(?:\s*(?:\u00b1|\+\s*/?\s*-)\s*\d+(?:[.,]\d+)?)?")
 
 CAPACITY_RE = re.compile(
@@ -102,7 +120,7 @@ CRATE_RE = re.compile(
 
 CYCLES_RE = re.compile(
     r"(?:after|over|within|for|during|up\s+to|following)?\s*"
-    r"(\d{1,6})\s*(?:charge\s*[-/]?\s*discharge\s*)?cycles", re.I)
+    r"(" + GROUPED + r")\s*(?:charge\s*[-/]?\s*discharge\s*)?cycles", re.I)
 
 RETENTION_RE = [
     re.compile(NUM + r"\s*%\s*(?:of\s+)?(?:its\s+|the\s+)?"
@@ -135,6 +153,64 @@ SYNTHESIS_RE = re.compile(
     r"anneal|calcin|pyroly|carboniz|carbonis|sinter|heat(?:ed|ing)?|"
     r"furnace|hydrotherm|solvotherm|reduc(?:ed|tion)\s+at|dried|drying|"
     r"thermal\s+treat|CVD|grown\s+at|synthesi", re.I)
+
+# A capacity can be a setting rather than a result. "the cycle stability was
+# estimated with a cutoff specific capacity of 600 mAh/g" and "up to 55 cycles
+# at a limited capacity of 1000 mAh/g" are both protocol: the experimenter
+# chose the number, the cell did not reach it. Read just before the figure,
+# because "a limited capacity" and "delivered a capacity" differ only there.
+CAPACITY_IS_A_SETTING = re.compile(
+    r"\b(?:cut\s*-?\s*off|cutoff|limited|limiting|fixed|restricted|capped|"
+    r"curtail\w*|controlled)\s+(?:specific\s+|reversible\s+|areal\s+)?"
+    r"capacit\w*\s*(?:of|to|at)?\s*$"
+    r"|\bcapacit\w*\s+(?:limited|restricted|fixed|capped)\s+(?:to|at)\s*$",
+    re.I)
+SETTING_LOOKBACK = 60
+
+
+def _is_a_setting(before: str) -> bool:
+    """True when what precedes a capacity makes it a protocol, not a result."""
+    return bool(CAPACITY_IS_A_SETTING.search(before[-SETTING_LOOKBACK:]))
+
+# What was retained, when it is not a capacity at all. An energy density's
+# retention is a real measurement and a close cousin, but it is not the same
+# quantity, and the table's column says capacity.
+OTHER_QUANTITY = re.compile(
+    r"\b(?:energy|power|areal|volumetric|gravimetric)\s+densit\w*", re.I)
+
+# A retention percentage is a battery figure only if what was retained is a
+# capacity and what it survived was charge cycling. "90.2% of its original
+# capacitance after 500 bending cycles" is a flexibility test, "77.1% at 50%
+# strain" is a stretching test, and a solar cell's stability is neither.
+# Storing any of them as capacity retention is wrong even though the digits
+# are in the sentence - the same reason a synthesis temperature is not a test
+# temperature. Audited at 3 of 19 verified battery rows.
+#
+# The mechanical word has to BE the kind of cycling, not merely be present:
+# "the lattice strain was relieved, and the electrode retained 90% after 500
+# cycles" is a real result, and a window around the figure is not enough to
+# tell the two apart - 40 characters of lookback threw that sentence away.
+MECHANICAL_CYCLING = re.compile(
+    r"\b(?:bend|bends|bending|flex|flexes|flexing|flexural|fold|folds|"
+    r"folding|twist|twists|twisting|stretch|stretches|stretching|wash|"
+    r"washes|washing|abrasion|rubbing|wear)\w*\s+(?:cycle|cycles|test|tests)\b"
+    r"|\bafter\s+[\d,\s]+(?:bend|flex|fold|twist|stretch|wash)\w*"
+    r"|\bat\s+\d+(?:\.\d+)?\s*%?\s*(?:of\s+)?strain\b"
+    r"|\bat\s+(?:a\s+)?strain\s+of\s+\d"
+    r"|\b(?:bending|stretching|folding|twisting)\s+(?:durability|stability)\b",
+    re.I)
+
+# A photovoltaic's stability is not a battery's, and a sentence reporting a
+# power conversion efficiency is not reporting on a cell that stores charge,
+# so this one is read across the whole sentence.
+PHOTOVOLTAIC = re.compile(
+    r"\bPCE\b|power\s+conversion\s+efficien|photovoltaic|solar\s+cell|"
+    r"\bperovskite\b", re.I)
+
+# What was retained. A capacitance retention is a real measurement, but it is
+# not a capacity, and this is the battery table. 269 rows held one.
+CAPACITANCE_RETENTION = re.compile(
+    r"capacitance|supercapacit|pseudocapacit", re.I)
 
 LOADING_RE = re.compile(
     NUM + r"\s*mg\s*(?:/|\s)?\s*cm\s*(?:-?\s*2)?", re.I)
@@ -291,8 +367,14 @@ def _first_match(vocab, text):
 
 
 def _num(raw):
+    """A matched figure as a number, separators and all.
+
+    Stripping the space as well as the comma, because papers write "10 000"
+    as often as "10,000" and float() takes neither.
+    """
     try:
-        return float(str(raw).replace(",", ""))
+        return float(str(raw).replace(",", "").replace(" ", "")
+                     .replace("\u00a0", "").replace("\u202f", ""))
     except (TypeError, ValueError):
         return None
 
@@ -327,16 +409,24 @@ def extract_from_sentence(sentence, title, abstract, section):
     norm = normalise(sentence)
     work = norm
 
-    caps = CAPACITY_RE.findall(work)
+    caps = [m.groups() for m in CAPACITY_RE.finditer(work)
+            if not _is_a_setting(work[:m.start()])]
     for match in CAPACITY_RE.finditer(norm):          # blank out so mA/g does not
         work = work.replace(match.group(0), " " * len(match.group(0)), 1)
 
     currents = CURRENT_RE.findall(work)
 
     retention = None
+    not_cycling = False
     for pattern in RETENTION_RE:
         found = pattern.search(norm)
         if found:
+            if MECHANICAL_CYCLING.search(norm) or PHOTOVOLTAIC.search(norm):
+                # Mechanical durability, or a photovoltaic's stability. The
+                # cycle count goes with it: "500 bending cycles" is not 500
+                # charge cycles. A capacity in the same sentence still stands.
+                not_cycling = True
+                break
             retention = _num(found.group(1))
             break
 
@@ -350,6 +440,7 @@ def extract_from_sentence(sentence, title, abstract, section):
     # apart from a measurement by the words that introduce it.
     measured = []
     skipped_theoretical = 0
+    skipped_setting = 0
     for match in CAPACITY_RE.finditer(norm):
         value = _num(match.group(1))
         if value is None:
@@ -358,6 +449,11 @@ def extract_from_sentence(sentence, title, abstract, section):
         claim = THEORETICAL_RE.search(before)
         if claim and not MEASURED_RE.search(before[claim.end():]):
             skipped_theoretical += 1
+            continue
+        if _is_a_setting(before):
+            # A cutoff or limited capacity is the number the experimenter
+            # chose, not the one the cell reached.
+            skipped_setting += 1
             continue
         measured.append((value, match.group(1), match.group(2)))
 
@@ -391,6 +487,20 @@ def extract_from_sentence(sentence, title, abstract, section):
     if FARAD_RE.search(norm):
         notes.append("sentence_also_reports_farads_per_gram: check for a unit mix-up")
 
+    if (retention is not None and not caps
+            and OTHER_QUANTITY.search(norm)
+            and not re.search(r"capacit(?:y|ies)\s+retention", norm, re.I)):
+        notes.append("retention_of_another_quantity: what was retained is a "
+                     "density, not a capacity")
+
+    if retention is not None and not caps and CAPACITANCE_RETENTION.search(norm):
+        # Flagged rather than refused: the percentage and the cycle count are
+        # a real electrochemical measurement, they are just not a capacity's.
+        # Flagged keeps it searchable with its sentence while the answer path,
+        # which serves verified rows only, leaves it out of battery answers.
+        notes.append("capacitance_not_capacity: what was retained is a "
+                     "capacitance, so this is not a battery capacity retention")
+
     # Every capacity in the sentence was a theoretical limit and retention was
     # not reported either, so there is no measurement here to store.
     if capacity is None and retention is None:
@@ -417,7 +527,7 @@ def extract_from_sentence(sentence, title, abstract, section):
 
     cycles = None
     cycles_found = CYCLES_RE.search(norm)
-    if cycles_found:
+    if cycles_found and not not_cycling:
         cycles = _num(cycles_found.group(1))
 
     ce = None
