@@ -142,6 +142,24 @@ def brief(conn, limit=BRIEF_LIMIT):
     return {"items": out, "newest": newest}
 
 
+def accuracy(conn):
+    """The most recent audit of each population, newest first."""
+    try:
+        rows = conn.execute(
+            "SELECT population, label, rows_total, sample, right_, unclear,"
+            "       audited_at, judged_by, note FROM accuracy_audit a"
+            " WHERE audited_at = (SELECT max(audited_at) FROM accuracy_audit b"
+            "                     WHERE b.population = a.population)"
+            " ORDER BY rows_total DESC").fetchall()
+    except Exception:
+        return []                      # no audit has been run in this copy
+    return [{"population": r["population"], "label": r["label"],
+             "rows": r["rows_total"], "sample": r["sample"],
+             "right": r["right_"], "unclear": r["unclear"],
+             "audited_at": r["audited_at"], "by": r["judged_by"],
+             "note": r["note"] or ""} for r in rows]
+
+
 def main():
     parser = argparse.ArgumentParser(description="Build the static mirror.")
     parser.add_argument("--db", default=None)
@@ -219,6 +237,11 @@ def main():
                                          "graphene_form", "electrode_role",
                                          "material_system")},
         "brief": brief(conn),
+        # How much of this is right, measured rather than claimed. Rows are
+        # drawn at random and read against their own stored sentence; the
+        # count, the sample size and the date travel with the figure so the
+        # screen can say how it knows. See audit_accuracy.py.
+        "accuracy": accuracy(conn),
         "stats": {
             "papers": one("SELECT count(*) FROM papers"),
             # Abstracts, not paper_sections: the derived index is stripped

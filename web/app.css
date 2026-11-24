@@ -1585,3 +1585,31 @@ html.booting .hero .badge i{animation:boot-wipe 900ms var(--e-out) both 400ms}
   .bitem{padding:14px 15px;border-radius:12px}
   .bfig b{font-size:21px}
 }
+
+/* ── how much of this is right ──────────────────────────────
+   Every research tool claims to be accurate. This one says how accurate and
+   how it knows, on the screen, with the sample size beside the figure. It is
+   the one claim here that a reader can check without trusting anybody, so it
+   is given the weight of a statement rather than a footnote. */
+.acc{margin:26px auto 0;max-width:640px}
+.acc .accbar{display:flex;align-items:center;gap:12px;width:100%;cursor:pointer;
+  appearance:none;text-align:left;background:var(--surf);border:1px solid var(--line);
+  border-radius:14px;padding:13px 16px;box-shadow:var(--sh-1);transition:.18s var(--ease)}
+.acc .accbar:hover{border-color:var(--acc);box-shadow:var(--sh-2)}
+.acc .accnum{font:600 15px var(--sans);color:var(--ink);white-space:nowrap}
+.acc .acctext{font:450 12.5px var(--sans);color:var(--ink-2);line-height:1.45}
+.acc .accmore{margin-left:auto;font:500 12px var(--sans);color:var(--acc);white-space:nowrap}
+.acc .accpanel{margin-top:10px;background:var(--surf);border:1px solid var(--line);
+  border-radius:14px;padding:16px 18px;box-shadow:var(--sh-1)}
+.acc table{width:100%;border-collapse:collapse;font:450 12.5px var(--sans)}
+.acc th{text-align:left;font:600 11px var(--sans);color:var(--ink-3);
+  text-transform:uppercase;letter-spacing:.05em;padding:0 10px 7px 0}
+.acc td{padding:7px 10px 7px 0;border-top:1px solid var(--line);color:var(--ink-2)}
+.acc td.n{font:600 13px var(--mono);color:var(--ink);white-space:nowrap}
+.acc .accnote{margin-top:12px;font:450 12px var(--sans);color:var(--ink-3);line-height:1.55}
+@media (max-width:780px){
+  .acc{margin-top:18px}
+  .acc .accbar{flex-wrap:wrap;gap:6px}
+  .acc .accmore{margin-left:0;width:100%}
+  .acc th:nth-child(3),.acc td:nth-child(3){text-align:right}
+}

@@ -1084,6 +1084,35 @@ def agent_ask(payload: dict):
     return StreamingResponse(stream(), media_type="application/x-ndjson")
 
 
+@app.get("/api/accuracy", summary="How much of the library is right, measured")
+def accuracy():
+    """The latest audit of each population.
+
+    Every research tool claims to be accurate; this one says how accurate and
+    how it knows. Rows are drawn at random and read one at a time against the
+    sentence stored beside them. The sample size and the date travel with the
+    figure, because a small sample honestly labelled is worth more than a
+    confident number with nothing behind it.
+    """
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT population, label, rows_total, sample, right_, unclear,"
+            "       audited_at, judged_by, note FROM accuracy_audit a"
+            " WHERE audited_at = (SELECT max(audited_at) FROM accuracy_audit b"
+            "                     WHERE b.population = a.population)"
+            " ORDER BY rows_total DESC").fetchall()
+    except Exception:
+        return {"audits": [], "note": "no audit has been run against this copy"}
+    finally:
+        conn.close()
+    return {"audits": [
+        {"population": r["population"], "label": r["label"],
+         "rows": r["rows_total"], "sample": r["sample"], "right": r["right_"],
+         "unclear": r["unclear"], "audited_at": r["audited_at"],
+         "by": r["judged_by"], "note": r["note"] or ""} for r in rows]}
+
+
 @app.get("/api/health", summary="Liveness and corpus readiness")
 def health():
     conn = _conn()

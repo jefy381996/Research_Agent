@@ -3617,6 +3617,7 @@ async function loadData() {
     `<button style="--i:${i}" data-q="${esc(q)}">${esc(q)}</button>`).join("");
   $("chips").addEventListener("click", (e) => { const b = e.target.closest("button");
     if (b) (MODE === "agent" ? askAgent : ask)(b.dataset.q); });
+  paintAccuracy();
   paintFacets(); head(); loadNotes(); probeAgent();
   myLoad(); wireMine();
   wireVoice();
@@ -3689,6 +3690,63 @@ function agentChips() {
         <svg class="ic" viewBox="0 0 22 22"><use href="#i-spark"/></svg>
         ${esc(s.question)}</button>`).join("");
   box.hidden = false;
+}
+
+/* ── how much of this is right ──────────────────────────────
+   Shown, not claimed. Rows are drawn at random and read one at a time against
+   the sentence stored beside them; what goes on the screen is that count,
+   with the sample size and the date beside it, because a small sample
+   honestly labelled is worth more than a confident number with nothing behind
+   it. Nothing else in this tool asks to be taken on trust, and neither does
+   this. See audit_accuracy.py. */
+function accuracyRows() {
+  return (DATA && Array.isArray(DATA.accuracy)) ? DATA.accuracy : [];
+}
+
+function paintAccuracy() {
+  // The sample size is shown and the size of the population is not. The
+  // first is what makes the claim checkable; the second is the figure the
+  // screen deliberately never states anywhere.
+  const box = $("acc");
+  if (!box) return;
+  const audits = accuracyRows();
+  if (!audits.length) { box.hidden = true; return; }
+  const head = audits.find((a) => a.population === "battery") || audits[0];
+  const when = (head.audited_at || "").slice(0, 10);
+  box.hidden = false;
+  box.innerHTML = `
+    <button class="accbar" id="accbar" aria-expanded="false" aria-controls="accpanel">
+      <span class="accnum">${head.right} of ${head.sample}</span>
+      <span class="acctext">${esc(head.label.toLowerCase())} were right when
+        read by hand against the sentence each came from.</span>
+      <span class="accmore" id="accmore">How this is measured &rarr;</span>
+    </button>
+    <div class="accpanel" id="accpanel" hidden>
+      <table>
+        <thead><tr><th>What was checked</th><th>Right</th><th>When</th></tr></thead>
+        <tbody>${audits.map((a) => `<tr>
+          <td>${esc(a.label)}</td>
+          <td class="n">${a.right} of ${a.sample}</td>
+          <td>${esc((a.audited_at || "").slice(0, 10))}</td></tr>`).join("")}
+        </tbody>
+      </table>
+      <div class="accnote">
+        Rows are drawn at random and judged one at a time against the sentence
+        stored beside them. Twenty rows is a small sample and the true figure
+        could sit a few points either side &mdash; which is the point of
+        printing the sample size rather than a round number. Rows that fail a
+        check are kept and labelled, never deleted, and never used to answer a
+        question. Anyone can repeat this: the tool that draws the sample is in
+        the repository, and the same seed gives the same rows.
+      </div>
+    </div>`;
+  $("accbar").addEventListener("click", () => {
+    const panel = $("accpanel"), bar = $("accbar");
+    const open = panel.hidden;
+    panel.hidden = !open;
+    bar.setAttribute("aria-expanded", String(open));
+    $("accmore").innerHTML = open ? "Hide &uarr;" : "How this is measured &rarr;";
+  });
 }
 
 function setMode(mode) {
