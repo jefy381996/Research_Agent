@@ -64,6 +64,45 @@ stored flagged rather than verified. They stay searchable and each carries its
 sentence, and none of them can answer a question. Closing that gap wants a
 reader that can judge a sentence, not another pattern.
 
+### Asking a model to check the rows
+
+Patterns could not close the gap on the rows read from bodies, so the obvious
+next move was to put each row to a model: one question, against the one
+sentence that row came from — do these authors say they measured this property
+on their own material at this value? The model is a filter over text that is
+already here, never a source. It cannot introduce a number or reach a paper,
+and the worst a wrong answer does is trust or distrust a single row whose
+sentence is stored beside it either way.
+
+Which direction that is worth using was then measured, on twenty-seven rows
+already judged by hand, and the answer was not the expected one.
+
+As a **promoter** it is too loose. It passed 2 of the 18 rows judged wrong and
+recovered 5 of the 9 judged right, which over the 577 flagged rows is about
+235 promoted at 91% — leaving the answer path at 94.9% against 95% now. All of
+the risk of putting a model in the trust path for no measurable gain. So
+`--promote` exists, is off, and stays off unless those rates improve.
+
+As a **demoter** it earns its place. Twice it refused a row this project had
+accepted, and both times it was right: "the specific surface area of the V2O5
+and V2O5/RGO composite were 31.12 and 52.17" filed under V2O5, and a sw-GS/PW
+composite's conductivity filed under rGO. Both are material labels, already
+the weakest axis. In a small sample of rows that currently answer questions it
+refused a sheet resistance belonging to a PPy-jute supercapacitor and a solar
+efficiency stored as an optical transmittance. Refusing a row costs recall and
+nothing else, because the row keeps its sentence and stays searchable.
+
+It is also not deterministic: asked the same row twice at temperature zero it
+changed its answer, so a verdict counts only where two independent asks agree.
+
+What limits this is the budget rather than the reading. The free tier allows
+8,000 tokens a minute and about a thousand requests in five and a half hours,
+and counts what a request reserves rather than what it uses. Four rows to a
+call, asked twice, is a row every few seconds at best: the 577 flagged rows
+are a half-hour job and the 7,273 rows that answer questions are an overnight
+one. So `judge_rows.py` writes each verdict as it arrives and skips what it
+has already judged — it is meant to be started, left, and started again.
+
 What the audits found, each of which had reached the shipped library:
 
 - A femtogram is not a farad. 58 rows were biosensor detection limits —
