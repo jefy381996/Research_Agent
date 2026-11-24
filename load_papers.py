@@ -65,6 +65,9 @@ def main():
     args = parser.parse_args()
 
     started = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    # The collection file ships packed, for the same reason the
+    # library does: it outgrew what a git host accepts.
+    db.ensure_file(args.csv)
     conn = db.init(args.db)
 
     existing = {r["openalex_id"] for r in conn.execute("SELECT openalex_id FROM papers")}

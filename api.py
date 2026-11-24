@@ -114,7 +114,26 @@ EVIDENCE_COLUMNS = [
 
 
 # The only two of the sixty-two searches that do not require a graphene term.
-NO_GRAPHENE_SEARCHES = frozenset({"battery-basics", "beyond-lithium"})
+NO_GRAPHENE_SEARCHES = frozenset({
+    "battery-basics", "beyond-lithium",
+    # The materials graphene is weighed against. They ask for no
+    # graphene term, so a paper found only by one of these is about
+    # something else and must not answer a question about graphene.
+    "mxene",
+    "mxene-properties",
+    "mos2",
+    "dichalcogenide",
+    "boron-nitride",
+    "phosphorene",
+    "silicon-anode",
+    "hard-carbon",
+    "lfp-cathode",
+    "nmc-cathode",
+    "solid-electrolyte",
+    "zinc-ion",
+    "potassium-ion",
+    "carbon-nanotube",
+})
 
 
 # Computed once. /api/bundle is hit on every page load and this walks every

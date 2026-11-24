@@ -40,7 +40,26 @@ MAX_PASSAGES = 6000     # most-cited first; the browser bundle stays under ~10 M
 
 
 # The only two of the sixty-two searches that do not require a graphene term.
-NO_GRAPHENE_SEARCHES = frozenset({"battery-basics", "beyond-lithium"})
+NO_GRAPHENE_SEARCHES = frozenset({
+    "battery-basics", "beyond-lithium",
+    # The materials graphene is weighed against. They ask for no
+    # graphene term, so a paper found only by one of these is about
+    # something else and must not answer a question about graphene.
+    "mxene",
+    "mxene-properties",
+    "mos2",
+    "dichalcogenide",
+    "boron-nitride",
+    "phosphorene",
+    "silicon-anode",
+    "hard-carbon",
+    "lfp-cathode",
+    "nmc-cathode",
+    "solid-electrolyte",
+    "zinc-ion",
+    "potassium-ion",
+    "carbon-nanotube",
+})
 
 
 def provenance(conn):

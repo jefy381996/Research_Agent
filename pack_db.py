@@ -55,7 +55,9 @@ def pack(src: str, fmt: str, level: int) -> str:
 
 def main():
     p = argparse.ArgumentParser(description="Pack the library for shipping.")
-    p.add_argument("--path", default=db.DB_PATH)
+    p.add_argument("--path", action="append", default=None,
+                   help="repeatable; defaults to the library and the raw "
+                        "collection file, both of which outgrew the limit")
     p.add_argument("--format", default="zst", choices=["zst", "xz"],
                    help="zst unpacks in a tenth of a second; xz needs nothing "
                         "installed")
@@ -64,10 +66,18 @@ def main():
                    help="what the git host refuses above")
     args = p.parse_args()
 
-    src = args.path
-    if not os.path.exists(src):
-        sys.exit(f"{src} is not here. Nothing to pack.")
+    paths = args.path or [db.DB_PATH, "data/papers.csv"]
     level = args.level if args.level is not None else LEVELS[args.format]
+    worst = 0
+    for src in paths:
+        if not os.path.exists(src):
+            print(f"{src} is not here; skipping.")
+            continue
+        worst = max(worst, pack_one(src, args, level))
+    return worst
+
+
+def pack_one(src, args, level):
 
     before = os.path.getsize(src)
     want = digest(src)
@@ -96,7 +106,7 @@ def main():
         print("Publish it as a release asset instead and set DB_URL to its"
               " address; a release asset has no size limit.")
         return 1
-    print(f"{out} is ready to commit. The database itself is not committed.")
+    print(f"{out} is ready to commit; {src} itself is not.")
     return 0
 
 

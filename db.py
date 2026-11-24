@@ -276,13 +276,14 @@ def _unpack(archive: str, into: str) -> None:
     os.replace(tmp, into)
 
 
-def ensure_database(path: str | None = None) -> str:
-    """Make sure the database file exists, unpacking the archive if not.
+def ensure_file(path: str) -> str:
+    """Make sure a packed file is unpacked, if an archive sits beside it.
 
-    Does nothing when the database is already there and no newer archive sits
-    beside it, so it is free to call on every connection.
+    Used for the library and for data/papers.csv, the raw collection, which
+    outgrew the same hundred-megabyte limit. Does nothing when the file is
+    already there and no newer archive sits beside it, so it is free to call
+    on every open.
     """
-    path = path or DB_PATH
     here = os.path.exists(path)
     for suffix in ARCHIVES:
         archive = path + suffix
@@ -299,6 +300,11 @@ def ensure_database(path: str | None = None) -> str:
                 return path
             raise
     return path
+
+
+def ensure_database(path: str | None = None) -> str:
+    """The library, unpacked if it is only here as an archive."""
+    return ensure_file(path or DB_PATH)
 
 
 def connect(path: str | None = None) -> sqlite3.Connection:

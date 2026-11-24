@@ -32,3 +32,7 @@ data/research_agent.db-wal
 data/research_agent.db-shm
 !data/research_agent.db.zst
 !data/research_agent.db.xz
+
+# The raw collection outgrew the same limit; it ships packed too.
+data/papers.csv
+!data/papers.csv.zst

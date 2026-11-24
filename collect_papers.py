@@ -67,6 +67,28 @@ SEARCHES = [
     ("structure",      'title.search:graphene AND (structure OR defects OR edge OR layer OR nanoribbon)', 5000),
     ("review",         'title.search:graphene AND (review OR advances OR progress OR perspective) AND (energy OR battery OR storage)', None),
 
+    # ── the materials graphene is weighed against ───────────────────────
+    # A tool that only knows graphene can only answer about graphene, and a
+    # researcher comparing it against MXene or molybdenum disulfide has to go
+    # somewhere else - which is the moment the tool stops being useful. These
+    # ask for no graphene term at all, deliberately. Every row they produce is
+    # labelled with the material it was measured on and none of them answers a
+    # question about graphene; see NO_GRAPHENE_SEARCHES.
+    ("mxene",          'title.search:MXene AND (battery OR supercapacitor OR anode OR electrode)', 2500),
+    ("mxene-properties", 'title.search:MXene AND (conductivity OR properties OR shielding)', 1500),
+    ("mos2",           'title.search:(MoS2 OR "molybdenum disulfide") AND (anode OR battery OR electrode)', 2500),
+    ("dichalcogenide", 'title.search:("transition metal dichalcogenide" OR WS2 OR WSe2 OR MoSe2) AND (energy OR battery OR electrode)', 1500),
+    ("boron-nitride",  'title.search:("hexagonal boron nitride" OR "h-BN") AND (thermal OR composite OR dielectric)', 1500),
+    ("phosphorene",    'title.search:("black phosphorus" OR phosphorene) AND (anode OR battery OR electrode)', 1200),
+    ("silicon-anode",  'title.search:"silicon anode" AND (lithium OR battery OR capacity)', 2500),
+    ("hard-carbon",    'title.search:"hard carbon" AND (sodium OR anode OR battery)', 2000),
+    ("lfp-cathode",    'title.search:(LiFePO4 OR "lithium iron phosphate") AND (cathode OR battery)', 2000),
+    ("nmc-cathode",    'title.search:(NMC OR NCM OR "nickel manganese cobalt") AND (cathode OR battery)', 2000),
+    ("solid-electrolyte", 'title.search:"solid electrolyte" AND (battery OR lithium OR conductivity)', 2500),
+    ("zinc-ion",       'title.search:"zinc-ion" AND (battery OR cathode OR anode)', 2000),
+    ("potassium-ion",  'title.search:"potassium-ion" AND (battery OR anode OR cathode)', 1500),
+    ("carbon-nanotube", 'title.search:"carbon nanotube" AND (anode OR battery OR composite OR conductivity)', 2000),
+
     # Battery fundamentals, so the library can explain the field graphene sits in.
     ("battery-basics", 'title.search:("lithium-ion battery" OR "lithium ion battery") AND (mechanism OR fundamentals OR review OR degradation OR "solid electrolyte interphase")', 3800),
     ("beyond-lithium", 'title.search:("sodium-ion" OR "potassium-ion" OR "zinc-ion" OR "magnesium") AND (battery OR batteries) AND (anode OR cathode OR electrolyte)', 3800),
