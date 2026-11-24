@@ -239,7 +239,37 @@ FROM_TO_RE = re.compile(
 # immediately before the value, so a sentence that cites a theoretical figure
 # AND reports a real one still yields the real one.
 THEORETICAL_RE = re.compile(
-    r"theoretic|in\s+theory|maximum\s+possible", re.I)
+    r"theoretic|in\s+theory|maximum\s+possible"
+    # A capability is a ceiling, not a result: "silicon (Si) anodes capable of
+    # 3579 mAh/g" is the textbook figure for silicon, and it was the third
+    # card on the measurements screen. The measurement-verb escape below still
+    # rescues "capable of 3579 mAh/g, the anode delivered 1250".
+    r"|capable\s+of|can\s+(?:reach|deliver|achieve|store|accommodate)"
+    r"|up\s+to\s+a\s+maximum", re.I)
+
+# Somebody else's figure, quoted for comparison. "exhibits much higher
+# discharge capacity than that of the reported Mg-MOF-74 (4560 mAh/g)" was the
+# second card on the measurements screen, and the number belongs to another
+# group. Unlike a theoretical claim there is no escape from this one: a
+# measurement verb in the sentence is this paper measuring its own material,
+# not a licence to take the number beside the citation.
+CREDITED_RE = re.compile(
+    r"\bthe\s+reported\b|\bpreviously\s+reported\b"
+    r"|\breported\s+(?:value|capacity|result)s?\b"
+    r"|\bet\s+al\b|\bin\s+the\s+literature\b"
+    r"|\bcompared\s+(?:to|with)\s+(?:the\s+)?reported\b", re.I)
+CREDITED_LOOKBACK = 70
+
+# A number from a calculation rather than a cell. "We propose that porous 2D
+# materials ... the B7P2 monolayer is identified with an ultrahigh capacity of
+# 3117 mAh/g" was the fourth card. The property extractor already flags these;
+# the battery extractor did not. Flagged rather than refused, because the
+# paper really did compute it and someone may want to find it.
+MODELLED_RE = re.compile(
+    r"\bwe\s+(?:propose|predict|calculat)|\bpredict(?:ed|s|ion)?\b"
+    r"|first\s*-?\s*principles|\bDFT\b|molecular\s+dynamic|\bsimulat"
+    r"|\bmonolayer\s+is\s+identified|calculations\s+(?:show|reveal|predict)",
+    re.I)
 
 # Distance alone cannot separate the two cases. "The theoretical capacity of
 # silicon can reach up to 4200 mAh/g" is a textbook constant; "exceeding the
@@ -486,6 +516,7 @@ def extract_from_sentence(sentence, title, abstract, section):
     measured = []
     skipped_theoretical = 0
     skipped_setting = 0
+    skipped_credited = 0
     for match in CAPACITY_RE.finditer(norm):
         value = _num(match.group(1))
         if value is None:
@@ -499,6 +530,9 @@ def extract_from_sentence(sentence, title, abstract, section):
             # A cutoff or limited capacity is the number the experimenter
             # chose, not the one the cell reached.
             skipped_setting += 1
+            continue
+        if CREDITED_RE.search(before[-CREDITED_LOOKBACK:]):
+            skipped_credited += 1
             continue
         measured.append((value, match.group(1), match.group(2)))
 
@@ -537,6 +571,10 @@ def extract_from_sentence(sentence, title, abstract, section):
             and not re.search(r"capacit(?:y|ies)\s+retention", norm, re.I)):
         notes.append("retention_of_another_quantity: what was retained is a "
                      "density, not a capacity")
+
+    if MODELLED_RE.search(norm):
+        notes.append("modelled_not_measured: the figure comes from a "
+                     "calculation or a prediction, not a cell")
 
     if retention is not None and not caps and CAPACITANCE_RETENTION.search(norm):
         # Flagged rather than refused: the percentage and the cycle count are

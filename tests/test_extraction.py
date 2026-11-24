@@ -318,6 +318,55 @@ class AnotherFieldsCyclingTest(unittest.TestCase):
         self.assertAlmostEqual(row["capacity_retention_pct"], 92.0, places=1)
 
 
+class TheTopOfTheList(unittest.TestCase):
+    """The measurements screen sorts by capacity, so the biggest numbers are
+    the first a visitor sees - and the biggest numbers are where theoretical
+    ceilings, other people's figures and computed predictions collect. Three
+    of the top five cards were one of those. A random row was 19 of 20; the
+    top of the sort was 2 of 5, because the sort selects for the error."""
+
+    def test_a_capability_is_a_ceiling_not_a_result(self):
+        text = ("The cycling stability of high-capacity silicon (Si) anodes"
+                " capable of 3579 mAh g-1 in lithium-ion batteries is"
+                " hindered by SEI instability.")
+        row = E.extract_from_sentence(text, "t", text, "abstract")
+        if row is not None:
+            self.assertIsNone(row["specific_capacity_mah_g"])
+
+    def test_a_figure_credited_to_another_paper_is_not_taken(self):
+        text = ("The cathode exhibits much higher discharge capacity than"
+                " that of the reported Mg-MOF-74 (4560 mAh g-1) at the same"
+                " current density.")
+        row = E.extract_from_sentence(text, "t", text, "abstract")
+        if row is not None:
+            self.assertIsNone(row["specific_capacity_mah_g"])
+
+    def test_a_computed_capacity_is_flagged(self):
+        text = ("We propose that porous 2D materials with planar structure"
+                " are promising anodes, following which the B 7 P 2 monolayer"
+                " is identified with an ultrahigh capacity of 3117 mA h g-1 .")
+        row = E.extract_from_sentence(text, "t", text, "abstract")
+        self.assertIsNotNone(row)
+        self.assertTrue(any("modelled_not_measured" in f for f in row["flags"]),
+                        row["flags"])
+
+    def test_a_measured_figure_beside_a_theoretical_one_survives(self):
+        # The escape that keeps the guard from eating real results.
+        text = ("Exceeding the theoretical capacity of graphite (372 mAh"
+                " g-1), the anode delivered 1250 mAh g-1 at 100 mA g-1 .")
+        row = E.extract_from_sentence(text, "t", text, "abstract")
+        self.assertAlmostEqual(row["specific_capacity_mah_g"], 1250.0, places=1)
+
+    def test_a_large_but_real_capacity_is_untouched(self):
+        # Li-O2 capacities really are thousands of mAh/g.
+        text = ("When the current density is increased to 200 mA/g, the"
+                " discharge capacity of the Tz-Mg-MOF-74 cathode decreases"
+                " to 4907 mAh g-1 .")
+        row = E.extract_from_sentence(text, "t", text, "abstract")
+        self.assertAlmostEqual(row["specific_capacity_mah_g"], 4907.0, places=1)
+        self.assertFalse(any("modelled" in f for f in row["flags"]))
+
+
 class ASettingIsNotAResult(unittest.TestCase):
     """A capacity can be the number the experimenter chose. "cycle stability
     estimated with a cutoff specific capacity of 600 mAh/g" and "55 cycles at

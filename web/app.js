@@ -3107,7 +3107,23 @@ const BHUE = { "lithium-ion": "var(--c1)", "sodium-ion": "var(--c2)", "lithium-s
 const FHUE = { rGO: "var(--c1)", "graphene oxide": "var(--c2)", graphene: "var(--c3)" };
 const hue = (m, k) => m[k] || "var(--c0)";
 
-const T = { filters: { confidence: "verified" }, sort: "specific_capacity_mah_g",
+/* How complete a measurement's record is. Sorting by capacity alone put the
+   biggest numbers first, and the biggest numbers are where theoretical
+   ceilings and computed predictions collect - three of the first five cards
+   were one of those. The extractor now refuses them, but the ordering was
+   still wrong on its own terms: a figure with its material, its current and
+   its cycle count named is worth more to a reader than a bare large number,
+   and should be what the screen opens on. Capacity remains one click away. */
+const documented = (r) =>
+  (r.material_system ? 3 : 0)
+  + (r.current_density_ma_g !== null || r.c_rate !== null ? 2 : 0)
+  + (r.cycle_count !== null ? 2 : 0)
+  + (r.capacity_retention_pct !== null ? 1 : 0)
+  + (r.first_cycle_ce_pct !== null ? 1 : 0)
+  + (r.voltage_window_v ? 1 : 0)
+  + (r.specific_capacity_mah_g !== null ? 1 : 0);
+
+const T = { filters: { confidence: "verified" }, sort: "documented",
   dir: "desc", rows: [], total: 0, off: 0, lim: 60, capMax: 1, loading: false,
   layout: "cards" };
 
@@ -3170,6 +3186,12 @@ function keep(r, f) {
 }
 
 const sorted = (rows) => rows.slice().sort((a, b) => {
+  if (T.sort === "documented") {
+    const s = documented(b) - documented(a);
+    // Ties broken by capacity, so the best-recorded big numbers lead.
+    return s !== 0 ? s
+      : (b.specific_capacity_mah_g || 0) - (a.specific_capacity_mah_g || 0);
+  }
   const d = T.dir === "desc" ? -1 : 1, x = a[T.sort], y = b[T.sort];
   if (x === null || x === undefined) return 1;
   if (y === null || y === undefined) return -1;
@@ -3198,7 +3220,8 @@ function mcard(r, i) {
   return `<button class="mcard ${r.confidence === "flagged" ? "fl" : ""}${
       r.mine ? " mine" : ""}" style="--i:${i}" data-id="${r.id}">
     ${r.mine ? `<span class="mtag">yours</span>` : ""}
-    <div class="mhead"><span class="mmat">${esc(r.material_system || "unnamed")}</span>
+    <div class="mhead">${r.material_system
+        ? `<span class="mmat">${esc(r.material_system)}</span>` : ""}
       <span class="mchem">${esc(r.battery_type || "chemistry not stated")}${
         r.electrode_role ? " \u00b7 " + esc(r.electrode_role) : ""}</span></div>
     <div class="mbig">${headline}</div>
@@ -3313,10 +3336,14 @@ $("clear").addEventListener("click", () => {
   $("preset").value = "default"; reload();
 });
 const PRESETS = { default: { confidence: "verified" }, all: {}, flagged: { confidence: "flagged" },
+  biggest: { confidence: "verified" },
   longlife: { cycles_min: 500 }, silicon: { q: "si/", electrode_role: "anode" },
   sulfur: { q: "s/", electrode_role: "cathode" }, recent: { year_min: 2024 } };
+const PRESET_SORT = { biggest: "specific_capacity_mah_g" };
 $("preset").addEventListener("change", (e) => {
   T.filters = { ...PRESETS[e.target.value] };
+  T.sort = PRESET_SORT[e.target.value] || "documented";
+  T.dir = "desc";
   document.querySelectorAll(".fi").forEach((b) =>
     b.setAttribute("aria-pressed", String(T.filters[FP[b.dataset.f]] === b.dataset.v)));
   reload();
