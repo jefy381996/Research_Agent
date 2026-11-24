@@ -230,6 +230,94 @@ class SeparatedThousands(unittest.TestCase):
             self.assertAlmostEqual(row["specific_capacity_mah_g"], want, places=1)
 
 
+class WhichMaterialWasMeasured(unittest.TestCase):
+    """A label is the one axis the value audits kept catching in passing: 14
+    of 18 verified rows carried the right material, and the slice whose label
+    came from the abstract alone ran 8 of 12. In every wrong case the name was
+    the counter-electrode or a line of background, and was said once."""
+
+    def partner_of(self, title, abstract, sentence):
+        material, form, _, _, _ = E.classify(title, abstract, sentence)
+        if material is None:
+            return None
+        if "/" in material:
+            return material.split("/")[0]
+        return None if material == form else material
+
+    def test_a_name_said_once_in_the_abstract_is_not_the_label(self):
+        # "In Zn||MnO2 full batteries": MnO2 is the other electrode.
+        self.assertIsNone(self.partner_of(
+            "Binder-Free 3D Zn-Graphene Anode from Zinc Powders and Graphene Oxide",
+            "A Zn-graphene anode was built. In Zn||MnO 2 full batteries,"
+            " Zn_G enhances the gravimetric energy density.",
+            "The anode delivered 400 mAh g -1 after 200 cycles."))
+        # "with a Cu2Se anode": the paper's material is the NVPF cathode.
+        self.assertIsNone(self.partner_of(
+            "Microwave Synthesis of Na3V2(PO4)2F3 Nanocuboid@Reduced Graphene Oxide",
+            "The cathode was made. The full battery with a Cu 2 Se anode"
+            " represents a capacity of 116 mAh g -1 .",
+            "The cathode delivered 120 mAh g -1 after 100 cycles."))
+        # Background about other people's silicon electrodes.
+        self.assertIsNone(self.partner_of(
+            "Sustainable Hybrid MOF/Silica Electrodes for Lithium-ion Batteries",
+            "Silica are among the motivations for the evolution of"
+            " silicon-based electrodes. In this work, a MOF composite.",
+            "The electrode delivered 500 mAh g -1 after 100 cycles."))
+
+    def test_a_name_in_the_title_is_the_papers_subject(self):
+        # Once in the title is enough; once in the abstract is not. Note the
+        # title has to name it in a form the vocabulary can see - "SnS" gives
+        # \bSn\b no word boundary to end on, which is why this one spells it.
+        self.assertEqual(self.partner_of(
+            "Mechanochemical synthesis of tin sulfide anodes for sodium ion"
+            " batteries",
+            "Orthorombic tin (II) sulfide was synthesized by a simple route.",
+            "The anode delivered 500 mAh g -1 after 100 cycles."), "Sn")
+
+    def test_once_in_the_abstract_and_absent_from_the_title_is_dropped(self):
+        self.assertIsNone(self.partner_of(
+            "Mechanochemical synthesis of SnS anodes for sodium ion batteries",
+            "Orthorombic tin (II) sulfide was synthesized by a simple route.",
+            "The anode delivered 500 mAh g -1 after 100 cycles."))
+
+    def test_a_name_said_twice_in_the_abstract_is_meant(self):
+        self.assertEqual(self.partner_of(
+            "Graphene/Carbon Black Co-modified Separator for Batteries",
+            "The sulfur cathode with high S loading was built, and sulfur"
+            " utilisation improved markedly.",
+            "The cell delivered 1000 mAh g -1 after 100 cycles."), "S")
+
+    def test_the_sentences_own_material_always_wins(self):
+        self.assertEqual(self.partner_of(
+            "A paper about something else entirely",
+            "No materials are named here at all.",
+            "The SnO 2 /graphene anode delivered 800 mAh g -1 ."), "SnO2")
+
+    def test_a_row_keeps_the_label_it_can_support(self):
+        # Losing an unsupported partner leaves the graphene form, which is
+        # less specific and still true.
+        material, form, _, _, _ = E.classify(
+            "Binder-Free 3D Zn-Graphene Anode from Zinc Powders and Graphene Oxide",
+            "A Zn-graphene anode. In Zn||MnO 2 full batteries, Zn_G helps.",
+            "The anode delivered 400 mAh g -1 after 200 cycles.")
+        self.assertEqual(material, form)
+        self.assertIsNotNone(form)
+
+
+class AnotherFieldsCyclingTest(unittest.TestCase):
+
+    def test_gas_adsorption_cycling_is_not_battery_cycling(self):
+        text = ("This work evaluates the CO2-adsorption relevance and cycling"
+                " stability of graphene oxide-silica, retaining 92% after 20"
+                " cycles.")
+        self.assertIsNone(E.extract_from_sentence(text, "t", text, "abstract"))
+
+    def test_a_real_capacity_retention_is_unaffected(self):
+        text = "The electrode retained 92% of its capacity after 500 cycles."
+        row = E.extract_from_sentence(text, "t", text, "abstract")
+        self.assertAlmostEqual(row["capacity_retention_pct"], 92.0, places=1)
+
+
 class ASettingIsNotAResult(unittest.TestCase):
     """A capacity can be the number the experimenter chose. "cycle stability
     estimated with a cutoff specific capacity of 600 mAh/g" and "55 cycles at

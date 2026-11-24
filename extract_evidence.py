@@ -207,6 +207,15 @@ PHOTOVOLTAIC = re.compile(
     r"\bPCE\b|power\s+conversion\s+efficien|photovoltaic|solar\s+cell|"
     r"\bperovskite\b", re.I)
 
+# Nor is an adsorbent's. "evaluates the CO2-adsorption relevance and cycling
+# stability of graphene oxide-silica" put a gas-adsorption durability figure
+# in the battery table. "Adsorption" alone is not enough - a battery paper
+# mentions electrolyte adsorption - so it has to be what was cycled.
+OTHER_DOMAIN = re.compile(
+    r"\b(?:CO\s*2|gas|dye|methylene\s+blue|heavy\s+metal|oil)\s*-?\s*"
+    r"adsorption\b|\badsorption\s+(?:capacit|cycling|stability)|"
+    r"\bdye\s+(?:removal|rejection)\b|\bdesalination\b", re.I)
+
 # What was retained. A capacitance retention is a real measurement, but it is
 # not a capacity, and this is the battery table. 269 rows held one.
 CAPACITANCE_RETENTION = re.compile(
@@ -379,13 +388,48 @@ def _num(raw):
         return None
 
 
+def _corroborated(vocab, title, abstract):
+    """A label taken from the paper rather than the sentence, if the paper
+    means it.
+
+    A name in the title is the paper's subject. A name mentioned once
+    somewhere in an abstract is as often the counter-electrode or a line of
+    background: "In Zn||MnO2 full batteries" labelled a zinc-graphene anode
+    as MnO2, "with a Cu2Se anode" labelled an NVPF cathode as Se, and "hard
+    carbon (HC) as anodes" labelled a Ni/Mn cathode as hard carbon. Judged by
+    hand, that slice ran about a third wrong, and in every wrong case the name
+    appeared once while every multiply-named one was right.
+
+    So a name found only in the abstract has to be said twice. The row then
+    keeps the less specific label it can support - the graphene form alone -
+    which is worth more to somebody filtering by material than a precise
+    label that is false.
+    """
+    found = _first_match(vocab, normalise(title or ""))
+    if found:
+        return found
+    body = normalise(abstract or "")
+    found = _first_match(vocab, body)
+    if not found:
+        return None
+    for label, patterns in vocab:
+        if label != found:
+            continue
+        hits = sum(len(re.findall(pattern, body, re.I)) for pattern in patterns)
+        return found if hits >= 2 else None
+    return None
+
+
 def classify(title, abstract, sentence):
-    """Categorical labels. Sentence wins; paper text is the fallback."""
+    """Categorical labels. The sentence wins; the paper is the fallback, and
+    has to mean it - see _corroborated."""
     paper_text = normalise(f"{title} {abstract}")
-    form = _first_match(GRAPHENE_FORMS, sentence) or _first_match(GRAPHENE_FORMS, paper_text)
+    form = (_first_match(GRAPHENE_FORMS, sentence)
+            or _corroborated(GRAPHENE_FORMS, title, abstract))
     btype = _first_match(BATTERY_TYPES, sentence) or _first_match(BATTERY_TYPES, paper_text)
     role = _first_match(ELECTRODE_ROLES, sentence) or _first_match(ELECTRODE_ROLES, paper_text)
-    partner = _first_match(PARTNERS, sentence) or _first_match(PARTNERS, paper_text)
+    partner = (_first_match(PARTNERS, sentence)
+               or _corroborated(PARTNERS, title, abstract))
 
     if partner and form:
         material = f"{partner}/{form}"
@@ -421,7 +465,8 @@ def extract_from_sentence(sentence, title, abstract, section):
     for pattern in RETENTION_RE:
         found = pattern.search(norm)
         if found:
-            if MECHANICAL_CYCLING.search(norm) or PHOTOVOLTAIC.search(norm):
+            if (MECHANICAL_CYCLING.search(norm) or PHOTOVOLTAIC.search(norm)
+                    or OTHER_DOMAIN.search(norm)):
                 # Mechanical durability, or a photovoltaic's stability. The
                 # cycle count goes with it: "500 bending cycles" is not 500
                 # charge cycles. A capacity in the same sentence still stands.

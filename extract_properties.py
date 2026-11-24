@@ -27,8 +27,8 @@ from datetime import datetime, timezone
 
 import db
 import properties as P
-from extract_evidence import (GRAPHENE_FORMS, PARTNERS, _first_match,
-                              normalise, sentences)
+from extract_evidence import (GRAPHENE_FORMS, PARTNERS, _corroborated,
+                              _first_match, normalise, sentences)
 
 APPLICATIONS = [
     ("thermal management", (r"thermal\s+management", r"heat\s+dissipat",
@@ -184,9 +184,13 @@ def rows_for_sentence(sentence: str, title: str, abstract: str,
         return []
 
     paper_text = normalise(f"{title} {abstract}")
+    # The sentence wins; the paper is the fallback and has to mean it. See
+    # _corroborated in extract_evidence: a name said once in an abstract is
+    # as often the counter-electrode or background as the material measured.
     form = (_first_match(GRAPHENE_FORMS, work)
-            or _first_match(GRAPHENE_FORMS, paper_text))
-    partner = _first_match(PARTNERS, work) or _first_match(PARTNERS, paper_text)
+            or _corroborated(GRAPHENE_FORMS, title, abstract))
+    partner = (_first_match(PARTNERS, work)
+               or _corroborated(PARTNERS, title, abstract))
     application = (_first_match(APPLICATIONS, work)
                    or _first_match(APPLICATIONS, paper_text))
     material = f"{partner}/{form}" if partner and form else (form or partner)

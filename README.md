@@ -6,16 +6,16 @@ toxicity and production. It answers from stored data and nothing else:
 reference entries for the fundamentals, measurements pulled out of published
 papers, and calculators you can audit.
 
-**285 reference entries · 10,162 measurements · 83,409 papers · 34 compounds ·
-28 calculators.** The measurements come in two halves: 5,046 battery
+**285 reference entries · 10,148 measurements · 83,409 papers · 34 compounds ·
+28 calculators.** The measurements come in two halves: 5,032 battery
 performance figures — capacity, retention, cycle life, rate, efficiency — and
 5,116 material properties across twelve families, from thermal conductivity and
 sheet resistance to Young's modulus, surface area, optical transmittance, water
-permeance and EMI shielding. 7,626 of them are verified; the rest carry a flag
+permeance and EMI shielding. 7,627 of them are verified; the rest carry a flag
 saying what is doubtful about them, and the answering engine serves verified
 rows only.
 
-Most were read from abstracts. 1,084 came from the full text of 274
+Most were read from abstracts. 1,078 came from the full text of 274
 open-access papers, fetched from the Europe PMC open-access subset into a
 separate file that is not shipped: the body is forty thousand characters where
 an abstract is twelve hundred, and the conditions a researcher asks for — at
@@ -27,18 +27,30 @@ and diamond open-access papers tried could be retrieved in full.
 Measured, not asserted. Rows are drawn at random and judged one at a time
 against the sentence stored beside them, in samples of about twenty:
 
-| | rows | judged right |
-|---|---|---|
-| Battery findings from abstracts | 2,800 verified | 19 of 20 |
-| Material properties from abstracts | 4,461 verified | 18 of 19 |
-| Battery findings from full text | 360 verified | 13 of 15 |
-| Material properties from full text | 577, all flagged | about two thirds |
+| | rows | the value | the material |
+|---|---|---|---|
+| Battery findings from abstracts | 2,807 verified | 19 of 20 | 16 of 18 |
+| Material properties from abstracts | 4,466 verified | 18 of 19 | |
+| Battery findings from full text | 354 verified | 13 of 15 | |
+| Material properties from full text | 577, all flagged | about two thirds | |
 
 Twenty rows is a small sample and the interval around each figure is wide, so
 these are the order of the thing and not a precise rate. What the audits are
-really for is finding the classes of error, and each round found some. The
-battery rows from abstracts were at 16 of 19 before the faults below were
-fixed, and the property rows at 15 of 18.
+really for is finding the classes of error, and each round found some. Before
+the faults listed below were fixed, the battery rows from abstracts were at 16
+of 19, the property rows at 15 of 18, and the material labels at 14 of 18.
+
+The material label is a separate question from the value, and a weaker one: a
+row can carry the right number against the wrong material, which matters to
+anyone filtering by material. A label is taken from the sentence where the
+sentence names one. Where it does not, the paper is the fallback and has to
+mean it — a name in the title is the paper's subject, but a name said once
+somewhere in an abstract is as often the counter-electrode or a line of
+background. That slice was judged 8 of 12 right, and in every wrong case the
+name was said exactly once, while every multiply-named one was right. So a
+name found only in the abstract now has to be said twice; otherwise the row
+keeps the less specific label it can support, which is worth more than a
+precise label that is false.
 
 An abstract is the authors' own claims about their own sample, which is why it
 reads so much more cleanly than a body. A body also holds other groups'
@@ -77,6 +89,9 @@ What the audits found, each of which had reached the shipped library:
   on to measure the sample" was labelled graphene oxide.
 - PubMed leaves "[Formula: see text]" where a formula stood. It was shown to
   anyone reading the source quote of 18 rows, and in one it split a number.
+- A gas-adsorption durability test is not a battery's. "evaluates the
+  CO2-adsorption relevance and cycling stability of graphene oxide–silica"
+  had put one in the battery table.
 
 Of the 83,409 papers, 68,037 were matched by a search requiring a graphene
 term in the title, and 15,372 only by one that reads the abstract as well — so
@@ -193,7 +208,7 @@ sending the link to anyone.
 | [OpenAlex](https://openalex.org) | 83,409 paper records, 2019 onward, 18,699 of them shipping with their abstract | CC0 |
 | [Wikipedia](https://en.wikipedia.org) | 285 reference entries across 19 categories, stored verbatim with a link to each original | CC BY-SA 4.0 |
 | [PubChem](https://pubchem.ncbi.nlm.nih.gov) | 34 compounds: formula, mass, structure | public domain |
-| This repository | 10,162 measurements extracted from the papers (5,046 battery, 5,116 material property) across 7,051 papers, and 28 calculators | the repository's licence |
+| This repository | 10,148 measurements extracted from the papers (5,032 battery, 5,116 material property) across 7,046 papers, and 28 calculators | the repository's licence |
 | [Europe PMC](https://europepmc.org) | open-access full text for 274 of those papers, read for measurements and not shipped | the publishers' open-access licences |
 
 All of it is open and checkable. Nothing is paid for, and nothing is behind a
