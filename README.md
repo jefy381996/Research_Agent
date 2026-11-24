@@ -6,12 +6,12 @@ toxicity and production. It answers from stored data and nothing else:
 reference entries for the fundamentals, measurements pulled out of published
 papers, and calculators you can audit.
 
-**285 reference entries · 10,148 measurements · 83,409 papers · 34 compounds ·
-28 calculators.** The measurements come in two halves: 5,032 battery
+**285 reference entries · 15,134 measurements · 104,649 papers · 34 compounds ·
+28 calculators.** The measurements come in two halves: 8,453 battery
 performance figures — capacity, retention, cycle life, rate, efficiency — and
-5,116 material properties across twelve families, from thermal conductivity and
+6,681 material properties across twelve families, from thermal conductivity and
 sheet resistance to Young's modulus, surface area, optical transmittance, water
-permeance and EMI shielding. 7,627 of them are verified; the rest carry a flag
+permeance and EMI shielding. 11,493 of them are verified; the rest carry a flag
 saying what is doubtful about them, and the answering engine serves verified
 rows only.
 
@@ -21,6 +21,15 @@ separate file that is not shipped: the body is forty thousand characters where
 an abstract is twelve hundred, and the conditions a researcher asks for — at
 what current, after how many cycles — are in the body. About 29% of the gold
 and diamond open-access papers tried could be retrieved in full.
+
+The library is no longer only graphene. Fourteen searches cover the materials
+it is weighed against — MXene, the dichalcogenides, hexagonal boron nitride,
+black phosphorus, silicon anodes, hard carbon, LFP and NMC cathodes, solid
+electrolytes, zinc-ion, potassium-ion and carbon nanotubes — because a tool
+that only knows graphene cannot answer the question a researcher actually
+asks, which is how it compares. Those searches ask for no graphene term at
+all, and a paper found only by one of them is labelled with the material it
+was measured on and never answers a question about graphene.
 
 ### How much of it is right
 
@@ -247,7 +256,7 @@ sending the link to anyone.
 | [OpenAlex](https://openalex.org) | 83,409 paper records, 2019 onward, 18,699 of them shipping with their abstract | CC0 |
 | [Wikipedia](https://en.wikipedia.org) | 285 reference entries across 19 categories, stored verbatim with a link to each original | CC BY-SA 4.0 |
 | [PubChem](https://pubchem.ncbi.nlm.nih.gov) | 34 compounds: formula, mass, structure | public domain |
-| This repository | 10,148 measurements extracted from the papers (5,032 battery, 5,116 material property) across 7,046 papers, and 28 calculators | the repository's licence |
+| This repository | 15,134 measurements extracted from the papers (8,453 battery, 6,681 material property), and 28 calculators | the repository's licence |
 | [Europe PMC](https://europepmc.org) | open-access full text for 274 of those papers, read for measurements and not shipped | the publishers' open-access licences |
 
 All of it is open and checkable. Nothing is paid for, and nothing is behind a
