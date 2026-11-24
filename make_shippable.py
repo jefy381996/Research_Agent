@@ -25,7 +25,17 @@ import sqlite3
 
 import db
 
-DEFAULT_BUDGET_MB = 88          # GitHub refuses above 100; leave room to grow
+# The file that ships is no longer this one. pack_db.py compresses it about
+# five times over and db.ensure_database unpacks it on first use, so the
+# hundred megabytes a git host allows now carries roughly five hundred of
+# library. Dropping abstracts to fit was costing 30,058 of the 45,148 the
+# collection holds - two thirds of the searchable text, and every
+# measurement that could have been read out of them.
+#
+# This budget is now only a guard against a file too unwieldy to work with.
+# pack_db is the gatekeeper: it refuses to write an archive over the limit
+# and says to publish a release asset instead.
+DEFAULT_BUDGET_MB = 400          # GitHub refuses above 100; leave room to grow
 
 
 def size_mb(path):
@@ -151,9 +161,11 @@ def main():
         print(f"  kept {name:12} {count}")
     print(f"  abstracts kept {left}")
     print("  dropped chunks and paper_sections; the service rebuilds them on boot")
-    if after > 100:
-        raise SystemExit(f"ERROR: still {after:.0f} MB, over the 100 MB a git "
-                         f"host accepts. Lower --budget-mb and run again.")
+    # This file is not the one that ships any more. pack_db.py compresses it
+    # about five times and refuses to write an archive a git host would
+    # reject, so it is the gatekeeper and this is only a signpost.
+    print(f"  {after:.0f} MB of library, which packs to roughly"
+          f" {after / 5.2:.0f} MB. Run pack_db.py next.")
 
 
 if __name__ == "__main__":
