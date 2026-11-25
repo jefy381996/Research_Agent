@@ -40,7 +40,26 @@ MAX_PASSAGES = 6000     # most-cited first; the browser bundle stays under ~10 M
 
 
 # The only two of the sixty-two searches that do not require a graphene term.
-NO_GRAPHENE_SEARCHES = frozenset({"battery-basics", "beyond-lithium"})
+NO_GRAPHENE_SEARCHES = frozenset({
+    "battery-basics", "beyond-lithium",
+    # The materials graphene is weighed against. They ask for no
+    # graphene term, so a paper found only by one of these is about
+    # something else and must not answer a question about graphene.
+    "mxene",
+    "mxene-properties",
+    "mos2",
+    "dichalcogenide",
+    "boron-nitride",
+    "phosphorene",
+    "silicon-anode",
+    "hard-carbon",
+    "lfp-cathode",
+    "nmc-cathode",
+    "solid-electrolyte",
+    "zinc-ion",
+    "potassium-ion",
+    "carbon-nanotube",
+})
 
 
 def provenance(conn):
@@ -88,6 +107,77 @@ def provenance(conn):
     return {"title_matched": title_matched, "abstract_only": abstract_only,
             "context_only": context, "context_measurements": context_rows,
             "papers_with_measurement": contributing}
+
+
+BRIEF_LIMIT = 24
+
+BRIEF_SQL = """
+    SELECT p.openalex_id, p.title, p.journal, p.publication_date, p.doi,
+           p.first_seen, p.year,
+           e.property_label AS label, e.value AS value, e.unit AS unit,
+           e.source_quote AS quote, e.material AS material
+      FROM papers p
+      JOIN (
+        SELECT openalex_id, property_label, value, unit, source_quote, material,
+               confidence, extracted_at
+          FROM properties
+        UNION ALL
+        SELECT openalex_id, 'specific capacity', specific_capacity_mah_g, 'mAh/g',
+               source_quote, material_system, confidence, extracted_at
+          FROM evidence WHERE specific_capacity_mah_g IS NOT NULL
+      ) e ON e.openalex_id = p.openalex_id
+     WHERE p.publication_date IS NOT NULL AND p.publication_date != ''
+       AND e.confidence = 'verified'
+     GROUP BY p.openalex_id
+     ORDER BY p.publication_date DESC, p.openalex_id
+     LIMIT ?
+"""
+
+
+def brief(conn, limit=BRIEF_LIMIT):
+    """The most recently published work in the library that reported a number.
+
+    Not a count of anything - the client does not want the size of the library
+    on screen, and a count is the least interesting thing about new work
+    anyway. What is useful is which papers are new, what each one measured,
+    and the sentence it said it in, so a researcher can see in ten seconds
+    whether any of it matters to them.
+
+    Ordered by publication date rather than by when it was collected, because
+    "published last week" is a fact about the field and "collected last week"
+    is a fact about us.
+    """
+    out = []
+    for r in conn.execute(BRIEF_SQL, (limit,)):
+        row = dict(r)
+        out.append({
+            "i": row["openalex_id"], "t": row["title"], "j": row["journal"],
+            "d": row["publication_date"], "doi": row["doi"],
+            "seen": row["first_seen"], "y": row["year"],
+            "label": row["label"], "value": row["value"], "unit": row["unit"],
+            "quote": row["quote"], "material": row["material"],
+        })
+    newest = out[0]["d"] if out else None
+    return {"items": out, "newest": newest}
+
+
+def accuracy(conn):
+    """The most recent audit of each population, newest first."""
+    try:
+        rows = conn.execute(
+            "SELECT population, label, rows_total, sample, right_, unclear,"
+            "       audited_at, judged_by, note FROM accuracy_audit a"
+            " WHERE audited_at = (SELECT max(audited_at) FROM accuracy_audit b"
+            "                     WHERE b.population = a.population)"
+            " ORDER BY rows_total DESC").fetchall()
+    except Exception:
+        return []                      # no audit has been run in this copy
+    return [{"population": r["population"], "label": r["label"],
+             "rows": r["rows_total"], "sample": r["sample"],
+             "right": r["right_"], "unclear": r["unclear"],
+             "audited_at": r["audited_at"], "by": r["judged_by"],
+             "note": r["note"] or ""} for r in rows]
+
 
 def main():
     parser = argparse.ArgumentParser(description="Build the static mirror.")
@@ -165,6 +255,12 @@ def main():
         "facets": {k: facet(k) for k in ("confidence", "battery_type",
                                          "graphene_form", "electrode_role",
                                          "material_system")},
+        "brief": brief(conn),
+        # How much of this is right, measured rather than claimed. Rows are
+        # drawn at random and read against their own stored sentence; the
+        # count, the sample size and the date travel with the figure so the
+        # screen can say how it knows. See audit_accuracy.py.
+        "accuracy": accuracy(conn),
         "stats": {
             "papers": one("SELECT count(*) FROM papers"),
             # Abstracts, not paper_sections: the derived index is stripped

@@ -114,7 +114,26 @@ EVIDENCE_COLUMNS = [
 
 
 # The only two of the sixty-two searches that do not require a graphene term.
-NO_GRAPHENE_SEARCHES = frozenset({"battery-basics", "beyond-lithium"})
+NO_GRAPHENE_SEARCHES = frozenset({
+    "battery-basics", "beyond-lithium",
+    # The materials graphene is weighed against. They ask for no
+    # graphene term, so a paper found only by one of these is about
+    # something else and must not answer a question about graphene.
+    "mxene",
+    "mxene-properties",
+    "mos2",
+    "dichalcogenide",
+    "boron-nitride",
+    "phosphorene",
+    "silicon-anode",
+    "hard-carbon",
+    "lfp-cathode",
+    "nmc-cathode",
+    "solid-electrolyte",
+    "zinc-ion",
+    "potassium-ion",
+    "carbon-nanotube",
+})
 
 
 # Computed once. /api/bundle is hit on every page load and this walks every
@@ -170,6 +189,59 @@ def _provenance(conn):
              "context_only": context, "context_measurements": context_rows,
              "papers_with_measurement": contributing}
     return _PROV
+
+
+
+BRIEF_LIMIT = 24
+
+BRIEF_SQL = """
+    SELECT p.openalex_id, p.title, p.journal, p.publication_date, p.doi,
+           p.first_seen, p.year,
+           e.property_label AS label, e.value AS value, e.unit AS unit,
+           e.source_quote AS quote, e.material AS material
+      FROM papers p
+      JOIN (
+        SELECT openalex_id, property_label, value, unit, source_quote, material,
+               confidence, extracted_at
+          FROM properties
+        UNION ALL
+        SELECT openalex_id, 'specific capacity', specific_capacity_mah_g, 'mAh/g',
+               source_quote, material_system, confidence, extracted_at
+          FROM evidence WHERE specific_capacity_mah_g IS NOT NULL
+      ) e ON e.openalex_id = p.openalex_id
+     WHERE p.publication_date IS NOT NULL AND p.publication_date != ''
+       AND e.confidence = 'verified'
+     GROUP BY p.openalex_id
+     ORDER BY p.publication_date DESC, p.openalex_id
+     LIMIT ?
+"""
+
+
+def brief(conn, limit=BRIEF_LIMIT):
+    """The most recently published work in the library that reported a number.
+
+    Not a count of anything - the client does not want the size of the library
+    on screen, and a count is the least interesting thing about new work
+    anyway. What is useful is which papers are new, what each one measured,
+    and the sentence it said it in, so a researcher can see in ten seconds
+    whether any of it matters to them.
+
+    Ordered by publication date rather than by when it was collected, because
+    "published last week" is a fact about the field and "collected last week"
+    is a fact about us.
+    """
+    out = []
+    for r in conn.execute(BRIEF_SQL, (limit,)):
+        row = dict(r)
+        out.append({
+            "i": row["openalex_id"], "t": row["title"], "j": row["journal"],
+            "d": row["publication_date"], "doi": row["doi"],
+            "seen": row["first_seen"], "y": row["year"],
+            "label": row["label"], "value": row["value"], "unit": row["unit"],
+            "quote": row["quote"], "material": row["material"],
+        })
+    newest = out[0]["d"] if out else None
+    return {"items": out, "newest": newest}
 
 
 def _conn():
@@ -278,6 +350,7 @@ def bundle():
             "facets": {k: facet(k) for k in ("confidence", "battery_type",
                                              "graphene_form", "electrode_role",
                                              "material_system")},
+            "brief": brief(conn),
             "stats": get_stats(),
         }
     finally:
@@ -728,6 +801,115 @@ def post_extract_text(payload: dict):
                     str(payload.get("title") or "pasted text"))
 
 
+# ── speech through a service, for the people whose machine cannot do it ──
+#
+# The on-device engine is free and private but needs a capable machine; the
+# browser's own is instant but flat and, in Chrome, not local either. This is
+# the third option: a hosted recogniser and a hosted voice, reached through
+# this service rather than from the page.
+#
+# The key never goes to the browser. A page that held it would hand it to
+# everyone who opened the page, so the audio is posted here and this process
+# holds the credential. That is the whole reason these two endpoints exist
+# rather than the browser calling the vendor directly.
+
+GROQ_TRANSCRIBE = "https://api.groq.com/openai/v1/audio/transcriptions"
+GROQ_ASR_MODEL = os.environ.get("GROQ_ASR_MODEL", "whisper-large-v3-turbo")
+MAX_AUDIO_BYTES = 12 * 1024 * 1024
+# Terms the recogniser is told to expect. A general recogniser writes
+# "graphing" for "graphene"; naming the vocabulary up front costs nothing.
+ASR_PROMPT = ("Graphene, reduced graphene oxide, rGO, graphene oxide, CVD, "
+              "lithium-ion, sodium-ion, lithium-sulfur, anode, cathode, "
+              "specific capacity, mAh/g, coulombic efficiency, supercapacitor, "
+              "thermal conductivity, sheet resistance, Young's modulus.")
+
+TTS_URL = os.environ.get("TTS_URL", "")
+TTS_KEY_ENV = os.environ.get("TTS_KEY_ENV", "TTS_API_KEY")
+TTS_MODEL = os.environ.get("TTS_MODEL", "tts-1")
+TTS_VOICE = os.environ.get("TTS_VOICE", "alloy")
+
+
+def _voice_services():
+    """Which hosted halves are configured. Neither is required."""
+    return {
+        "listen": bool(os.environ.get("GROQ_API_KEY", "").strip()),
+        "speak": bool(TTS_URL and os.environ.get(TTS_KEY_ENV, "").strip()),
+        "listen_model": GROQ_ASR_MODEL if os.environ.get("GROQ_API_KEY") else "",
+        "speak_voice": TTS_VOICE if TTS_URL else "",
+    }
+
+
+@app.get("/api/voice/status", summary="Which hosted speech services are configured")
+def voice_status():
+    return _voice_services()
+
+
+@app.post("/api/voice/transcribe", summary="Turn recorded speech into text")
+def voice_transcribe(file: UploadFile = File(...)):
+    """Audio in, words out. The recording is held in memory and forwarded; it
+    is never written to disk and never stored."""
+    key = os.environ.get("GROQ_API_KEY", "").strip()
+    if not key:
+        raise HTTPException(status_code=503,
+                            detail="no transcription service is configured")
+    raw = file.file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="empty recording")
+    if len(raw) > MAX_AUDIO_BYTES:
+        raise HTTPException(status_code=413, detail="recording too large")
+    try:
+        import requests
+        resp = requests.post(
+            GROQ_TRANSCRIBE,
+            headers={"Authorization": f"Bearer {key}"},
+            files={"file": (file.filename or "speech.wav", raw,
+                            file.content_type or "audio/wav")},
+            data={"model": GROQ_ASR_MODEL, "response_format": "json",
+                  "language": "en", "prompt": ASR_PROMPT},
+            timeout=45)
+    except Exception as exc:
+        raise HTTPException(status_code=502,
+                            detail=f"the transcription service did not answer: "
+                                   f"{type(exc).__name__}")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502,
+                            detail=f"transcription refused ({resp.status_code})")
+    try:
+        text = (resp.json() or {}).get("text", "")
+    except ValueError:
+        raise HTTPException(status_code=502, detail="unreadable reply")
+    return {"text": (text or "").strip()}
+
+
+@app.post("/api/voice/speak", summary="Read an answer out loud")
+def voice_speak(payload: dict):
+    """Text in, audio out, through whichever service is configured. Any
+    provider speaking the OpenAI audio/speech shape works; the address, key,
+    model and voice are all settings, so changing supplier is configuration
+    rather than code."""
+    key = os.environ.get(TTS_KEY_ENV, "").strip()
+    if not (TTS_URL and key):
+        raise HTTPException(status_code=503, detail="no voice service is configured")
+    text = (payload or {}).get("text", "")
+    if not isinstance(text, str) or not text.strip():
+        raise HTTPException(status_code=400, detail="nothing to say")
+    text = text[:4000]
+    try:
+        import requests
+        resp = requests.post(
+            TTS_URL,
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={"model": TTS_MODEL, "voice": TTS_VOICE, "input": text,
+                  "response_format": "mp3"},
+            timeout=45)
+    except Exception as exc:
+        raise HTTPException(status_code=502,
+                            detail=f"the voice service did not answer: {type(exc).__name__}")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"voice refused ({resp.status_code})")
+    return Response(content=resp.content, media_type="audio/mpeg")
+
+
 @app.post("/api/extract/pdf", summary="Read measurements out of a PDF you supply")
 def post_extract_pdf(file: UploadFile = File(...)):
     """The PDF is read in a temporary file and deleted; it is never stored."""
@@ -919,6 +1101,35 @@ def agent_ask(payload: dict):
                               "message": f"{type(exc).__name__}: {exc}"}) + "\n"
 
     return StreamingResponse(stream(), media_type="application/x-ndjson")
+
+
+@app.get("/api/accuracy", summary="How much of the library is right, measured")
+def accuracy():
+    """The latest audit of each population.
+
+    Every research tool claims to be accurate; this one says how accurate and
+    how it knows. Rows are drawn at random and read one at a time against the
+    sentence stored beside them. The sample size and the date travel with the
+    figure, because a small sample honestly labelled is worth more than a
+    confident number with nothing behind it.
+    """
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT population, label, rows_total, sample, right_, unclear,"
+            "       audited_at, judged_by, note FROM accuracy_audit a"
+            " WHERE audited_at = (SELECT max(audited_at) FROM accuracy_audit b"
+            "                     WHERE b.population = a.population)"
+            " ORDER BY rows_total DESC").fetchall()
+    except Exception:
+        return {"audits": [], "note": "no audit has been run against this copy"}
+    finally:
+        conn.close()
+    return {"audits": [
+        {"population": r["population"], "label": r["label"],
+         "rows": r["rows_total"], "sample": r["sample"], "right": r["right_"],
+         "unclear": r["unclear"], "audited_at": r["audited_at"],
+         "by": r["judged_by"], "note": r["note"] or ""} for r in rows]}
 
 
 @app.get("/api/health", summary="Liveness and corpus readiness")

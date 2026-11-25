@@ -50,7 +50,17 @@ _SUBS = [
 ]
 
 
+# PubMed puts a marker where a formula, image or table stood. It is not part
+# of the sentence, it is shown to whoever reads the source quote, and in one
+# abstract it split "10 000 cycles" into "10[Formula: see text]000" and made
+# the cycle count zero. Stripped in both places so the quote that is stored
+# and the text it is verified against agree.
+SOURCE_MARKER = re.compile(r"\[(?:Formula|Image|Table|Figure)\s*:\s*see\s+"
+                           r"text\]", re.I)
+
+
 def normalise(text: str) -> str:
+    text = SOURCE_MARKER.sub(" ", text)
     for a, b in _SUBS:
         text = text.replace(a, b)
     return re.sub(r"\s+", " ", text)
@@ -65,7 +75,9 @@ _ABBREV = re.compile(
 def sentences(text: str) -> list[str]:
     if not text:
         return []
-    text = text.strip()
+    # Before splitting, so the sentence stored as the source quote is the
+    # sentence a reader sees, without the source's own markers in it.
+    text = re.sub(r"\s+", " ", SOURCE_MARKER.sub(" ", text)).strip()
     parts = re.split(r"(?<=[.!?])\s+", text)
     out: list[str] = []
     for part in parts:
@@ -82,7 +94,17 @@ def sentences(text: str) -> list[str]:
 
 
 # --- quantity patterns ------------------------------------------------------
-NUM = r"(\d{1,6}(?:[.,]\d+)?)"
+# A figure may carry thousands separators, and a pattern that cannot span one
+# matches the trailing group on its own: "after 10,000 cycles" and "after
+# 10 000 cycles" both captured "000" and stored a cycle count of zero. 314
+# rows in the library held one, next to a real retention percentage.
+GROUPED = r"\d{1,3}(?:[,\s]\d{3})+|\d{1,6}"
+
+# An uncertainty is not a value. "617 +- 5 mAh g-1" stored 5, because 5 is
+# the number nearest the unit; swallowing the "+- 5" makes 617 the
+# leftmost match, so the figure read is the one the paper reported.
+NUM = (r"((?:" + GROUPED + r")(?:[.,]\d+)?)"
+       r"(?:\s*(?:\u00b1|\+\s*/?\s*-)\s*\d+(?:[.,]\d+)?)?")
 
 CAPACITY_RE = re.compile(
     NUM + r"\s*(mA\s?h\s*(?:/|\s)?\s*g(?:\s*-\s*1)?|A\s?h\s*(?:/|\s)?\s*kg"
@@ -98,7 +120,7 @@ CRATE_RE = re.compile(
 
 CYCLES_RE = re.compile(
     r"(?:after|over|within|for|during|up\s+to|following)?\s*"
-    r"(\d{1,6})\s*(?:charge\s*[-/]?\s*discharge\s*)?cycles", re.I)
+    r"(" + GROUPED + r")\s*(?:charge\s*[-/]?\s*discharge\s*)?cycles", re.I)
 
 RETENTION_RE = [
     re.compile(NUM + r"\s*%\s*(?:of\s+)?(?:its\s+|the\s+)?"
@@ -132,6 +154,130 @@ SYNTHESIS_RE = re.compile(
     r"furnace|hydrotherm|solvotherm|reduc(?:ed|tion)\s+at|dried|drying|"
     r"thermal\s+treat|CVD|grown\s+at|synthesi", re.I)
 
+# A capacity can be a setting rather than a result. "the cycle stability was
+# estimated with a cutoff specific capacity of 600 mAh/g" and "up to 55 cycles
+# at a limited capacity of 1000 mAh/g" are both protocol: the experimenter
+# chose the number, the cell did not reach it. Read just before the figure,
+# because "a limited capacity" and "delivered a capacity" differ only there.
+CAPACITY_IS_A_SETTING = re.compile(
+    r"\b(?:cut\s*-?\s*off|cutoff|limited|limiting|fixed|restricted|capped|"
+    r"curtail\w*|controlled)\s+(?:specific\s+|reversible\s+|areal\s+)?"
+    r"capacit\w*\s*(?:of|to|at)?\s*$"
+    r"|\bcapacit\w*\s+(?:limited|restricted|fixed|capped)\s+(?:to|at)\s*$",
+    re.I)
+SETTING_LOOKBACK = 60
+
+
+# Guards shared by every extractor. They were written for the rows read
+# from paper bodies and used only there, which is why a control sample's
+# sheet resistance and a from-to baseline both came through the abstract
+# reader untouched in the audit. Nothing about them was specific to a
+# body; they were simply in the wrong file.
+# "increased from 6.3 MPa to 8.4 MPa": the figure right after "from" is the
+# baseline the authors were improving on, not their result. Only what sits
+# immediately before the figure counts, so the other end of the same
+# comparison is still read.
+BASELINE_LOOKBACK = 28
+
+# "The tensile modulus of neat epoxy is 2.89 GPa, while for epoxy/GNP it
+# varies between 2.65 and 3.36": the figure belongs to the control, which is
+# the thing the paper is trying to beat.
+CONTROL = re.compile(
+    r"\b(?:neat|pristine|pure|bare|blank|unmodified|untreated|control|"
+    r"reference|commercial|as-received)\b[^.]{0,30}$", re.I)
+
+# "The specimens without GO obtained an elastic modulus of 19.88 GPa" is a
+# control too, and the clause can run long, so this one reads the whole of
+# the sentence before the figure rather than a window. It can afford to:
+# what was left out has to be the paper's own subject, so "measured without
+# any binder and reached 320 F/g" is still a result.
+OMITTED = re.compile(
+    r"\bwithout\s+(?:\w+\s+){0,2}"
+    r"(?:GO|rGO|graphene|graphite|nanosheets?|filler|additive)\b", re.I)
+CONTROL_LOOKBACK = 44
+
+def is_baseline(quote: str, figure) -> bool:
+    """True when the figure is the before value of a from-to comparison."""
+    if not figure:
+        return False
+    at = quote.find(str(figure))
+    if at < 0:
+        return False
+    before = quote[max(0, at - BASELINE_LOOKBACK):at]
+    found = re.search(r"\bfrom\b(.*)$", before, re.I)
+    if not found:
+        return False
+    between = found.group(1)
+    # "increased from 115.2 to 367.2": the figure after "to" is the result.
+    # "the surface area from GO (832 m2/g) to RGO": nothing between but the
+    # material's name, so this figure is what the paper compared away from.
+    if re.search(r"\bto\b", between, re.I):
+        return False
+    return len(between.split()) <= 2
+
+
+
+def _is_a_setting(before: str) -> bool:
+    """True when what precedes a capacity makes it a protocol, not a result."""
+    return bool(CAPACITY_IS_A_SETTING.search(before[-SETTING_LOOKBACK:]))
+
+# What was retained, when it is not a capacity at all. An energy density's
+# retention is a real measurement and a close cousin, but it is not the same
+# quantity, and the table's column says capacity.
+OTHER_QUANTITY = re.compile(
+    r"\b(?:energy|power|areal|volumetric|gravimetric)\s+densit\w*", re.I)
+
+# A retention percentage is a battery figure only if what was retained is a
+# capacity and what it survived was charge cycling. "90.2% of its original
+# capacitance after 500 bending cycles" is a flexibility test, "77.1% at 50%
+# strain" is a stretching test, and a solar cell's stability is neither.
+# Storing any of them as capacity retention is wrong even though the digits
+# are in the sentence - the same reason a synthesis temperature is not a test
+# temperature. Audited at 3 of 19 verified battery rows.
+#
+# The mechanical word has to BE the kind of cycling, not merely be present:
+# "the lattice strain was relieved, and the electrode retained 90% after 500
+# cycles" is a real result, and a window around the figure is not enough to
+# tell the two apart - 40 characters of lookback threw that sentence away.
+MECHANICAL_CYCLING = re.compile(
+    r"\b(?:bend|bends|bending|flex|flexes|flexing|flexural|fold|folds|"
+    r"folding|twist|twists|twisting|stretch|stretches|stretching|wash|"
+    r"washes|washing|abrasion|rubbing|wear)\w*\s+(?:cycle|cycles|test|tests)\b"
+    r"|\bafter\s+[\d,\s]+(?:bend|flex|fold|twist|stretch|wash)\w*"
+    r"|\bat\s+\d+(?:\.\d+)?\s*%?\s*(?:of\s+)?strain\b"
+    r"|\bat\s+(?:a\s+)?strain\s+of\s+\d"
+    r"|\b(?:bending|stretching|folding|twisting)\s+(?:durability|stability)\b",
+    re.I)
+
+# A photovoltaic's stability is not a battery's, and a sentence reporting a
+# power conversion efficiency is not reporting on a cell that stores charge,
+# so this one is read across the whole sentence.
+PHOTOVOLTAIC = re.compile(
+    r"\bPCE\b|power\s+conversion\s+efficien|photovoltaic|solar\s+cell|"
+    r"\bperovskite\b", re.I)
+
+# Nor is an adsorbent's. "evaluates the CO2-adsorption relevance and cycling
+# stability of graphene oxide-silica" put a gas-adsorption durability figure
+# in the battery table. "Adsorption" alone is not enough - a battery paper
+# mentions electrolyte adsorption - so it has to be what was cycled.
+OTHER_DOMAIN = re.compile(
+    r"\b(?:CO\s*2|gas|dye|methylene\s+blue|heavy\s+metal|oil)\s*-?\s*"
+    r"adsorption\b|\badsorption\s+(?:capacit|cycling|stability)|"
+    r"\bdye\s+(?:removal|rejection)\b|\bdesalination\b"
+    # A capacitive-deionisation cell and a biosensor both have "retention".
+    r"|\bcapacitive\s+deionisation|\bcapacitive\s+deionization|\bCDI\b"
+    r"|\bimpedimetric\b|\boriginal\s+activity\b"
+    r"|\bstorage\s+stability\b|\bof\s+storage\b"
+    r"|\bafter\s+\d+\s*(?:d|days?)\b"
+    # "promising electrode for SCs" - the abbreviation the capacitance guard
+    # missed, narrowed so it cannot match an unrelated "SC".
+    r"|\bfor\s+SCs\b|\bSC\s+(?:electrode|device|application|performance)", re.I)
+
+# What was retained. A capacitance retention is a real measurement, but it is
+# not a capacity, and this is the battery table. 269 rows held one.
+CAPACITANCE_RETENTION = re.compile(
+    r"capacitance|capacitiv|supercapacit|pseudocapacit|\bfor\s+SCs?\b", re.I)
+
 LOADING_RE = re.compile(
     NUM + r"\s*mg\s*(?:/|\s)?\s*cm\s*(?:-?\s*2)?", re.I)
 
@@ -150,7 +296,107 @@ FROM_TO_RE = re.compile(
 # immediately before the value, so a sentence that cites a theoretical figure
 # AND reports a real one still yields the real one.
 THEORETICAL_RE = re.compile(
-    r"theoretic|in\s+theory|maximum\s+possible", re.I)
+    r"theoretic|in\s+theory|maximum\s+possible"
+    # A capability is a ceiling, not a result: "silicon (Si) anodes capable of
+    # 3579 mAh/g" is the textbook figure for silicon, and it was the third
+    # card on the measurements screen. The measurement-verb escape below still
+    # rescues "capable of 3579 mAh/g, the anode delivered 1250".
+    r"|capable\s+of|can\s+(?:reach|deliver|achieve|store|accommodate)"
+    r"|up\s+to\s+a\s+maximum", re.I)
+
+# Somebody else's figure, quoted for comparison. "exhibits much higher
+# discharge capacity than that of the reported Mg-MOF-74 (4560 mAh/g)" was the
+# second card on the measurements screen, and the number belongs to another
+# group. Unlike a theoretical claim there is no escape from this one: a
+# measurement verb in the sentence is this paper measuring its own material,
+# not a licence to take the number beside the citation.
+CREDITED_RE = re.compile(
+    r"\bthe\s+reported\b|\bpreviously\s+reported\b"
+    r"|\breported\s+(?:value|capacity|result)s?\b"
+    r"|\bet\s+al\b|\bin\s+the\s+literature\b"
+    r"|\bcompared\s+(?:to|with)\s+(?:the\s+)?reported\b"
+    # "Wang and coworkers reported that the pure Bi electrode ... (370 mAh/g)"
+    r"|\band\s+co-?workers\b|\b\w+\s*'s\s+group\b"
+    r"|\bgroup\s+(?:reported|showed|demonstrated)\b", re.I)
+# "a notable increase of 0.06 S/cm after the final coating cycle" is how
+# much the number moved, not what the number is. Stored as the
+# conductivity it says the material conducts at 6 S/m when that is only
+# what the coating added.
+A_DELTA = re.compile(
+    r"\b(?:increase|increment|improvement|enhancement|rise|gain|drop|\n"
+    r"reduction|decrease)\s+(?:of|by)\s*[~\u2248]?\s*$"
+    r"|\b(?:increased|improved|enhanced|rose|grew|dropped|fell|reduced|\n"
+    r"decreased)\s+by\s*[~\u2248]?\s*$", re.I)
+DELTA_LOOKBACK = 24
+
+# "the modulus and ultimate strength are as high as 17 GPa and 250 MPa"
+# lists two things and two figures, and they pair by order. The reader
+# takes the figure nearest the property it is looking for, which always
+# pairs with the first item - so it read the modulus as the strength.
+# The same shape put graphene oxide's 59 MPa on reduced graphene oxide.
+#
+# Reading the pairing properly means parsing the list; refusing to guess
+# costs a row and cannot be wrong. A figure that opens "<figure> and
+# <figure>" with an "and" in the words before it is one of a pair.
+PAIRED_AFTER = re.compile(r"^[^.]{0,14}\band\b[^.]{0,14}[~\u2248]?\s*\d", re.I)
+PAIRED_BEFORE = re.compile(r"\band\b", re.I)
+PAIRED_BEFORE_REACH = 70
+
+
+def one_of_a_pair(sentence: str, figure) -> bool:
+    """True when the figure is the first of a listed pair."""
+    if not figure:
+        return False
+    at = sentence.find(str(figure))
+    if at < 0:
+        return False
+    after = sentence[at + len(str(figure)):]
+    before = sentence[max(0, at - PAIRED_BEFORE_REACH):at]
+    return bool(PAIRED_AFTER.search(after) and PAIRED_BEFORE.search(before))
+
+
+# A credit governs the whole sentence it opens, not a window: "Wang and
+# coworkers reported that the pure Bi electrode exhibited ... (370 mAh/g)"
+# puts ninety characters between the credit and the figure. So the search runs
+# over everything before the figure - with the same escape the theoretical
+# guard uses, because "unlike previously reported values, our anode delivered
+# 617" is this paper measuring its own material.
+OWNERSHIP = re.compile(
+    r"\bour\b|\bwe\b|\bthis\s+(?:work|study|paper|article)\b|\bherein\b"
+    r"|\bin\s+this\s+(?:work|study)\b|\bthe\s+present\s+(?:work|study)\b",
+    re.I)
+
+# "<3 mAh/g" and "<10-9 S/cm" are ceilings on something that did not work, not
+# measurements of something that did. The second was stored as 900 S/m, eleven
+# orders out, from a sentence explaining why LiFePO4 needs help. "as low as"
+# and "down to" are deliberately absent: those are real measured minima.
+# The digits between the sign and the figure matter: "(<10 -9 S/cm)" is a
+# bound on ten to the minus nine, but the figure the pattern reaches is the
+# exponent's 9, with "10 -" sitting in between. So the guard is allowed to
+# look past a short run of digits, spaces and minus signs.
+A_BOUND = re.compile(r"(?:<|\u2264|\bless\s+than|\bbelow|\bunder|\bno\s+more\s+than)"
+                     r"\s*[~\u2248(]{0,2}[\d\s.,\u2212-]{0,10}$", re.I)
+BOUND_LOOKBACK = 24
+
+# A figure a sentence is holding up as a failure. "only gained a low discharge
+# capacity of 48 mAh/g" is the bare cathode the paper is arguing against.
+A_FAILURE = re.compile(
+    r"\bonly\s+(?:gained|delivered|exhibited|showed|reached|achieved|retained)"
+    r"[^.]{0,40}$"
+    r"|\b(?:faded|decayed|dropped|declined|degraded)\s+(?:gradually\s+)?to"
+    r"[^.]{0,20}$", re.I)
+FAILURE_LOOKBACK = 70
+
+# A number from a calculation rather than a cell. "We propose that porous 2D
+# materials ... the B7P2 monolayer is identified with an ultrahigh capacity of
+# 3117 mAh/g" was the fourth card. The property extractor already flags these;
+# the battery extractor did not. Flagged rather than refused, because the
+# paper really did compute it and someone may want to find it.
+MODELLED_RE = re.compile(
+    r"\bwe\s+(?:propose|predict|calculat)|\bpredict(?:ed|s|ion)?\b"
+    r"|first\s*-?\s*principles|\bDFT\b|molecular\s+dynamic|\bsimulat"
+    r"|\bmonolayer\s+is\s+identified|calculations\s+(?:show|reveal|predict)",
+    re.I)
 
 # Distance alone cannot separate the two cases. "The theoretical capacity of
 # silicon can reach up to 4200 mAh/g" is a textbook constant; "exceeding the
@@ -244,6 +490,28 @@ PARTNERS = [
     ("hard carbon", (r"hard\s+carbon",)),
 ]
 
+def _case_strict(vocab):
+    """Chemical symbols and abbreviations are case-sensitive; words are not.
+
+    Matched case-insensitively, "\\bGO\\b" matches the verb "go" - so "we then
+    go on to measure the sample" was labelled graphene oxide. In twelve
+    hundred characters of abstract that is rare; in forty thousand characters
+    of body it fires constantly. "\\bSe\\b" matched "SE", shielding
+    effectiveness, and filed a silver-nanowire film as a selenium composite.
+
+    Any pattern carrying an uppercase letter is a formula or an initialism and
+    must match exactly. The spelled-out words stay case-insensitive, because a
+    title capitalises them.
+    """
+    return [(label, tuple(f"(?-i:{p})" if any(c.isupper() for c in p) else p
+                          for p in patterns))
+            for label, patterns in vocab]
+
+
+GRAPHENE_FORMS = _case_strict(GRAPHENE_FORMS)
+PARTNERS = _case_strict(PARTNERS)
+BATTERY_TYPES = _case_strict(BATTERY_TYPES)
+
 ELECTROLYTE_RE = [
     ("LiPF6", r"\bLiPF\s*6\b"), ("LiTFSI", r"\bLiTFSI\b"),
     ("NaPF6", r"\bNaPF\s*6\b"), ("NaClO4", r"\bNaClO\s*4\b"),
@@ -265,19 +533,60 @@ def _first_match(vocab, text):
 
 
 def _num(raw):
+    """A matched figure as a number, separators and all.
+
+    Stripping the space as well as the comma, because papers write "10 000"
+    as often as "10,000" and float() takes neither.
+    """
     try:
-        return float(str(raw).replace(",", ""))
+        return float(str(raw).replace(",", "").replace(" ", "")
+                     .replace("\u00a0", "").replace("\u202f", ""))
     except (TypeError, ValueError):
         return None
 
 
+def _corroborated(vocab, title, abstract):
+    """A label taken from the paper rather than the sentence, if the paper
+    means it.
+
+    A name in the title is the paper's subject. A name mentioned once
+    somewhere in an abstract is as often the counter-electrode or a line of
+    background: "In Zn||MnO2 full batteries" labelled a zinc-graphene anode
+    as MnO2, "with a Cu2Se anode" labelled an NVPF cathode as Se, and "hard
+    carbon (HC) as anodes" labelled a Ni/Mn cathode as hard carbon. Judged by
+    hand, that slice ran about a third wrong, and in every wrong case the name
+    appeared once while every multiply-named one was right.
+
+    So a name found only in the abstract has to be said twice. The row then
+    keeps the less specific label it can support - the graphene form alone -
+    which is worth more to somebody filtering by material than a precise
+    label that is false.
+    """
+    found = _first_match(vocab, normalise(title or ""))
+    if found:
+        return found
+    body = normalise(abstract or "")
+    found = _first_match(vocab, body)
+    if not found:
+        return None
+    for label, patterns in vocab:
+        if label != found:
+            continue
+        hits = sum(len(re.findall(pattern, body, re.I)) for pattern in patterns)
+        return found if hits >= 2 else None
+    return None
+
+
 def classify(title, abstract, sentence):
-    """Categorical labels. Sentence wins; paper text is the fallback."""
+    """Categorical labels. The sentence wins; the paper is the fallback, and
+    has to mean it - see _corroborated."""
     paper_text = normalise(f"{title} {abstract}")
-    form = _first_match(GRAPHENE_FORMS, sentence) or _first_match(GRAPHENE_FORMS, paper_text)
+    form = (_first_match(GRAPHENE_FORMS, sentence)
+            or _corroborated(GRAPHENE_FORMS, title, abstract))
     btype = _first_match(BATTERY_TYPES, sentence) or _first_match(BATTERY_TYPES, paper_text)
     role = _first_match(ELECTRODE_ROLES, sentence) or _first_match(ELECTRODE_ROLES, paper_text)
-    partner = _first_match(PARTNERS, sentence) or _first_match(PARTNERS, paper_text)
+    partner = (_first_match(PARTNERS, sentence)
+               or _corroborated(PARTNERS, title, abstract))
 
     if partner and form:
         material = f"{partner}/{form}"
@@ -301,16 +610,25 @@ def extract_from_sentence(sentence, title, abstract, section):
     norm = normalise(sentence)
     work = norm
 
-    caps = CAPACITY_RE.findall(work)
+    caps = [m.groups() for m in CAPACITY_RE.finditer(work)
+            if not _is_a_setting(work[:m.start()])]
     for match in CAPACITY_RE.finditer(norm):          # blank out so mA/g does not
         work = work.replace(match.group(0), " " * len(match.group(0)), 1)
 
     currents = CURRENT_RE.findall(work)
 
     retention = None
+    not_cycling = False
     for pattern in RETENTION_RE:
         found = pattern.search(norm)
         if found:
+            if (MECHANICAL_CYCLING.search(norm) or PHOTOVOLTAIC.search(norm)
+                    or OTHER_DOMAIN.search(norm)):
+                # Mechanical durability, or a photovoltaic's stability. The
+                # cycle count goes with it: "500 bending cycles" is not 500
+                # charge cycles. A capacity in the same sentence still stands.
+                not_cycling = True
+                break
             retention = _num(found.group(1))
             break
 
@@ -324,6 +642,9 @@ def extract_from_sentence(sentence, title, abstract, section):
     # apart from a measurement by the words that introduce it.
     measured = []
     skipped_theoretical = 0
+    skipped_setting = 0
+    skipped_credited = 0
+    skipped_bound = 0
     for match in CAPACITY_RE.finditer(norm):
         value = _num(match.group(1))
         if value is None:
@@ -332,6 +653,21 @@ def extract_from_sentence(sentence, title, abstract, section):
         claim = THEORETICAL_RE.search(before)
         if claim and not MEASURED_RE.search(before[claim.end():]):
             skipped_theoretical += 1
+            continue
+        if _is_a_setting(before):
+            # A cutoff or limited capacity is the number the experimenter
+            # chose, not the one the cell reached.
+            skipped_setting += 1
+            continue
+        credit = CREDITED_RE.search(before)
+        if credit and not OWNERSHIP.search(before[credit.end():]):
+            skipped_credited += 1
+            continue
+        if A_BOUND.search(before[-BOUND_LOOKBACK:]):
+            skipped_bound += 1
+            continue
+        if A_FAILURE.search(before[-FAILURE_LOOKBACK:]):
+            skipped_bound += 1
             continue
         measured.append((value, match.group(1), match.group(2)))
 
@@ -365,6 +701,24 @@ def extract_from_sentence(sentence, title, abstract, section):
     if FARAD_RE.search(norm):
         notes.append("sentence_also_reports_farads_per_gram: check for a unit mix-up")
 
+    if (retention is not None and not caps
+            and OTHER_QUANTITY.search(norm)
+            and not re.search(r"capacit(?:y|ies)\s+retention", norm, re.I)):
+        notes.append("retention_of_another_quantity: what was retained is a "
+                     "density, not a capacity")
+
+    if MODELLED_RE.search(norm):
+        notes.append("modelled_not_measured: the figure comes from a "
+                     "calculation or a prediction, not a cell")
+
+    if retention is not None and not caps and CAPACITANCE_RETENTION.search(norm):
+        # Flagged rather than refused: the percentage and the cycle count are
+        # a real electrochemical measurement, they are just not a capacity's.
+        # Flagged keeps it searchable with its sentence while the answer path,
+        # which serves verified rows only, leaves it out of battery answers.
+        notes.append("capacitance_not_capacity: what was retained is a "
+                     "capacitance, so this is not a battery capacity retention")
+
     # Every capacity in the sentence was a theoretical limit and retention was
     # not reported either, so there is no measurement here to store.
     if capacity is None and retention is None:
@@ -391,7 +745,7 @@ def extract_from_sentence(sentence, title, abstract, section):
 
     cycles = None
     cycles_found = CYCLES_RE.search(norm)
-    if cycles_found:
+    if cycles_found and not not_cycling:
         cycles = _num(cycles_found.group(1))
 
     ce = None
@@ -498,7 +852,14 @@ def verify_text(row, full_text):
     return rejections, True
 
 
-def rows_for_paper(paper, section="abstract"):
+def rows_for_paper(paper, section="abstract", cap=None):
+    """Findings from one paper's text.
+
+    `cap` limits the rows one paper may contribute. An abstract states a
+    handful of results, so the default is deliberately small; a full paper
+    reports many, and the caller raises it.
+    """
+    cap = MAX_ROWS_PER_PAPER if cap is None else cap
     text = paper["abstract"] or ""
     if not text:
         return [], []
@@ -523,7 +884,7 @@ def rows_for_paper(paper, section="abstract"):
             continue                             # nothing numeric survived
         row["openalex_id"] = paper["openalex_id"]
         out.append(row)
-        if len(out) >= MAX_ROWS_PER_PAPER:
+        if len(out) >= cap:
             break
     return out, rejections
 
@@ -635,9 +996,14 @@ def main():
     touched = sorted({p["openalex_id"] for p in papers})
     for start in range(0, len(touched), 400):
         batch = touched[start:start + 400]
+        # Scoped to the section this run writes. Unscoped, a re-run over the
+        # abstracts deleted every row the full-text pass had written for the
+        # same papers - 440 of them, silently, because both readings live in
+        # one table and only the section tells them apart.
         conn.execute(
             f"DELETE FROM evidence WHERE openalex_id IN"
-            f" ({','.join('?' * len(batch))})", batch)
+            f" ({','.join('?' * len(batch))})"
+            f" AND coalesce(source_section,'abstract')='abstract'", batch)
     conn.commit()
 
     written = 0

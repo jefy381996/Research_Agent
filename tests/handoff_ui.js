@@ -73,8 +73,11 @@ const FLOWS = [
    "What capacity do silicon graphene anodes reach?", 1, null],
   ["an out-of-remit question is never handed over", "instant",
    "Write me a poem about the sea.", 1, null],
+  // The last field says whether the agent is available for this flow. It used
+  // to be whatever the server happened to be configured with, which is why
+  // this one only passed on a deployment with no model key.
   ["the agent falls back when it cannot run", "agent",
-   "What is an anode?", 1, "Trying instant mode instead"],
+   "What is an anode?", 1, "Trying instant mode instead", false],
 ];
 
 async function run(page, mode, question, wait) {
@@ -98,6 +101,32 @@ async function run(page, mode, question, wait) {
   page.on("pageerror", (e) => errors.push(String(e.message)));
   page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
 
+  /* What is under test is the routing, not the model. Served without a model
+     key the agent never runs, so these flows were exercised against a stub;
+     served with one it runs for real, calls a provider over the network, and
+     the suite timed out - so it passed on a configuration that never ships
+     and failed on the one that does. The agent endpoint is answered here
+     instead, with the same stream of events the real one emits, so the suite
+     tests the same thing whether a key is set or not. */
+  let agentWorks = true;             // flipped by the flows that test failure
+  await page.route("**/api/agent", async (route) => {
+    const events = agentWorks
+      ? [{ type: "start", model: "stub" },
+         { type: "tool_call", name: "search_evidence" },
+         { type: "tool_result", name: "search_evidence", rows: 3 },
+         { type: "answer", markdown: "A stubbed answer, so routing can be tested.",
+           refs: [] }]
+      // What the server sends when it has no model key. The client falls back
+      // to Instant on this, which is the behaviour the last flow is about.
+      : [{ type: "error", code: "no_key",
+           message: "GROQ_API_KEY is not set, so the agent cannot think." }];
+    await route.fulfill({
+      status: 200,
+      contentType: "application/x-ndjson",
+      body: events.map((e) => JSON.stringify(e)).join("\n") + "\n",
+    });
+  });
+
   await page.goto(URL, { waitUntil: "networkidle" });
   await page.waitForFunction(() => window.DATA && window.DATA.rows
     && window.DATA.rows.length > 0, null, { timeout: 60000 });
@@ -117,12 +146,23 @@ async function run(page, mode, question, wait) {
       + `  ${String(r.wanted).padEnd(10)} ${String(r.kind).padEnd(12)} ${r.q.slice(0, 50)}`);
   }
 
-  // The deployment this runs on has no model key, so stand in for one: what
-  // is under test is the routing, not the model.
-  await page.evaluate(() => { window.agentCanTry = () => true; });
+  // What is under test is the routing, not the model: each flow below sets
+  // the availability it is about.
 
-  for (const [name, mode, q, wantTurns, wantHandoff] of FLOWS) {
+  for (const [name, mode, q, wantTurns, wantHandoff, available] of FLOWS) {
     total += 1;
+    // Set the condition the flow is about, rather than inheriting whatever
+    // the server was started with. AGENT.available is what decides whether
+    // the agent can actually run; agentCanTry only decides whether Instant
+    // bothers to hand over.
+    // Whether the agent answers is decided by the endpoint, not by a flag:
+    // askAgent calls it and falls back on an error. Agent mode still has to
+    // be selectable, so availability stays on and only the call fails.
+    agentWorks = available !== false;
+    await page.evaluate(() => {
+      AGENT.available = true;
+      window.agentCanTry = () => true;
+    });
     const turns = await run(page, mode, q, 9000);
     const handoff = turns.find((t) => t.continued);
     const ok = turns.length === wantTurns
@@ -141,21 +181,30 @@ async function run(page, mode, question, wait) {
     agent: document.querySelector('.mode[data-mode="agent"]').getAttribute("aria-checked"),
   }));
   total += 1;
-  await page.evaluate(() => { window.agentCanTry = () => true; });
+  agentWorks = true;
+  await page.evaluate(() => {
+    AGENT.available = true;
+    window.agentCanTry = () => true;
+  });
   await run(page, "instant", "Why do silicon anodes crack during cycling?", 6000);
   const onAgent = await modeOf();
   const flipped = onAgent.agent === "true" && onAgent.instant === "false";
   pass += flipped ? 1 : 0;
   console.log(`  ${flipped ? "PASS" : "FAIL"}  the toggle moves to Agent when Instant hands over`);
 
+  // Force the condition under test rather than relying on the deployment to
+  // supply it. Deleting the stub left the real check in place, which answers
+  // "is a model key set?" - so this passed on a server without one and failed
+  // on a server with one, which is the configuration that actually ships.
+  // The behaviour being tested is what happens when the agent cannot run.
   total += 1;
-  await page.evaluate(() => { delete window.agentCanTry; });
+  agentWorks = false;
   await run(page, "agent", "What is an anode?", 8000);
   const backOnInstant = await modeOf();
   const flippedBack = backOnInstant.instant === "true" && backOnInstant.agent === "false";
   pass += flippedBack ? 1 : 0;
   console.log(`  ${flippedBack ? "PASS" : "FAIL"}  the toggle moves back when the agent falls back`);
-  await page.evaluate(() => { window.agentCanTry = () => true; });
+  agentWorks = true;
 
   // A handed-over run must never hand back, however long we wait.
   total += 1;

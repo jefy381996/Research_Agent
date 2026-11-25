@@ -7,3 +7,4 @@ pymupdf==2.1
 python-multipart==0.0.33
 requests==2.34.2
 uvicorn==0.54.0
+zstandard==0.25.0

@@ -650,6 +650,7 @@ function spokenAgentAnswer(text) {
    If the machine cannot run it, the button says why rather than disappearing,
    and the browser's own voice carries on as it did. */
 let LOCAL = { plan: null, loading: false, on: false };
+let SERVER = { listen: false, speak: false, on: false };
 
 function vprog(frac, label) {
   const bar = $("vprog"), fill = $("vbarfill");
@@ -658,6 +659,51 @@ function vprog(frac, label) {
   bar.hidden = false;
   fill.style.width = `${Math.round(frac * 100)}%`;
   if (label) vbar(true, label);
+}
+
+/* The hosted option is only shown where there is a service behind it. A
+   static copy of this app has no server, so the button would be a promise it
+   could not keep. */
+async function serverOffer() {
+  const btn = $("servervoice");
+  if (!btn || !window.LocalSpeech) return;
+  let svc;
+  try { svc = await LocalSpeech.service(); } catch (e) { return; }
+  SERVER = svc || { listen: false, speak: false };
+  if (!SERVER.listen) return;             // stays hidden
+  btn.hidden = false;
+  btn.title = SERVER.speak
+    ? "Listening and the voice both run on the server. Nothing is downloaded."
+    : "Listening runs on the server, which is more accurate and needs no "
+      + "download. The voice stays the browser's own.";
+}
+
+async function serverToggle() {
+  const btn = $("servervoice");
+  if (!btn || !SERVER.listen) return;
+  if (SERVER.on) {
+    SERVER.on = false;
+    Voice.stopListening();
+    Voice.useLocal({ ears: false, voice: false });
+    btn.setAttribute("aria-pressed", "false");
+    vbar(true, "Back to the browser's own speech.");
+    markVoiceState();
+    return;
+  }
+  // Turning this on turns the on-device engine off: one set of ears at a time.
+  if (LOCAL.on) {
+    LOCAL.on = false;
+    const lv = $("localvoice");
+    if (lv) lv.setAttribute("aria-pressed", "false");
+  }
+  SERVER.on = true;
+  Voice.useLocal({ ears: true, voice: !!SERVER.speak, via: "service" });
+  btn.setAttribute("aria-pressed", "true");
+  vbar(true, SERVER.speak
+    ? "Speech runs on the server. Your voice is sent there to be read."
+    : "Listening runs on the server \u2014 more accurate, no download. "
+      + "Your voice is sent there to be written down.");
+  markVoiceState();
 }
 
 async function localOffer() {
@@ -688,11 +734,18 @@ async function localToggle() {
   if (!btn || LOCAL.loading || !LOCAL.plan || !LOCAL.plan.ears) return;
   if (LOCAL.on) {                       // back to the browser's own engine
     LOCAL.on = false;
+    Voice.stopListening();
     Voice.useLocal({ ears: false, voice: false });
     btn.setAttribute("aria-pressed", "false");
     vprog(null);
     vbar(true, "Back to the browser's own speech.");
     return;
+  }
+  if (SERVER.on) {                      // one set of ears at a time
+    SERVER.on = false;
+    const sv = $("servervoice");
+    if (sv) sv.setAttribute("aria-pressed", "false");
+    Voice.stopListening();
   }
   LOCAL.loading = true;
   btn.disabled = true;
@@ -708,8 +761,12 @@ async function localToggle() {
     vprog(null);
     vbar(true, got.voice
       ? "Running on this machine. Nothing is sent anywhere."
-      : "Listening runs on this machine. The voice is the browser's own, "
-        + "because this device has no graphics card to run the better one.");
+      : got.voiceRejected
+        ? `Listening runs on this machine. The better voice was tried and `
+          + `dropped \u2014 ${got.voiceRejected} \u2014 so the browser's own is `
+          + `speaking, which is instant.`
+        : "Listening runs on this machine. The voice is the browser's own, "
+          + "because this device has no graphics card to run the better one.");
   } catch (e) {
     LOCAL.on = false;
     Voice.useLocal({ ears: false, voice: false });
@@ -721,6 +778,196 @@ async function localToggle() {
     LOCAL.loading = false;
     btn.disabled = false;
   }
+}
+
+/* ── the phone layout ─────────────────────────────────── */
+
+/* The sections live in a drawer here rather than in a row along the bottom.
+   The same buttons are used, moved rather than duplicated, so a tab still
+   behaves identically and every test that drives them still drives them. */
+const PHONE = () => window.matchMedia("(max-width:780px)").matches;
+
+function drawer(open) {
+  const root = document.documentElement, scrim = $("scrim"), btn = $("drawer-open");
+  root.classList.toggle("drawer-open", open);
+  if (scrim) scrim.hidden = !open;
+  if (btn) btn.setAttribute("aria-expanded", String(open));
+  // A drawer over the page should not let the page behind it scroll.
+  document.body.style.overflow = open ? "hidden" : "";
+  if (open) {
+    const first = document.querySelector('.sitem[aria-selected="true"]') || $("side");
+    if (first && first.focus) first.focus({ preventScroll: true });
+  } else if (btn) { btn.focus({ preventScroll: true }); }
+}
+
+/* The voice settings are one button on a phone and a row on a desktop. The
+   controls themselves are moved between the two places rather than written
+   twice, so there is only ever one hands-free button in the document. */
+function voiceSheet(open) {
+  const sheet = $("vsheet"), slot = $("vsheet-slot"), ctl = $("voicectl");
+  if (!sheet || !slot || !ctl) return;
+  if (open) {
+    slot.appendChild(ctl);
+    sheet.hidden = false;
+    document.body.classList.add("vsheet-open");
+    const note = $("vsheet-note");
+    if (note) {
+      note.textContent = LOCAL.plan && !LOCAL.plan.ears
+        ? `Hands-free works here. ${LOCAL.plan.why}`
+        : "Hands-free keeps listening and reads answers out loud. "
+          + "On-device runs the speech on this phone instead of a service.";
+    }
+    markVoiceState();
+    const close = $("vsheet-close");
+    if (close) close.focus({ preventScroll: true });
+  } else {
+    sheet.hidden = true;
+    document.body.classList.remove("vsheet-open");
+    placeVoiceControls();
+    const open_ = $("voice-open");
+    if (open_) open_.focus({ preventScroll: true });
+  }
+}
+
+/* On a desktop the controls belong beside the mode switch. */
+function placeVoiceControls() {
+  const ctl = $("voicectl"), home = $("voice-open");
+  if (!ctl || !home || !home.parentNode) return;
+  if (ctl.parentNode !== home.parentNode) home.parentNode.insertBefore(ctl, home.nextSibling);
+}
+
+/* The sheet says "on" or "off" beside each setting, because a highlighted
+   button on its own is read as decoration as often as as state. */
+function markVoiceState() {
+  const hf = $("handsfree"), lv = $("localvoice");
+  if (hf) hf.dataset.state = hf.getAttribute("aria-pressed") === "true" ? "on" : "off";
+  if (lv) {
+    lv.dataset.state = lv.disabled ? "unavailable"
+      : lv.getAttribute("aria-pressed") === "true" ? "on" : "off";
+  }
+  const sv = $("servervoice");
+  if (sv) sv.dataset.state = sv.getAttribute("aria-pressed") === "true" ? "on" : "off";
+}
+
+function wireMobile() {
+  const open = $("drawer-open"), scrim = $("scrim");
+  if (open) open.addEventListener("click", () => drawer(true));
+  ["handsfree", "localvoice", "servervoice"].forEach((id) => {
+    const b = $(id);
+    if (b) b.addEventListener("click", () => setTimeout(markVoiceState, 0));
+  });
+  if (scrim) scrim.addEventListener("click", () => drawer(false));
+  // Choosing a section closes the drawer, as it would in an application.
+  document.querySelectorAll(".sitem").forEach((b) =>
+    b.addEventListener("click", () => { if (PHONE()) drawer(false); }));
+
+  const palm = $("pal-open-m"), pal = $("pal-open");
+  if (palm && pal) palm.addEventListener("click", () => pal.click());
+
+  const vopen = $("voice-open"), vclose = $("vsheet-close"), sheet = $("vsheet");
+  if (vopen) vopen.addEventListener("click", () => voiceSheet(true));
+  if (vclose) vclose.addEventListener("click", () => voiceSheet(false));
+  if (sheet) sheet.addEventListener("click", (e) => {
+    if (e.target === sheet) voiceSheet(false);     // tapping the dimmed area
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (sheet && !sheet.hidden) { voiceSheet(false); return; }
+    if (document.documentElement.classList.contains("drawer-open")) drawer(false);
+  });
+
+  // Rotating a phone, or opening on a tablet, must not strand the controls
+  // inside a sheet that is no longer shown.
+  window.matchMedia("(max-width:780px)").addEventListener("change", (m) => {
+    if (!m.matches) { voiceSheet(false); drawer(false); }
+  });
+  syncAppBar();
+}
+
+/* The bar says which section is open, because the drawer that said so is shut. */
+function syncAppBar() {
+  const t = $("abtitle");
+  if (!t) return;
+  const on = document.querySelector('.sitem[aria-selected="true"]');
+  t.textContent = on ? on.textContent.trim() : "Ask";
+}
+
+/* ── what is new ──────────────────────────────────────── */
+
+/* The thing a researcher wants on opening is not how large the library is -
+   it is what has turned up since they last looked. The list is ordered by
+   when the work was published rather than when it was collected, because the
+   first is a fact about the field and the second is a fact about us. */
+const SEEN_KEY = "gba.lastlook";
+
+function lastLook() {
+  try { return localStorage.getItem(SEEN_KEY) || ""; } catch (e) { return ""; }
+}
+function markLooked() {
+  try { localStorage.setItem(SEEN_KEY, new Date().toISOString()); } catch (e) {}
+}
+
+function briefItems() {
+  const b = (DATA && DATA.brief) || {};
+  return Array.isArray(b.items) ? b.items : [];
+}
+
+/* A dot on the tab when something has arrived since the last visit. */
+function markNew() {
+  const dot = $("newdot");
+  if (!dot) return;
+  const since = lastLook();
+  const items = briefItems();
+  const fresh = !since
+    ? items.length > 0
+    : items.some((it) => (it.seen || "") > since);
+  dot.hidden = !fresh;
+}
+
+function niceDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso + (iso.length === 10 ? "T00:00:00" : ""));
+  if (isNaN(d)) return esc(iso);
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+}
+
+function paintBrief() {
+  const host = $("briefwrap");
+  if (!host) return;
+  const items = briefItems();
+  const b = (DATA && DATA.brief) || {};
+  const sub = $("brief-sub");
+  if (sub) {
+    sub.textContent = b.newest
+      ? `The most recently published work in the library that reported a measurement. `
+        + `Newest here: ${niceDate(b.newest)}.`
+      : "The most recently published work in the library that reported a measurement.";
+  }
+  if (!items.length) {
+    host.innerHTML = `<div class="refusal"><h3>Nothing to report yet</h3>
+      <p>No recently published work in the library has a measurement attached.</p></div>`;
+    return;
+  }
+  const since = lastLook();
+  host.innerHTML = items.map((it, i) => {
+    const isNew = since && (it.seen || "") > since;
+    const value = it.value === null || it.value === undefined ? "" : sig(it.value);
+    return `<article class="bitem" style="--i:${i}">
+      <div class="bhead">
+        <time datetime="${esc(it.d || "")}">${esc(niceDate(it.d))}</time>
+        ${isNew ? '<span class="btag">new to you</span>' : ""}
+      </div>
+      <h3>${esc(it.t || "Untitled")}</h3>
+      <p class="bjournal">${esc(it.j || "")}</p>
+      ${value ? `<p class="bfig"><b>${esc(value)}</b><u>${esc(it.unit || "")}</u>
+        <span>${esc(it.label || "")}${it.material ? ` &middot; ${esc(it.material)}` : ""}</span></p>` : ""}
+      ${it.quote ? `<blockquote class="quote">${esc(String(it.quote).slice(0, 320))}</blockquote>` : ""}
+      <p class="blink">${sourceLink({ doi: it.doi, openalex_id: it.i })}</p>
+    </article>`;
+  }).join("");
+  markLooked();
+  markNew();
 }
 
 function vbar(show, text) {
@@ -867,12 +1114,16 @@ function startListening(quietly) {
     onHeard: heard,
     onState: (state, detail) => {
       if (state === "listening" && !VOICE.busy) vbar(true, "Listening…");
-      if (state === "hearing") vbar(true, "…");
-      if (state === "thinking") vbar(true, "Working out what you said…");
+      if (state === "hearing") vbar(true, "I can hear you\u2026");
+      if (state === "thinking") vbar(true, "Working out what you said\u2026");
       if (state === "error") {
         const why = detail === "not-allowed"
           ? "Microphone blocked. Allow it in the address bar to ask out loud."
           : detail === "no-speech" ? "I did not catch that."
+          : detail === "local-gave-up"
+            ? "On-device listening kept failing, so the browser's own is back on."
+          : detail === "could-not-restart"
+            ? "Listening stopped and would not restart. Press the microphone again."
           : `Listening stopped: ${detail}`;
         vbar(true, why);
         if (detail === "not-allowed") stopVoice();
@@ -2025,7 +2276,7 @@ function openProp(r) {
   ];
   openDrawer("Source", `
     <div class="m dim" style="font:450 12px var(--mono)">${esc(r.journal || "")}${r.year ? ` &middot; ${r.year}` : ""}
-      ${r.doi ? ` &middot; <a href="https://doi.org/${esc(r.doi)}" target="_blank" rel="noopener">${esc(r.doi)}</a>` : ""}</div>
+      &middot; ${sourceLink(r)}</div>
     <div style="font:500 15px/1.45 var(--sans);margin:8px 0 0;max-width:58ch">${esc(r.title || "")}</div>
     <h3>The sentence this row came from</h3>
     <blockquote class="quote">${highlightText(r.source_quote || "", [r.value_as_reported])}</blockquote>
@@ -2043,6 +2294,27 @@ function openProp(r) {
       inferred. A property measured on a suspended single sheet and the same property measured on a
       polymer composite differ by three orders of magnitude and both are correct; the sentence is
       there so you can see which one you are reading.</p>`);
+}
+
+/* Every row has to lead somewhere a person can check.
+   Nearly all of them carry a DOI, but about one in a thousand does not - a
+   university repository deposit, a journal that never registered one - and
+   the row with no DOI is not a rare one to meet: the measurements are sorted
+   by size, and the largest figure in the library sits in a thesis with no
+   DOI, so it is the first card anybody opens. OpenAlex has a page for every
+   work it knows, which links on to the publisher, so that is the fallback and
+   there is no row left that cannot be followed. */
+function sourceLink(r) {
+  const doi = (r.doi || "").trim();
+  if (doi) {
+    return `<a href="https://doi.org/${esc(doi)}" target="_blank" rel="noopener">${esc(doi)}</a>`;
+  }
+  const wid = (r.openalex_id || "").trim();
+  if (wid) {
+    return `<a href="https://openalex.org/${esc(wid)}" target="_blank" rel="noopener">`
+      + `no DOI &mdash; open the record</a>`;
+  }
+  return '<span class="dim">no link available</span>';
 }
 
 function passageCard(p, n) {
@@ -2352,6 +2624,8 @@ function show(v) {
   if (v === "evidence" && !$("gb").children.length) reload();
   if (v === "properties") paintProps($("prq").value);
   if (v === "mydata") paintMine();
+  if (v === "brief") paintBrief();
+  syncAppBar();
 
   // Say in plain words what the screen is, before the data arrives.
   // .mid for the single-column screens; .pane for the two that carry a filter
@@ -2796,7 +3070,7 @@ function openRow(r) {
   ];
   openDrawer("Source", `
     <div class="m dim" style="font:450 12px var(--mono)">${esc(r.journal || "")}${r.year ? ` &middot; ${r.year}` : ""}
-      ${r.doi ? ` &middot; <a href="https://doi.org/${esc(r.doi)}" target="_blank" rel="noopener">${esc(r.doi)}</a>` : ""}</div>
+      &middot; ${sourceLink(r)}</div>
     <div style="font:500 15px/1.45 var(--sans);margin:8px 0 0;max-width:58ch">${esc(r.title || "")}</div>
     <h3>The sentence this row came from</h3>
     <blockquote class="quote">${highlight(r.source_quote || "", r)}</blockquote>
@@ -2833,7 +3107,23 @@ const BHUE = { "lithium-ion": "var(--c1)", "sodium-ion": "var(--c2)", "lithium-s
 const FHUE = { rGO: "var(--c1)", "graphene oxide": "var(--c2)", graphene: "var(--c3)" };
 const hue = (m, k) => m[k] || "var(--c0)";
 
-const T = { filters: { confidence: "verified" }, sort: "specific_capacity_mah_g",
+/* How complete a measurement's record is. Sorting by capacity alone put the
+   biggest numbers first, and the biggest numbers are where theoretical
+   ceilings and computed predictions collect - three of the first five cards
+   were one of those. The extractor now refuses them, but the ordering was
+   still wrong on its own terms: a figure with its material, its current and
+   its cycle count named is worth more to a reader than a bare large number,
+   and should be what the screen opens on. Capacity remains one click away. */
+const documented = (r) =>
+  (r.material_system ? 3 : 0)
+  + (r.current_density_ma_g !== null || r.c_rate !== null ? 2 : 0)
+  + (r.cycle_count !== null ? 2 : 0)
+  + (r.capacity_retention_pct !== null ? 1 : 0)
+  + (r.first_cycle_ce_pct !== null ? 1 : 0)
+  + (r.voltage_window_v ? 1 : 0)
+  + (r.specific_capacity_mah_g !== null ? 1 : 0);
+
+const T = { filters: { confidence: "verified" }, sort: "documented",
   dir: "desc", rows: [], total: 0, off: 0, lim: 60, capMax: 1, loading: false,
   layout: "cards" };
 
@@ -2896,6 +3186,12 @@ function keep(r, f) {
 }
 
 const sorted = (rows) => rows.slice().sort((a, b) => {
+  if (T.sort === "documented") {
+    const s = documented(b) - documented(a);
+    // Ties broken by capacity, so the best-recorded big numbers lead.
+    return s !== 0 ? s
+      : (b.specific_capacity_mah_g || 0) - (a.specific_capacity_mah_g || 0);
+  }
   const d = T.dir === "desc" ? -1 : 1, x = a[T.sort], y = b[T.sort];
   if (x === null || x === undefined) return 1;
   if (y === null || y === undefined) return -1;
@@ -2924,7 +3220,8 @@ function mcard(r, i) {
   return `<button class="mcard ${r.confidence === "flagged" ? "fl" : ""}${
       r.mine ? " mine" : ""}" style="--i:${i}" data-id="${r.id}">
     ${r.mine ? `<span class="mtag">yours</span>` : ""}
-    <div class="mhead"><span class="mmat">${esc(r.material_system || "unnamed")}</span>
+    <div class="mhead">${r.material_system
+        ? `<span class="mmat">${esc(r.material_system)}</span>` : ""}
       <span class="mchem">${esc(r.battery_type || "chemistry not stated")}${
         r.electrode_role ? " \u00b7 " + esc(r.electrode_role) : ""}</span></div>
     <div class="mbig">${headline}</div>
@@ -3039,10 +3336,14 @@ $("clear").addEventListener("click", () => {
   $("preset").value = "default"; reload();
 });
 const PRESETS = { default: { confidence: "verified" }, all: {}, flagged: { confidence: "flagged" },
+  biggest: { confidence: "verified" },
   longlife: { cycles_min: 500 }, silicon: { q: "si/", electrode_role: "anode" },
   sulfur: { q: "s/", electrode_role: "cathode" }, recent: { year_min: 2024 } };
+const PRESET_SORT = { biggest: "specific_capacity_mah_g" };
 $("preset").addEventListener("change", (e) => {
   T.filters = { ...PRESETS[e.target.value] };
+  T.sort = PRESET_SORT[e.target.value] || "documented";
+  T.dir = "desc";
   document.querySelectorAll(".fi").forEach((b) =>
     b.setAttribute("aria-pressed", String(T.filters[FP[b.dataset.f]] === b.dataset.v)));
   reload();
@@ -3316,13 +3617,20 @@ async function loadData() {
     `<button style="--i:${i}" data-q="${esc(q)}">${esc(q)}</button>`).join("");
   $("chips").addEventListener("click", (e) => { const b = e.target.closest("button");
     if (b) (MODE === "agent" ? askAgent : ask)(b.dataset.q); });
+  paintAccuracy();
   paintFacets(); head(); loadNotes(); probeAgent();
   myLoad(); wireMine();
   wireVoice();
+  wireMobile();
+  markNew();
   const lv = $("localvoice");
   if (lv) lv.addEventListener("click", localToggle);
-  // Asks the machine what it can do; downloads nothing.
+  // Asks the machine what it can do, and the server what it offers.
+  // Neither downloads anything.
   localOffer();
+  serverOffer();
+  const sv = $("servervoice");
+  if (sv) sv.addEventListener("click", serverToggle);
   // The opening sequence is one-shot. Clearing the class once it has played
   // stops every later tab switch from replaying the whole arrival.
   setTimeout(() => document.documentElement.classList.remove("booting"), 2200);
@@ -3382,6 +3690,63 @@ function agentChips() {
         <svg class="ic" viewBox="0 0 22 22"><use href="#i-spark"/></svg>
         ${esc(s.question)}</button>`).join("");
   box.hidden = false;
+}
+
+/* ── how much of this is right ──────────────────────────────
+   Shown, not claimed. Rows are drawn at random and read one at a time against
+   the sentence stored beside them; what goes on the screen is that count,
+   with the sample size and the date beside it, because a small sample
+   honestly labelled is worth more than a confident number with nothing behind
+   it. Nothing else in this tool asks to be taken on trust, and neither does
+   this. See audit_accuracy.py. */
+function accuracyRows() {
+  return (DATA && Array.isArray(DATA.accuracy)) ? DATA.accuracy : [];
+}
+
+function paintAccuracy() {
+  // The sample size is shown and the size of the population is not. The
+  // first is what makes the claim checkable; the second is the figure the
+  // screen deliberately never states anywhere.
+  const box = $("acc");
+  if (!box) return;
+  const audits = accuracyRows();
+  if (!audits.length) { box.hidden = true; return; }
+  const head = audits.find((a) => a.population === "battery") || audits[0];
+  const when = (head.audited_at || "").slice(0, 10);
+  box.hidden = false;
+  box.innerHTML = `
+    <button class="accbar" id="accbar" aria-expanded="false" aria-controls="accpanel">
+      <span class="accnum">${head.right} of ${head.sample}</span>
+      <span class="acctext">${esc(head.label.toLowerCase())} were right when
+        read by hand against the sentence each came from.</span>
+      <span class="accmore" id="accmore">How this is measured &rarr;</span>
+    </button>
+    <div class="accpanel" id="accpanel" hidden>
+      <table>
+        <thead><tr><th>What was checked</th><th>Right</th><th>When</th></tr></thead>
+        <tbody>${audits.map((a) => `<tr>
+          <td>${esc(a.label)}</td>
+          <td class="n">${a.right} of ${a.sample}</td>
+          <td>${esc((a.audited_at || "").slice(0, 10))}</td></tr>`).join("")}
+        </tbody>
+      </table>
+      <div class="accnote">
+        Rows are drawn at random and judged one at a time against the sentence
+        stored beside them. Twenty rows is a small sample and the true figure
+        could sit a few points either side &mdash; which is the point of
+        printing the sample size rather than a round number. Rows that fail a
+        check are kept and labelled, never deleted, and never used to answer a
+        question. Anyone can repeat this: the tool that draws the sample is in
+        the repository, and the same seed gives the same rows.
+      </div>
+    </div>`;
+  $("accbar").addEventListener("click", () => {
+    const panel = $("accpanel"), bar = $("accbar");
+    const open = panel.hidden;
+    panel.hidden = !open;
+    bar.setAttribute("aria-expanded", String(open));
+    $("accmore").innerHTML = open ? "Hide &uarr;" : "How this is measured &rarr;";
+  });
 }
 
 function setMode(mode) {

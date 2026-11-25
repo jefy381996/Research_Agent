@@ -6,12 +6,154 @@ toxicity and production. It answers from stored data and nothing else:
 reference entries for the fundamentals, measurements pulled out of published
 papers, and calculators you can audit.
 
-**285 reference entries · 9,230 measurements · 83,409 papers · 34 compounds ·
-28 calculators.** The measurements come in two halves: 4,595 battery
+**285 reference entries · 15,003 measurements · 104,649 papers · 34 compounds ·
+28 calculators.** The measurements come in two halves: 8,558 battery
 performance figures — capacity, retention, cycle life, rate, efficiency — and
-4,635 material properties across twelve families, from thermal conductivity and
+6,445 material properties across twelve families, from thermal conductivity and
 sheet resistance to Young's modulus, surface area, optical transmittance, water
-permeance and EMI shielding.
+permeance and EMI shielding. 11,205 of them are verified; the rest carry a flag
+saying what is doubtful about them, and the answering engine serves verified
+rows only.
+
+Most were read from abstracts. 1,078 came from the full text of 274
+open-access papers, fetched from the Europe PMC open-access subset into a
+separate file that is not shipped: the body is forty thousand characters where
+an abstract is twelve hundred, and the conditions a researcher asks for — at
+what current, after how many cycles — are in the body. About 29% of the gold
+and diamond open-access papers tried could be retrieved in full.
+
+The library is no longer only graphene. Fourteen searches cover the materials
+it is weighed against — MXene, the dichalcogenides, hexagonal boron nitride,
+black phosphorus, silicon anodes, hard carbon, LFP and NMC cathodes, solid
+electrolytes, zinc-ion, potassium-ion and carbon nanotubes — because a tool
+that only knows graphene cannot answer the question a researcher actually
+asks, which is how it compares. Those searches ask for no graphene term at
+all, and a paper found only by one of them is labelled with the material it
+was measured on and never answers a question about graphene.
+
+### How much of it is right
+
+Measured, not asserted. Rows are drawn at random and judged one at a time
+against the sentence stored beside them, in samples of about twenty:
+
+| | the value | the material |
+|---|---|---|
+| Battery findings | 19 of 20 | 16 of 18 |
+| Material properties | 17 of 20 | |
+| Battery findings read from full papers | 11 of 15 | |
+| Material properties read from full papers | flagged, never used to answer | |
+
+Twenty rows is a small sample and the interval around each figure is wide, so
+these are the order of the thing and not a precise rate. What the audits are
+really for is finding the classes of error, and every round has found some.
+
+The second audit is the one worth reading. The library had just grown from
+83,409 papers to 104,649 by adding the materials graphene is weighed against,
+and accuracy **fell**: 61 of 73 rows across the four populations, against 66
+of 73 the day before. Not because the new papers are worse, but because they
+compare. A graphene paper reports what a graphene electrode did; a paper about
+MXene or hard carbon spends half its abstract setting its figure against
+somebody else's, and a sentence full of comparisons is full of numbers that
+are not the result. Twelve wrong rows gave six classes of error — bounds read
+as values, controls read as results, credits in wordings the guard did not
+know, other fields' durability tests, changes read as values, and listed pairs
+read by proximity. Fixing them took the battery rows to 19 of 20 and the
+property rows to 17 of 20 on fresh samples.
+
+The lesson is worth keeping: more data made the library less accurate, and
+only measuring it again showed that. Every widening from here gets audited.
+
+The material label is a separate question from the value, and a weaker one: a
+row can carry the right number against the wrong material, which matters to
+anyone filtering by material. A label is taken from the sentence where the
+sentence names one. Where it does not, the paper is the fallback and has to
+mean it — a name in the title is the paper's subject, but a name said once
+somewhere in an abstract is as often the counter-electrode or a line of
+background. That slice was judged 8 of 12 right, and in every wrong case the
+name was said exactly once, while every multiply-named one was right. So a
+name found only in the abstract now has to be said twice; otherwise the row
+keeps the less specific label it can support, which is worth more than a
+precise label that is false.
+
+An abstract is the authors' own claims about their own sample, which is why it
+reads so much more cleanly than a body. A body also holds other groups'
+numbers, standards' minimums, textbook constants and control samples. Guards
+refuse the classes that recur — a figure credited to another paper, a baseline
+in a from-to comparison, a control, a general claim, a value every paper in
+the field quotes — and three rounds of them did not close the gap on the
+property rows, because the tail is long: an error bar, a modulus quoted beside
+a strength, "are reported as", "agrees with a value of". So those rows are
+stored flagged rather than verified. They stay searchable and each carries its
+sentence, and none of them can answer a question. Closing that gap wants a
+reader that can judge a sentence, not another pattern.
+
+### Asking a model to check the rows
+
+Patterns could not close the gap on the rows read from bodies, so the obvious
+next move was to put each row to a model: one question, against the one
+sentence that row came from — do these authors say they measured this property
+on their own material at this value? The model is a filter over text that is
+already here, never a source. It cannot introduce a number or reach a paper,
+and the worst a wrong answer does is trust or distrust a single row whose
+sentence is stored beside it either way.
+
+Which direction that is worth using was then measured, on twenty-seven rows
+already judged by hand, and the answer was not the expected one.
+
+As a **promoter** it is too loose. It passed 2 of the 18 rows judged wrong and
+recovered 5 of the 9 judged right, which over the 577 flagged rows is about
+235 promoted at 91% — leaving the answer path at 94.9% against 95% now. All of
+the risk of putting a model in the trust path for no measurable gain. So
+`--promote` exists, is off, and stays off unless those rates improve.
+
+As a **demoter** it earns its place. Twice it refused a row this project had
+accepted, and both times it was right: "the specific surface area of the V2O5
+and V2O5/RGO composite were 31.12 and 52.17" filed under V2O5, and a sw-GS/PW
+composite's conductivity filed under rGO. Both are material labels, already
+the weakest axis. In a small sample of rows that currently answer questions it
+refused a sheet resistance belonging to a PPy-jute supercapacitor and a solar
+efficiency stored as an optical transmittance. Refusing a row costs recall and
+nothing else, because the row keeps its sentence and stays searchable.
+
+It is also not deterministic: asked the same row twice at temperature zero it
+changed its answer, so a verdict counts only where two independent asks agree.
+
+What limits this is the budget rather than the reading. The free tier allows
+8,000 tokens a minute and about a thousand requests in five and a half hours,
+and counts what a request reserves rather than what it uses. Four rows to a
+call, asked twice, is a row every few seconds at best: the 577 flagged rows
+are a half-hour job and the 7,273 rows that answer questions are an overnight
+one. So `judge_rows.py` writes each verdict as it arrives and skips what it
+has already judged — it is meant to be started, left, and started again.
+
+What the audits found, each of which had reached the shipped library:
+
+- A femtogram is not a farad. 58 rows were biosensor detection limits —
+  "1.0 fg/mL" — filed as specific capacitance, because the unit patterns are
+  compiled case-insensitively and f is the lowercase of F.
+- An uncertainty is not a value. "670 ± 5 L m⁻²h⁻¹bar⁻¹" stored 5, and
+  "617 ± 5 mAh g⁻¹" stored 5, because 5 is the number nearest the unit.
+- `round(x, 6)` is six decimal places, so a conductivity of 4.85×10⁻¹¹ S/cm
+  became exactly 0.0.
+- A pattern that cannot span a thousands separator matches the trailing group
+  on its own: "after 10,000 cycles" captured "000", and 314 rows carried a
+  cycle count of zero beside a real retention figure.
+- The same shape in the property patterns read only the separated form, so a
+  mobility of "11900 cm² V⁻¹s⁻¹" stored 1900 and "250000" was lost in silence.
+- A retention percentage is a battery figure only if what was retained is a
+  capacity and what it survived was charge cycling. Flexibility tests, a
+  stretching test and a solar cell's stability were all stored as capacity
+  retention; 471 rows retained a capacitance rather than a capacity and now
+  say so.
+- A capacity can be a setting rather than a result: "a cutoff specific
+  capacity of 600 mAh/g" is the number the experimenter chose.
+- Matched case-insensitively, `\bGO\b` matches the verb "go", so "we then go
+  on to measure the sample" was labelled graphene oxide.
+- PubMed leaves "[Formula: see text]" where a formula stood. It was shown to
+  anyone reading the source quote of 18 rows, and in one it split a number.
+- A gas-adsorption durability test is not a battery's. "evaluates the
+  CO2-adsorption relevance and cycling stability of graphene oxide–silica"
+  had put one in the battery table.
 
 Of the 83,409 papers, 68,037 were matched by a search requiring a graphene
 term in the title, and 15,372 only by one that reads the abstract as well — so
@@ -128,7 +270,8 @@ sending the link to anyone.
 | [OpenAlex](https://openalex.org) | 83,409 paper records, 2019 onward, 18,699 of them shipping with their abstract | CC0 |
 | [Wikipedia](https://en.wikipedia.org) | 285 reference entries across 19 categories, stored verbatim with a link to each original | CC BY-SA 4.0 |
 | [PubChem](https://pubchem.ncbi.nlm.nih.gov) | 34 compounds: formula, mass, structure | public domain |
-| This repository | 9,230 measurements extracted from the abstracts (4,595 battery, 4,635 material property) across 6,967 papers, and 28 calculators | the repository's licence |
+| This repository | 15,003 measurements extracted from the papers (8,558 battery, 6,445 material property), and 28 calculators | the repository's licence |
+| [Europe PMC](https://europepmc.org) | open-access full text for 274 of those papers, read for measurements and not shipped | the publishers' open-access licences |
 
 All of it is open and checkable. Nothing is paid for, and nothing is behind a
 login. Every reference entry shows which source it came from and links to it,
@@ -154,6 +297,34 @@ The agent adds five more files, used only when **Agent** mode is on:
 
 | Part | File | What it does |
 |---|---|---|
+## Speaking and listening
+
+Three ways, chosen in the interface, none of them required.
+
+| | Where it runs | Needs | Trade |
+|---|---|---|---|
+| **Browser** | the visitor's browser | nothing | instant, flat voice, no recogniser in Firefox, and in Chrome the audio goes to Google |
+| **On-device** | the visitor's machine | a 39&ndash;156 MB download, once | nothing leaves the machine; needs a capable machine, and the better voice needs a real graphics card |
+| **Hosted** | this service | `GROQ_API_KEY` | most accurate and no download; the audio is sent to the service |
+
+The hosted half is reached through this app rather than from the page,
+because a page holding the credential would hand it to everyone who opened
+the page. `/api/voice/status` reports which halves are configured, and the
+interface only offers what is actually there.
+
+The reading voice is optional and provider-agnostic. Any service speaking the
+OpenAI `audio/speech` shape works:
+
+| Setting | What it is |
+|---|---|
+| `TTS_URL` | the address to post to, e.g. `https://api.openai.com/v1/audio/speech` |
+| `TTS_API_KEY` | the key for it (`TTS_KEY_ENV` renames the variable if you need to) |
+| `TTS_MODEL` | the model, default `tts-1` |
+| `TTS_VOICE` | the voice, default `alloy` |
+
+With none of these set, the browser's own voice reads the answers and nothing
+is broken.
+
 | Provider | `llm.py` | One interface over Groq, OpenAI, Anthropic and Gemini. Switching provider is one environment variable |
 | Tools | `agent_tools.py` | Fifteen read-only tools over the same database. Every limit is clamped server-side, and `sql_query` accepts a single read-only `SELECT` on a read-only connection |
 | Sandbox | `sandbox.py` | Runs analysis the agent writes itself, under CPU, memory, file-size and process limits, in its own session, as an unprivileged user, with no keys in the environment |

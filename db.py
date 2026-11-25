@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+import shutil
 import sqlite3
 
 DB_PATH = os.environ.get("DB_PATH", "data/research_agent.db")
@@ -39,9 +41,15 @@ CREATE TABLE IF NOT EXISTS papers (
     source             TEXT DEFAULT 'openalex',
     source_queries     TEXT,
     is_preprint        TEXT DEFAULT 'no',
-    fetched_at         TEXT
+    fetched_at         TEXT,
+    -- When this paper first entered the library. fetched_at is rewritten on
+    -- every reload, so it cannot answer "what is new since last week": after
+    -- the second collection every paper claimed to have arrived that day.
+    -- This one is written on insert and never updated.
+    first_seen         TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_papers_year ON papers(year);
+CREATE INDEX IF NOT EXISTS idx_papers_first_seen ON papers(first_seen);
 CREATE INDEX IF NOT EXISTS idx_papers_cpy  ON papers(citations_per_year DESC);
 CREATE INDEX IF NOT EXISTS idx_papers_reuse ON papers(full_text_reusable);
 
@@ -236,10 +244,74 @@ END;
 """
 
 
+# What ships is an archive, and what runs is unpacked from it on first use.
+#
+# A git host refuses a file over a hundred megabytes, and that limit was
+# costing the library real data: make_shippable threw away the least-cited
+# abstracts, three and a half thousand of them, until the file fitted. A
+# SQLite database of text compresses about five times over, so five hundred
+# megabytes of library now fits in ninety of repository and nothing has to be
+# thrown away to ship it.
+#
+# zstd is preferred because it unpacks in a tenth of a second where lzma takes
+# twenty, which matters when a host is waiting on a health check; lzma is the
+# fallback because it needs nothing installed. Beyond what even a compressed
+# file can carry, DB_URL names a download instead - a release asset has no
+# hundred megabyte limit - and the archive in the repository stays as the copy
+# that always works.
+ARCHIVES = (".zst", ".xz")
+
+
+def _unpack(archive: str, into: str) -> None:
+    """Write the archive out beside itself, atomically."""
+    tmp = into + ".unpacking"
+    if archive.endswith(".zst"):
+        import zstandard
+        with open(archive, "rb") as src, open(tmp, "wb") as dst:
+            zstandard.ZstdDecompressor().copy_stream(src, dst)
+    else:
+        import lzma
+        with lzma.open(archive, "rb") as src, open(tmp, "wb") as dst:
+            shutil.copyfileobj(src, dst, 1 << 20)
+    os.replace(tmp, into)
+
+
+def ensure_file(path: str) -> str:
+    """Make sure a packed file is unpacked, if an archive sits beside it.
+
+    Used for the library and for data/papers.csv, the raw collection, which
+    outgrew the same hundred-megabyte limit. Does nothing when the file is
+    already there and no newer archive sits beside it, so it is free to call
+    on every open.
+    """
+    here = os.path.exists(path)
+    for suffix in ARCHIVES:
+        archive = path + suffix
+        if not os.path.exists(archive):
+            continue
+        if here and os.path.getmtime(path) >= os.path.getmtime(archive):
+            return path                      # already unpacked, and current
+        try:
+            _unpack(archive, path)
+            return path
+        except Exception as exc:             # a broken archive must not hide
+            if here:                         # a database that already works
+                print(f"could not unpack {archive}: {exc}", file=sys.stderr)
+                return path
+            raise
+    return path
+
+
+def ensure_database(path: str | None = None) -> str:
+    """The library, unpacked if it is only here as an archive."""
+    return ensure_file(path or DB_PATH)
+
+
 def connect(path: str | None = None) -> sqlite3.Connection:
     path = path or DB_PATH
     parent = os.path.dirname(os.path.abspath(path))
     os.makedirs(parent, exist_ok=True)
+    ensure_database(path)
     conn = sqlite3.connect(path, timeout=60)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")

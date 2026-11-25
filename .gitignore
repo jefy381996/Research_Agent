@@ -21,3 +21,18 @@ web/data.json
 *.db-wal
 *.db-shm
 data/.collect-progress.json
+data/fulltext.db
+
+# The library ships packed: a git host refuses a file over 100 MB, and the
+# database compresses about five times over. pack_db.py writes the archive,
+# db.ensure_database unpacks it on first use. The archive is committed; this
+# is not.
+data/research_agent.db
+data/research_agent.db-wal
+data/research_agent.db-shm
+!data/research_agent.db.zst
+!data/research_agent.db.xz
+
+# The raw collection outgrew the same limit; it ships packed too.
+data/papers.csv
+!data/papers.csv.zst

@@ -27,8 +27,10 @@ from datetime import datetime, timezone
 
 import db
 import properties as P
-from extract_evidence import (GRAPHENE_FORMS, PARTNERS, _first_match,
-                              normalise, sentences)
+from extract_evidence import (A_BOUND, A_DELTA, BOUND_LOOKBACK, CONTROL,
+                              CONTROL_LOOKBACK, DELTA_LOOKBACK, GRAPHENE_FORMS,
+                              OMITTED, PARTNERS, _corroborated, _first_match,
+                              is_baseline, normalise, one_of_a_pair, sentences)
 
 APPLICATIONS = [
     ("thermal management", (r"thermal\s+management", r"heat\s+dissipat",
@@ -73,6 +75,13 @@ _ALIAS_RE = {
     fam["key"]: re.compile("|".join(re.escape(a) for a in fam["aliases"]), re.I)
     for fam in P.FAMILIES
 }
+
+# "Strength" alone is not tensile strength. A scaffold paper reporting a
+# maximum compressive strength of 12 MPa had it filed as a tensile strength,
+# because the alias "strength" matched and nothing checked which kind.
+_STRENGTH_DECOY = re.compile(
+    r"compressive|flexural|shear|yield\s+strength|bending|dielectric\s+strength",
+    re.I)
 
 # A percentage is a transmittance only next to the word; these are the phrases
 # that most often sit beside a stray percentage in a graphene abstract.
@@ -143,6 +152,10 @@ def rows_for_sentence(sentence: str, title: str, abstract: str,
                 continue
             if fam["key"] == "transmittance" and _PCT_DECOYS.search(work):
                 continue
+            if (fam["key"] == "tensile_strength"
+                    and _STRENGTH_DECOY.search(work)
+                    and not re.search(r"tensile\s+(?:strength|stress)", work, re.I)):
+                continue
         matches = list(rx.finditer(work))
         if not matches:
             continue
@@ -151,13 +164,36 @@ def rows_for_sentence(sentence: str, title: str, abstract: str,
         if value is None:
             continue
         value *= scale
+        if value <= 0:
+            continue           # a property of zero is a parse, not a result
+
+        # The guards the battery reader has used all along, and this one never
+        # did. The audit found all four classes here and none there: a bound
+        # ("<10-9 S/cm" stored as 900 S/m), a change rather than a value
+        # ("increase of 0.06 S/cm"), a control sample ("pure rGO ... were 82.5
+        # ohm/sq" put on the composite) and the near end of a from-to pair.
+        before = work[:match.start()]
+        if A_BOUND.search(before[-BOUND_LOOKBACK:]):
+            continue
+        if A_DELTA.search(before[-DELTA_LOOKBACK:]):
+            continue
+        if (CONTROL.search(before[-CONTROL_LOOKBACK:])
+                or OMITTED.search(before)):
+            continue
+        if is_baseline(work, match.group(0)):
+            continue
+        if one_of_a_pair(work, match.group(0)):
+            continue
         flags = _flags_for(fam, value, work)
         if _modelled_near(work, match.span()):
             flags.append("modelled_not_measured")
         found.append({
             "property_key": fam["key"],
             "property_label": fam["label"],
-            "value": round(value, 6),
+            # Six significant figures, not six decimal places: a carrier
+            # mobility or a conductivity is legitimately tiny, and
+            # round(4.85e-9, 6) is 0.0.
+            "value": float(f"{value:.6g}"),
             "unit": fam["unit"],
             "value_as_reported": match.group(0).strip(),
             "flags": flags,
@@ -168,9 +204,13 @@ def rows_for_sentence(sentence: str, title: str, abstract: str,
         return []
 
     paper_text = normalise(f"{title} {abstract}")
+    # The sentence wins; the paper is the fallback and has to mean it. See
+    # _corroborated in extract_evidence: a name said once in an abstract is
+    # as often the counter-electrode or background as the material measured.
     form = (_first_match(GRAPHENE_FORMS, work)
-            or _first_match(GRAPHENE_FORMS, paper_text))
-    partner = _first_match(PARTNERS, work) or _first_match(PARTNERS, paper_text)
+            or _corroborated(GRAPHENE_FORMS, title, abstract))
+    partner = (_first_match(PARTNERS, work)
+               or _corroborated(PARTNERS, title, abstract))
     application = (_first_match(APPLICATIONS, work)
                    or _first_match(APPLICATIONS, paper_text))
     material = f"{partner}/{form}" if partner and form else (form or partner)
@@ -207,17 +247,22 @@ def row_hash(row: dict) -> str:
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 
 
-def rows_for_paper(paper: dict) -> list[dict]:
+def rows_for_paper(paper: dict, section: str = "abstract",
+                   cap: int | None = None) -> list[dict]:
+    """Property rows from one paper's text. See rows_for_paper in
+    extract_evidence for why `cap` is a parameter and not a constant."""
+    cap = MAX_ROWS_PER_PAPER if cap is None else cap
     text = paper.get("abstract") or ""
     out: list[dict] = []
     for sentence in sentences(text):
-        for row in rows_for_sentence(sentence, paper.get("title") or "", text):
+        for row in rows_for_sentence(sentence, paper.get("title") or "", text,
+                                     section):
             row["openalex_id"] = paper["openalex_id"]
             if not verify_text(row):
                 continue
             row["row_hash"] = row_hash(row)
             out.append(row)
-            if len(out) >= MAX_ROWS_PER_PAPER:
+            if len(out) >= cap:
                 return out
     return out
 
@@ -238,6 +283,21 @@ def main():
 
     started = datetime.now(timezone.utc).isoformat(timespec="seconds")
     papers = conn.execute(query).fetchall()
+
+    # Clear this section's rows for the papers about to be read, the way the
+    # evidence extractor does. Identity-hash upsert alone keeps a re-run from
+    # duplicating, but it leaves behind rows the patterns no longer produce -
+    # so a fix to a pattern never reached the library. 58 biosensor detection
+    # limits sat in it as specific capacitance for exactly that reason.
+    ids = [p["openalex_id"] for p in papers]
+    for start in range(0, len(ids), 400):
+        batch = ids[start:start + 400]
+        conn.execute(
+            f"DELETE FROM properties WHERE openalex_id IN"
+            f" ({','.join('?' * len(batch))})"
+            f" AND coalesce(source_section,'abstract')='abstract'", batch)
+    conn.commit()
+
     added = failed = 0
     placeholders = ",".join("?" * len(INSERT_FIELDS))
     columns = ",".join(INSERT_FIELDS)
