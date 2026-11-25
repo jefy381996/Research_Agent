@@ -77,7 +77,40 @@ def main():
     return worst
 
 
+def derived_tables_present(src: str) -> int:
+    """Rows in the tables the service rebuilds on boot, if any.
+
+    They are stripped by make_shippable and rebuilt the next time the service
+    starts - so running the browser suites between the two puts them back, and
+    the archive silently doubles. That is how a 34 MB file became 100, right
+    on the limit a git host refuses above.
+    """
+    if not src.endswith(".db"):
+        return 0
+    import sqlite3
+    try:
+        conn = sqlite3.connect(f"file:{src}?mode=ro", uri=True)
+    except Exception:
+        return 0
+    rows = 0
+    try:
+        for table in ("chunks", "paper_sections"):
+            try:
+                rows += conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+            except Exception:
+                pass
+    finally:
+        conn.close()
+    return rows
+
+
 def pack_one(src, args, level):
+    derived = derived_tables_present(src)
+    if derived:
+        print(f"{src} still holds {derived:,} rows the service rebuilds on"
+              f" boot, so this would pack several times larger than it needs"
+              f" to. Run make_shippable.py first.")
+        return 1
 
     before = os.path.getsize(src)
     want = digest(src)

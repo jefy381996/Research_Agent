@@ -27,8 +27,10 @@ from datetime import datetime, timezone
 
 import db
 import properties as P
-from extract_evidence import (GRAPHENE_FORMS, PARTNERS, _corroborated,
-                              _first_match, normalise, sentences)
+from extract_evidence import (A_BOUND, A_DELTA, BOUND_LOOKBACK, CONTROL,
+                              CONTROL_LOOKBACK, DELTA_LOOKBACK, GRAPHENE_FORMS,
+                              OMITTED, PARTNERS, _corroborated, _first_match,
+                              is_baseline, normalise, one_of_a_pair, sentences)
 
 APPLICATIONS = [
     ("thermal management", (r"thermal\s+management", r"heat\s+dissipat",
@@ -164,6 +166,24 @@ def rows_for_sentence(sentence: str, title: str, abstract: str,
         value *= scale
         if value <= 0:
             continue           # a property of zero is a parse, not a result
+
+        # The guards the battery reader has used all along, and this one never
+        # did. The audit found all four classes here and none there: a bound
+        # ("<10-9 S/cm" stored as 900 S/m), a change rather than a value
+        # ("increase of 0.06 S/cm"), a control sample ("pure rGO ... were 82.5
+        # ohm/sq" put on the composite) and the near end of a from-to pair.
+        before = work[:match.start()]
+        if A_BOUND.search(before[-BOUND_LOOKBACK:]):
+            continue
+        if A_DELTA.search(before[-DELTA_LOOKBACK:]):
+            continue
+        if (CONTROL.search(before[-CONTROL_LOOKBACK:])
+                or OMITTED.search(before)):
+            continue
+        if is_baseline(work, match.group(0)):
+            continue
+        if one_of_a_pair(work, match.group(0)):
+            continue
         flags = _flags_for(fam, value, work)
         if _modelled_near(work, match.span()):
             flags.append("modelled_not_measured")

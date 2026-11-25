@@ -203,11 +203,14 @@ class QuotedRatherThanMeasured(unittest.TestCase):
         self.assertNotEqual(ev[0].get("confidence"), "flagged")
 
     def test_the_neat_resins_modulus_is_not_the_composites(self):
-        ev, pr, refused = rows(
+        # Caught by the property reader now rather than here: the guard moved
+        # into the shared module when the audit found the same class in rows
+        # read from abstracts. What matters is that the row does not come
+        # through; which layer refuses it is an implementation detail.
+        ev, pr, _ = rows(
             "The tensile modulus of neat epoxy is 2.89 GPa, while for"
             " epoxy/GNP nanocomposites it varies between 2.65 and 3.36 GPa.")
         self.assertEqual((ev, pr), ([], []))
-        self.assertIn("control", refused[0][0])
 
     def test_an_optical_filters_transmittance_is_not_the_materials(self):
         ev, pr, refused = rows(
@@ -252,11 +255,10 @@ class StrippedCitationsAndControls(unittest.TestCase):
             " capacitance of 320 F g -1 .")[1])
 
     def test_a_figure_compared_away_from_is_a_baseline(self):
-        ev, pr, refused = rows(
+        ev, pr, _ = rows(
             "The significantly increased specific surface area from GO (832"
             " m 2 /g) to RGO has facilitated the MB adsorption.")
         self.assertEqual((ev, pr), ([], []))
-        self.assertIn("baseline", refused[0][0])
 
 
 class MaterialComesFromTheSentence(unittest.TestCase):
@@ -273,10 +275,22 @@ class MaterialComesFromTheSentence(unittest.TestCase):
         self.assertNotIn("Si", (got[0]["material"] or ""))
 
     def test_the_guards_can_be_turned_off_for_comparison(self):
-        sentence = ("The thermal conductivity of carbon building blocks is"
-                    " typically less than 200 W m -1 K -1 .")
+        # --no-guards turns off the guards in this pass. The ones that moved
+        # into the shared reader stay on, because a control sample or a bound
+        # is wrong in an abstract too - which is what the audit showed.
+        # A sentence only this pass's guards catch. "typically less than 200
+        # W/mK" no longer serves: it is a general claim and a bound, and the
+        # bound guard is one of the shared ones, so it goes either way.
+        sentence = ("As one of the hardest materials known, boron carbide is"
+                    " often prized for its properties, including a high"
+                    " elastic modulus of 460 GPa.")
         self.assertEqual(rows(sentence, guard=True)[1], [])
         self.assertTrue(rows(sentence, guard=False)[1])
+
+    def test_a_shared_guard_stays_on_either_way(self):
+        sentence = ("All samples improved compared to pure rGO and MoS 2 ,"
+                    " which were 82.5 Ohm/sq and 48.9 Ohm/sq.")
+        self.assertEqual(rows(sentence, guard=False)[1], [])
 
 
 if __name__ == "__main__":

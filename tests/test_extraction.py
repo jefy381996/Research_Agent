@@ -318,6 +318,117 @@ class AnotherFieldsCyclingTest(unittest.TestCase):
         self.assertAlmostEqual(row["capacity_retention_pct"], 92.0, places=1)
 
 
+class WhatTheSecondAuditFound(unittest.TestCase):
+    """The library was widened to 104,649 papers and audited again. Accuracy
+    fell from 66 of 73 to 61 of 73, because the new papers compare materials
+    far more than the graphene ones did - and a sentence that compares is full
+    of numbers that are not the paper's own result. Every case here is one of
+    the twelve rows judged wrong."""
+
+    def cap(self, text):
+        row = E.extract_from_sentence(text, "A graphene anode", text, "abstract")
+        return None if row is None else row["specific_capacity_mah_g"]
+
+    # --- a bound is not a measurement ---------------------------------
+
+    def test_a_less_than_bound_is_not_a_capacity(self):
+        # "<3 mAh/g" is a ceiling on an electrode that did not work.
+        self.assertIsNone(self.cap(
+            "The electrode with FEC-included electrolyte only exhibited the"
+            " specific capacity of <3 mA h g -1 at 100 mA g -1 ."))
+
+    def test_a_measured_minimum_is_still_a_measurement(self):
+        # "down to" and "as low as" are results, not bounds.
+        self.assertAlmostEqual(self.cap(
+            "The electrodes showed a capacity down to 330 mAh g -1 at 1 C."),
+            330.0, places=1)
+
+    # --- a figure held up as a failure --------------------------------
+
+    def test_the_control_the_paper_is_arguing_against(self):
+        self.assertIsNone(self.cap(
+            "However, the bare PTCDI cathode performed an inferior rate"
+            " capability and only gained a low discharge capacity of 48"
+            " mAh g -1 ."))
+
+    def test_a_capacity_that_faded_away_is_not_the_result(self):
+        self.assertIsNone(self.cap(
+            "Although the cell based on conductive carbon initially delivered"
+            " a high capacity, its capacity faded gradually to ~30 mAh g -1"
+            " after 1000 cycles."))
+
+    # --- somebody else's figure, in more wordings ---------------------
+
+    def test_and_coworkers_is_a_credit_like_et_al(self):
+        self.assertIsNone(self.cap(
+            "Wang and coworkers reported that the pure Bi electrode exhibited"
+            " low-temperature behaviour (370 mAh g -1 at 0.02 A g -1 )."))
+
+    def test_a_credit_is_scoped_to_its_sentence_not_a_window(self):
+        # Ninety characters sat between the credit and the figure, which is
+        # why a window missed it.
+        text = ("Zhang and co-workers reported that a similar composite built"
+                " from ordinary precursors reached 820 mAh g -1 .")
+        self.assertIsNone(self.cap(text))
+
+    def test_the_paper_claiming_the_figure_keeps_it(self):
+        # Without this escape the guard eats real results.
+        for text in (
+            "Unlike previously reported values, our anode delivered 617"
+            " mAh g -1 at 100 mA g -1 .",
+            "Although Wang et al. reported poor stability, we obtained a"
+            " capacity of 820 mAh g -1 after 200 cycles.",
+            "In this work the electrode delivered 540 mAh g -1 , higher than"
+            " the reported 400 mAh g -1 .",
+        ):
+            self.assertIsNotNone(self.cap(text), text[:50])
+
+    # --- other fields have retention too ------------------------------
+
+    def test_a_supercapacitor_by_its_abbreviation(self):
+        text = ("Excellent cycling stability with a capacity retention of"
+                " 90.07% after 3000 cycles proves it is a promising electrode"
+                " for SCs.")
+        self.assertIsNone(E.extract_from_sentence(text, "t", text, "abstract"))
+
+    def test_a_biosensors_storage_stability_in_days(self):
+        text = ("The impedimetric response can retain 92% of their original"
+                " activity after 15 d of storage, respectively.")
+        self.assertIsNone(E.extract_from_sentence(text, "t", text, "abstract"))
+
+    def test_a_desalination_cell_is_not_a_battery(self):
+        text = ("The capacitive deionisation cell retained 60% of its"
+                " performance after 100 cycles.")
+        self.assertIsNone(E.extract_from_sentence(text, "t", text, "abstract"))
+
+    def test_real_battery_cycling_is_untouched(self):
+        for text in (
+            "The cell retained 97.1% capacity after 500 cycles at 1 C.",
+            "The anode delivered 617 mAh g -1 at 100 mA g -1 after 100 cycles.",
+            "C-LIG demonstrates a specific capacity of 330 mA h g -1 at 0.1 A g -1 .",
+        ):
+            self.assertIsNotNone(
+                E.extract_from_sentence(text, "t", text, "abstract"), text[:50])
+
+
+class ASupercapacitorByAnyWording(unittest.TestCase):
+
+    def test_capacitive_characteristics_is_a_supercapacitor(self):
+        # The guard matched "capacitance" and "supercapacitor" but not this.
+        text = ("The electrodes showed the best capacitive characteristics"
+                " with 100% capacity retention after 15,000 cycles.")
+        row = E.extract_from_sentence(text, "t", text, "abstract")
+        if row is not None:
+            self.assertTrue(any("capacitance_not_capacity" in f
+                                for f in row["flags"]), row["flags"])
+
+    def test_a_battery_retention_is_still_clean(self):
+        text = "The cell retained 97.1% capacity after 500 cycles at 1 C."
+        row = E.extract_from_sentence(text, "t", text, "abstract")
+        self.assertFalse(any("capacitance_not_capacity" in f
+                             for f in row["flags"]), row["flags"])
+
+
 class TheTopOfTheList(unittest.TestCase):
     """The measurements screen sorts by capacity, so the biggest numbers are
     the first a visitor sees - and the biggest numbers are where theoretical

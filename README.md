@@ -6,12 +6,12 @@ toxicity and production. It answers from stored data and nothing else:
 reference entries for the fundamentals, measurements pulled out of published
 papers, and calculators you can audit.
 
-**285 reference entries · 15,134 measurements · 104,649 papers · 34 compounds ·
-28 calculators.** The measurements come in two halves: 8,453 battery
+**285 reference entries · 15,003 measurements · 104,649 papers · 34 compounds ·
+28 calculators.** The measurements come in two halves: 8,558 battery
 performance figures — capacity, retention, cycle life, rate, efficiency — and
-6,681 material properties across twelve families, from thermal conductivity and
+6,445 material properties across twelve families, from thermal conductivity and
 sheet resistance to Young's modulus, surface area, optical transmittance, water
-permeance and EMI shielding. 11,493 of them are verified; the rest carry a flag
+permeance and EMI shielding. 11,205 of them are verified; the rest carry a flag
 saying what is doubtful about them, and the answering engine serves verified
 rows only.
 
@@ -36,18 +36,32 @@ was measured on and never answers a question about graphene.
 Measured, not asserted. Rows are drawn at random and judged one at a time
 against the sentence stored beside them, in samples of about twenty:
 
-| | rows | the value | the material |
-|---|---|---|---|
-| Battery findings from abstracts | 2,807 verified | 19 of 20 | 16 of 18 |
-| Material properties from abstracts | 4,466 verified | 18 of 19 | |
-| Battery findings from full text | 354 verified | 13 of 15 | |
-| Material properties from full text | 577, all flagged | about two thirds | |
+| | the value | the material |
+|---|---|---|
+| Battery findings | 19 of 20 | 16 of 18 |
+| Material properties | 17 of 20 | |
+| Battery findings read from full papers | 11 of 15 | |
+| Material properties read from full papers | flagged, never used to answer | |
 
 Twenty rows is a small sample and the interval around each figure is wide, so
 these are the order of the thing and not a precise rate. What the audits are
-really for is finding the classes of error, and each round found some. Before
-the faults listed below were fixed, the battery rows from abstracts were at 16
-of 19, the property rows at 15 of 18, and the material labels at 14 of 18.
+really for is finding the classes of error, and every round has found some.
+
+The second audit is the one worth reading. The library had just grown from
+83,409 papers to 104,649 by adding the materials graphene is weighed against,
+and accuracy **fell**: 61 of 73 rows across the four populations, against 66
+of 73 the day before. Not because the new papers are worse, but because they
+compare. A graphene paper reports what a graphene electrode did; a paper about
+MXene or hard carbon spends half its abstract setting its figure against
+somebody else's, and a sentence full of comparisons is full of numbers that
+are not the result. Twelve wrong rows gave six classes of error — bounds read
+as values, controls read as results, credits in wordings the guard did not
+know, other fields' durability tests, changes read as values, and listed pairs
+read by proximity. Fixing them took the battery rows to 19 of 20 and the
+property rows to 17 of 20 on fresh samples.
+
+The lesson is worth keeping: more data made the library less accurate, and
+only measuring it again showed that. Every widening from here gets audited.
 
 The material label is a separate question from the value, and a weaker one: a
 row can carry the right number against the wrong material, which matters to
@@ -256,7 +270,7 @@ sending the link to anyone.
 | [OpenAlex](https://openalex.org) | 83,409 paper records, 2019 onward, 18,699 of them shipping with their abstract | CC0 |
 | [Wikipedia](https://en.wikipedia.org) | 285 reference entries across 19 categories, stored verbatim with a link to each original | CC BY-SA 4.0 |
 | [PubChem](https://pubchem.ncbi.nlm.nih.gov) | 34 compounds: formula, mass, structure | public domain |
-| This repository | 15,134 measurements extracted from the papers (8,453 battery, 6,681 material property), and 28 calculators | the repository's licence |
+| This repository | 15,003 measurements extracted from the papers (8,558 battery, 6,445 material property), and 28 calculators | the repository's licence |
 | [Europe PMC](https://europepmc.org) | open-access full text for 274 of those papers, read for measurements and not shipped | the publishers' open-access licences |
 
 All of it is open and checkable. Nothing is paid for, and nothing is behind a

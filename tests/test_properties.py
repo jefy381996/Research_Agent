@@ -227,6 +227,101 @@ class TestContract(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertAlmostEqual(rows[0]["value"], 228.0, places=1)
 
+    # --- what the second audit found ------------------------------------
+    #
+    # The guards below were written for the rows read from paper bodies and
+    # used only there. The audit found all four classes in the rows read from
+    # abstracts, where none of them had ever been applied.
+
+    def test_a_change_is_not_a_value(self):
+        # "an increase of 0.06 S/cm" is how far the number moved.
+        text = ("Remarkably, the conductivity of the MXene-coated fibre"
+                " exhibits a notable increase of 0.06 S/cm after coating.")
+        self.assertEqual(X.rows_for_sentence(text, "t", text), [])
+
+    def test_a_bound_in_the_background_is_not_a_measurement(self):
+        # Stored as 900 S/m: eleven orders of magnitude out, from a sentence
+        # explaining why LiFePO4 needs help.
+        text = ("To increase the ionic and the electronic conductivity"
+                " (<10 -9 S/cm) of olivine LiFePO 4 , studies were done.")
+        rows = [r for r in X.rows_for_sentence(text, "t", text)
+                if r["property_key"] == "electrical_conductivity"]
+        self.assertEqual(rows, [])
+
+    def test_a_control_sample_is_not_the_composite(self):
+        text = ("All samples show an improvement compared to pure rGO and"
+                " MoS 2 , which were 82.5 Ohm/sq and 48.9 Ohm/sq.")
+        self.assertEqual(X.rows_for_sentence(text, "t", text), [])
+
+    def test_the_near_end_of_a_from_to_pair_is_not_the_result(self):
+        text = ("The specific surface area increased from 115.2 m 2 /g for"
+                " the untreated sample after activation.")
+        self.assertEqual(X.rows_for_sentence(text, "t", text), [])
+
+    def test_the_far_end_of_a_from_to_pair_still_is(self):
+        text = ("The surface area of the micropores increased from 115.2 to"
+                " 367.2 m 2 /g after the second activation.")
+        rows = [r for r in X.rows_for_sentence(text, "t", text)
+                if r["property_key"] == "surface_area"]
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(rows[0]["value"], 367.2, places=1)
+
+    def test_ordinary_measurements_are_untouched(self):
+        for text, key in (
+            ("The electrodes showed a maximum transmittance of 90%.", "transmittance"),
+            ("M-TiO 2 @rGO presented a surface area of 174 m 2 g -1 .", "surface_area"),
+            ("The film exhibits a thermal conductivity of 4.7 W/mK.", "thermal_conductivity"),
+            ("The electrodes showed a sheet resistance down to 35 Ohm/sq.", "sheet_resistance"),
+            ("An electrical conductivity of 1800 S/cm was measured.", "electrical_conductivity"),
+        ):
+            rows = [r for r in X.rows_for_sentence(text, "t", text)
+                    if r["property_key"] == key]
+            self.assertEqual(len(rows), 1, text)
+
+    # --- a pair cannot be read by proximity -----------------------------
+    #
+    # "the modulus and ultimate strength are as high as 17 GPa and 250 MPa"
+    # lists two things and two figures, and they pair by order. The reader
+    # takes the figure nearest the property it is looking for, which always
+    # pairs with the first item, so it read the modulus as the strength. The
+    # same shape put graphene oxide's 59 MPa on reduced graphene oxide.
+
+    def test_the_second_of_a_pair_goes_with_the_second_item(self):
+        text = ("The absolute values for modulus and ultimate strength are as"
+                " high as 17 GPa and 250 MPa at a GO content of 0.07 vol%.")
+        rows = [r for r in X.rows_for_sentence(text, "t", text)
+                if r["property_key"] == "tensile_strength"]
+        self.assertEqual(len(rows), 1)
+        # 250 MPa is the ultimate strength; 17 GPa is the modulus.
+        self.assertAlmostEqual(rows[0]["value"], 250.0, places=1)
+
+    def test_an_ambiguous_pair_is_refused_rather_than_guessed(self):
+        # Two materials, two figures, and nothing in the sentence says which
+        # is which without parsing the list. A row lost cannot be wrong.
+        text = ("The maximum tensile strength of 1% GO and rGO-reinforced PVA"
+                " nanocomposites was found to be ~59 MPa and ~68 MPa.")
+        rows = [r for r in X.rows_for_sentence(text, "t", text)
+                if r["property_key"] == "tensile_strength"]
+        self.assertEqual(rows, [])
+
+    def test_a_comparison_list_is_not_a_pair(self):
+        # The paper's own figure, with others quoted after it for contrast.
+        text = ("The 5.6%Co-NGA achieves a specific capacitance of 2092 F/g,"
+                " surpassing that of NGA (390 F/g) and GA (239 F/g).")
+        rows = [r for r in X.rows_for_sentence(text, "t", text)
+                if r["property_key"] == "capacitance"]
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(rows[0]["value"], 2092.0, places=1)
+
+    def test_a_from_to_still_reads_from_the_far_end(self):
+        text = ("The rGO effect on the electrical conductivity is measured,"
+                " and DC conductivity increases from 1.28 x 10 -9 to"
+                " 82.4 x 10 -9 S/cm with more GO.")
+        rows = [r for r in X.rows_for_sentence(text, "t", text)
+                if r["property_key"] == "electrical_conductivity"]
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(rows[0]["value"], 8.24e-06, places=12)
+
     # --- an uncertainty is not a value ----------------------------------
 
     def test_an_error_bar_is_not_the_measurement(self):

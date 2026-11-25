@@ -168,6 +168,55 @@ CAPACITY_IS_A_SETTING = re.compile(
 SETTING_LOOKBACK = 60
 
 
+# Guards shared by every extractor. They were written for the rows read
+# from paper bodies and used only there, which is why a control sample's
+# sheet resistance and a from-to baseline both came through the abstract
+# reader untouched in the audit. Nothing about them was specific to a
+# body; they were simply in the wrong file.
+# "increased from 6.3 MPa to 8.4 MPa": the figure right after "from" is the
+# baseline the authors were improving on, not their result. Only what sits
+# immediately before the figure counts, so the other end of the same
+# comparison is still read.
+BASELINE_LOOKBACK = 28
+
+# "The tensile modulus of neat epoxy is 2.89 GPa, while for epoxy/GNP it
+# varies between 2.65 and 3.36": the figure belongs to the control, which is
+# the thing the paper is trying to beat.
+CONTROL = re.compile(
+    r"\b(?:neat|pristine|pure|bare|blank|unmodified|untreated|control|"
+    r"reference|commercial|as-received)\b[^.]{0,30}$", re.I)
+
+# "The specimens without GO obtained an elastic modulus of 19.88 GPa" is a
+# control too, and the clause can run long, so this one reads the whole of
+# the sentence before the figure rather than a window. It can afford to:
+# what was left out has to be the paper's own subject, so "measured without
+# any binder and reached 320 F/g" is still a result.
+OMITTED = re.compile(
+    r"\bwithout\s+(?:\w+\s+){0,2}"
+    r"(?:GO|rGO|graphene|graphite|nanosheets?|filler|additive)\b", re.I)
+CONTROL_LOOKBACK = 44
+
+def is_baseline(quote: str, figure) -> bool:
+    """True when the figure is the before value of a from-to comparison."""
+    if not figure:
+        return False
+    at = quote.find(str(figure))
+    if at < 0:
+        return False
+    before = quote[max(0, at - BASELINE_LOOKBACK):at]
+    found = re.search(r"\bfrom\b(.*)$", before, re.I)
+    if not found:
+        return False
+    between = found.group(1)
+    # "increased from 115.2 to 367.2": the figure after "to" is the result.
+    # "the surface area from GO (832 m2/g) to RGO": nothing between but the
+    # material's name, so this figure is what the paper compared away from.
+    if re.search(r"\bto\b", between, re.I):
+        return False
+    return len(between.split()) <= 2
+
+
+
 def _is_a_setting(before: str) -> bool:
     """True when what precedes a capacity makes it a protocol, not a result."""
     return bool(CAPACITY_IS_A_SETTING.search(before[-SETTING_LOOKBACK:]))
@@ -214,12 +263,20 @@ PHOTOVOLTAIC = re.compile(
 OTHER_DOMAIN = re.compile(
     r"\b(?:CO\s*2|gas|dye|methylene\s+blue|heavy\s+metal|oil)\s*-?\s*"
     r"adsorption\b|\badsorption\s+(?:capacit|cycling|stability)|"
-    r"\bdye\s+(?:removal|rejection)\b|\bdesalination\b", re.I)
+    r"\bdye\s+(?:removal|rejection)\b|\bdesalination\b"
+    # A capacitive-deionisation cell and a biosensor both have "retention".
+    r"|\bcapacitive\s+deionisation|\bcapacitive\s+deionization|\bCDI\b"
+    r"|\bimpedimetric\b|\boriginal\s+activity\b"
+    r"|\bstorage\s+stability\b|\bof\s+storage\b"
+    r"|\bafter\s+\d+\s*(?:d|days?)\b"
+    # "promising electrode for SCs" - the abbreviation the capacitance guard
+    # missed, narrowed so it cannot match an unrelated "SC".
+    r"|\bfor\s+SCs\b|\bSC\s+(?:electrode|device|application|performance)", re.I)
 
 # What was retained. A capacitance retention is a real measurement, but it is
 # not a capacity, and this is the battery table. 269 rows held one.
 CAPACITANCE_RETENTION = re.compile(
-    r"capacitance|supercapacit|pseudocapacit", re.I)
+    r"capacitance|capacitiv|supercapacit|pseudocapacit|\bfor\s+SCs?\b", re.I)
 
 LOADING_RE = re.compile(
     NUM + r"\s*mg\s*(?:/|\s)?\s*cm\s*(?:-?\s*2)?", re.I)
@@ -257,8 +314,78 @@ CREDITED_RE = re.compile(
     r"\bthe\s+reported\b|\bpreviously\s+reported\b"
     r"|\breported\s+(?:value|capacity|result)s?\b"
     r"|\bet\s+al\b|\bin\s+the\s+literature\b"
-    r"|\bcompared\s+(?:to|with)\s+(?:the\s+)?reported\b", re.I)
-CREDITED_LOOKBACK = 70
+    r"|\bcompared\s+(?:to|with)\s+(?:the\s+)?reported\b"
+    # "Wang and coworkers reported that the pure Bi electrode ... (370 mAh/g)"
+    r"|\band\s+co-?workers\b|\b\w+\s*'s\s+group\b"
+    r"|\bgroup\s+(?:reported|showed|demonstrated)\b", re.I)
+# "a notable increase of 0.06 S/cm after the final coating cycle" is how
+# much the number moved, not what the number is. Stored as the
+# conductivity it says the material conducts at 6 S/m when that is only
+# what the coating added.
+A_DELTA = re.compile(
+    r"\b(?:increase|increment|improvement|enhancement|rise|gain|drop|\n"
+    r"reduction|decrease)\s+(?:of|by)\s*[~\u2248]?\s*$"
+    r"|\b(?:increased|improved|enhanced|rose|grew|dropped|fell|reduced|\n"
+    r"decreased)\s+by\s*[~\u2248]?\s*$", re.I)
+DELTA_LOOKBACK = 24
+
+# "the modulus and ultimate strength are as high as 17 GPa and 250 MPa"
+# lists two things and two figures, and they pair by order. The reader
+# takes the figure nearest the property it is looking for, which always
+# pairs with the first item - so it read the modulus as the strength.
+# The same shape put graphene oxide's 59 MPa on reduced graphene oxide.
+#
+# Reading the pairing properly means parsing the list; refusing to guess
+# costs a row and cannot be wrong. A figure that opens "<figure> and
+# <figure>" with an "and" in the words before it is one of a pair.
+PAIRED_AFTER = re.compile(r"^[^.]{0,14}\band\b[^.]{0,14}[~\u2248]?\s*\d", re.I)
+PAIRED_BEFORE = re.compile(r"\band\b", re.I)
+PAIRED_BEFORE_REACH = 70
+
+
+def one_of_a_pair(sentence: str, figure) -> bool:
+    """True when the figure is the first of a listed pair."""
+    if not figure:
+        return False
+    at = sentence.find(str(figure))
+    if at < 0:
+        return False
+    after = sentence[at + len(str(figure)):]
+    before = sentence[max(0, at - PAIRED_BEFORE_REACH):at]
+    return bool(PAIRED_AFTER.search(after) and PAIRED_BEFORE.search(before))
+
+
+# A credit governs the whole sentence it opens, not a window: "Wang and
+# coworkers reported that the pure Bi electrode exhibited ... (370 mAh/g)"
+# puts ninety characters between the credit and the figure. So the search runs
+# over everything before the figure - with the same escape the theoretical
+# guard uses, because "unlike previously reported values, our anode delivered
+# 617" is this paper measuring its own material.
+OWNERSHIP = re.compile(
+    r"\bour\b|\bwe\b|\bthis\s+(?:work|study|paper|article)\b|\bherein\b"
+    r"|\bin\s+this\s+(?:work|study)\b|\bthe\s+present\s+(?:work|study)\b",
+    re.I)
+
+# "<3 mAh/g" and "<10-9 S/cm" are ceilings on something that did not work, not
+# measurements of something that did. The second was stored as 900 S/m, eleven
+# orders out, from a sentence explaining why LiFePO4 needs help. "as low as"
+# and "down to" are deliberately absent: those are real measured minima.
+# The digits between the sign and the figure matter: "(<10 -9 S/cm)" is a
+# bound on ten to the minus nine, but the figure the pattern reaches is the
+# exponent's 9, with "10 -" sitting in between. So the guard is allowed to
+# look past a short run of digits, spaces and minus signs.
+A_BOUND = re.compile(r"(?:<|\u2264|\bless\s+than|\bbelow|\bunder|\bno\s+more\s+than)"
+                     r"\s*[~\u2248(]{0,2}[\d\s.,\u2212-]{0,10}$", re.I)
+BOUND_LOOKBACK = 24
+
+# A figure a sentence is holding up as a failure. "only gained a low discharge
+# capacity of 48 mAh/g" is the bare cathode the paper is arguing against.
+A_FAILURE = re.compile(
+    r"\bonly\s+(?:gained|delivered|exhibited|showed|reached|achieved|retained)"
+    r"[^.]{0,40}$"
+    r"|\b(?:faded|decayed|dropped|declined|degraded)\s+(?:gradually\s+)?to"
+    r"[^.]{0,20}$", re.I)
+FAILURE_LOOKBACK = 70
 
 # A number from a calculation rather than a cell. "We propose that porous 2D
 # materials ... the B7P2 monolayer is identified with an ultrahigh capacity of
@@ -517,6 +644,7 @@ def extract_from_sentence(sentence, title, abstract, section):
     skipped_theoretical = 0
     skipped_setting = 0
     skipped_credited = 0
+    skipped_bound = 0
     for match in CAPACITY_RE.finditer(norm):
         value = _num(match.group(1))
         if value is None:
@@ -531,8 +659,15 @@ def extract_from_sentence(sentence, title, abstract, section):
             # chose, not the one the cell reached.
             skipped_setting += 1
             continue
-        if CREDITED_RE.search(before[-CREDITED_LOOKBACK:]):
+        credit = CREDITED_RE.search(before)
+        if credit and not OWNERSHIP.search(before[credit.end():]):
             skipped_credited += 1
+            continue
+        if A_BOUND.search(before[-BOUND_LOOKBACK:]):
+            skipped_bound += 1
+            continue
+        if A_FAILURE.search(before[-FAILURE_LOOKBACK:]):
+            skipped_bound += 1
             continue
         measured.append((value, match.group(1), match.group(2)))
 

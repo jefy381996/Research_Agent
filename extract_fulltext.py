@@ -59,6 +59,8 @@ from datetime import datetime, timezone
 
 import db
 import extract_evidence as ev
+from extract_evidence import (CONTROL, CONTROL_LOOKBACK,
+                              OMITTED, is_baseline)
 import extract_properties as pr
 import plausibility
 
@@ -117,29 +119,6 @@ GENERAL = re.compile(
 # thermal conductivity of the same film in one breath.
 MAX_FAMILIES = 3
 
-# "increased from 6.3 MPa to 8.4 MPa": the figure right after "from" is the
-# baseline the authors were improving on, not their result. Only what sits
-# immediately before the figure counts, so the other end of the same
-# comparison is still read.
-BASELINE_LOOKBACK = 28
-
-# "The tensile modulus of neat epoxy is 2.89 GPa, while for epoxy/GNP it
-# varies between 2.65 and 3.36": the figure belongs to the control, which is
-# the thing the paper is trying to beat.
-CONTROL = re.compile(
-    r"\b(?:neat|pristine|pure|bare|blank|unmodified|untreated|control|"
-    r"reference|commercial|as-received)\b[^.]{0,30}$", re.I)
-
-# "The specimens without GO obtained an elastic modulus of 19.88 GPa" is a
-# control too, and the clause can run long, so this one reads the whole of
-# the sentence before the figure rather than a window. It can afford to:
-# what was left out has to be the paper's own subject, so "measured without
-# any binder and reached 320 F/g" is still a result.
-OMITTED = re.compile(
-    r"\bwithout\s+(?:\w+\s+){0,2}"
-    r"(?:GO|rGO|graphene|graphite|nanosheets?|filler|additive)\b", re.I)
-CONTROL_LOOKBACK = 44
-
 # A neutral density filter's 50% transmittance is the instrument's, not the
 # material's. "Laser" is deliberately absent: laser-induced graphene is a
 # material and its sheet resistance is a real result.
@@ -186,26 +165,6 @@ def credited_elsewhere(quote: str, figure) -> str | None:
             if MARKER.search(quote[lo:hi]):
                 return "citation beside the figure"
     return None
-
-
-def is_baseline(quote: str, figure) -> bool:
-    """True when the figure is the before value of a from-to comparison."""
-    if not figure:
-        return False
-    at = quote.find(str(figure))
-    if at < 0:
-        return False
-    before = quote[max(0, at - BASELINE_LOOKBACK):at]
-    found = re.search(r"\bfrom\b(.*)$", before, re.I)
-    if not found:
-        return False
-    between = found.group(1)
-    # "increased from 115.2 to 367.2": the figure after "to" is the result.
-    # "the surface area from GO (832 m2/g) to RGO": nothing between but the
-    # material's name, so this figure is what the paper compared away from.
-    if re.search(r"\bto\b", between, re.I):
-        return False
-    return len(between.split()) <= 2
 
 
 def cap_for(chars: int) -> int:
