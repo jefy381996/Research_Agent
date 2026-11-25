@@ -27,6 +27,8 @@ everything it already had.
 from __future__ import annotations
 
 import argparse
+import csv
+import gzip
 import json
 import os
 import re
@@ -164,6 +166,51 @@ def lookup_many(dois: list[str]) -> dict:
 FULLTEXT_DB = "data/fulltext.db"
 
 
+# The bodies are too big to keep and do not need keeping: they are read into
+# measurements in the same run that fetches them, and the measurements are
+# what ship. The ledger of what was tried is a different thing. It is small,
+# it is the only record of three hours of asking, and without it a fresh
+# container asks Europe PMC for the same thirty-five thousand papers again.
+# So the bodies stay in the file that is not committed, and this goes in.
+LEDGER = "data/fulltext-tried.csv.gz"
+
+
+def load_ledger(store, path=LEDGER) -> int:
+    """Seed the attempt ledger from the committed copy, if there is one."""
+    if not os.path.exists(path):
+        return 0
+    rows = []
+    try:
+        with gzip.open(path, "rt", encoding="utf-8", newline="") as fh:
+            for row in csv.DictReader(fh):
+                if row.get("openalex_id"):
+                    rows.append((row["openalex_id"], row.get("outcome") or "",
+                                 row.get("tried_at") or ""))
+    except Exception as exc:                 # a broken ledger costs requests,
+        print(f"  could not read {path}: {exc}", file=sys.stderr)
+        return 0                             # not correctness
+    store.executemany("INSERT OR IGNORE INTO fulltext_tried"
+                      "(openalex_id, outcome, tried_at) VALUES(?,?,?)", rows)
+    store.commit()
+    return len(rows)
+
+
+def save_ledger(store, path=LEDGER) -> int:
+    """Write the ledger out, atomically, so a run cut off keeps it."""
+    tmp = path + ".tmp"
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    n = 0
+    with gzip.open(tmp, "wt", encoding="utf-8", newline="") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(["openalex_id", "outcome", "tried_at"])
+        for row in store.execute("SELECT openalex_id, outcome, tried_at"
+                                 " FROM fulltext_tried ORDER BY openalex_id"):
+            writer.writerow(row)
+            n += 1
+    os.replace(tmp, path)
+    return n
+
+
 def open_store(path):
     """Full text lives in its own file, beside the library rather than in it.
 
@@ -221,6 +268,12 @@ def main():
 
     conn = db.connect(args.db)          # the library: read only, here
     store = open_store(args.fulltext_db)  # the text: written here
+    # Seed from the committed ledger before working out what is left. In a
+    # fresh container the text file does not exist and this is the only thing
+    # standing between the run and asking for every paper a second time.
+    seeded = load_ledger(store)
+    if seeded:
+        print(f"  ledger   : {seeded:,} papers already tried in earlier runs")
 
     # Only open-access papers are worth asking about, and the kind of open
     # access predicts the answer. Measured on a hundred of each: gold 54 per
@@ -352,8 +405,11 @@ def main():
                     counts["got"] += 1
                     chars += len(body)
             # Every batch, not every hundred papers: a run that is cut off
-            # should lose one query's worth of work, not a hundred.
+            # should lose one query's worth of work, not a hundred. The ledger
+            # goes out with it, because the run being cut off is the case it
+            # exists for.
             store.commit()
+            save_ledger(store)
             rate = done / max(time.time() - started, 1e-9)
             left = (len(todo) - done) / max(rate, 1e-9)
             print(f"  {done:,}/{len(todo):,} tried, {counts['got']:,} with full text "
@@ -368,6 +424,7 @@ def main():
         stopped = "interrupted"
     finally:
         store.commit()
+        save_ledger(store)
 
     tried = sum(counts.values())
     print()
