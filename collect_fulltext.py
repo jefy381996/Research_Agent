@@ -256,7 +256,13 @@ def main():
     ap.add_argument("--limit", type=int, default=0,
                     help="stop after this many papers are tried (0 = all)")
     ap.add_argument("--measured-first", action="store_true",
-                    help="start with papers that already gave a measurement")
+                    help="only papers that already gave a measurement from "
+                         "their abstract. The join restricts rather than "
+                         "orders, so this is a filter and not a priority: "
+                         "5,111 papers worth about twelve hours against "
+                         "36,021 worth eighty, and the ones most likely to "
+                         "hold more figures in the body, since their abstract "
+                         "already held one")
     ap.add_argument("--retry-missing", action="store_true",
                     help="try papers that were tried before and had nothing")
     ap.add_argument("--oa-status", default="gold,diamond,hybrid,bronze,green",
