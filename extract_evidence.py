@@ -268,6 +268,10 @@ OTHER_DOMAIN = re.compile(
     r"|\bcapacitive\s+deionisation|\bcapacitive\s+deionization|\bCDI\b"
     r"|\bimpedimetric\b|\boriginal\s+activity\b"
     r"|\bstorage\s+stability\b|\bof\s+storage\b"
+    # An adsorbent is regenerated and reused, not cycled. "Regeneration
+    # studies demonstrated superior reusability of MGO, which retained ~64%
+    # efficiency after five cycles" is a copper-adsorption paper.
+    r"|\bregenerat(?:ion|ed|ing)\b|\breusab|\brecyclab"
     r"|\bafter\s+\d+\s*(?:d|days?)\b"
     # "promising electrode for SCs" - the abbreviation the capacitance guard
     # missed, narrowed so it cannot match an unrelated "SC".
@@ -386,6 +390,18 @@ A_FAILURE = re.compile(
     r"|\b(?:faded|decayed|dropped|declined|degraded)\s+(?:gradually\s+)?to"
     r"[^.]{0,20}$", re.I)
 FAILURE_LOOKBACK = 70
+
+# The same sentence shapes, read around a retention rather than a capacity.
+# A retention has no "as reported" string to anchor on, so these are read
+# across the sentence: a paper setting up a control says so plainly, and says
+# it before the number.
+A_POOR_CONTROL = re.compile(
+    r"\bin\s+stark\s+contrast\b|\bby\s+contrast\b|\bin\s+contrast\b"
+    r"|\b(?:poor|inferior|unsatisfactory|rapid)\s+(?:rate\s+|capacity\s+)?"
+    r"(?:performance|capability|decay|fading|retention|stability)"
+    r"|\brapid(?:ly)?\s+(?:decay|fade|degrad)"
+    r"|\bonly\s+(?:exhibited|delivered|gained|showed|reached|achieved)\b",
+    re.I)
 
 # A number from a calculation rather than a cell. "We propose that porous 2D
 # materials ... the B7P2 monolayer is identified with an ultrahigh capacity of
@@ -623,7 +639,8 @@ def extract_from_sentence(sentence, title, abstract, section):
         found = pattern.search(norm)
         if found:
             if (MECHANICAL_CYCLING.search(norm) or PHOTOVOLTAIC.search(norm)
-                    or OTHER_DOMAIN.search(norm)):
+                    or OTHER_DOMAIN.search(norm)
+                    or A_POOR_CONTROL.search(norm)):
                 # Mechanical durability, or a photovoltaic's stability. The
                 # cycle count goes with it: "500 bending cycles" is not 500
                 # charge cycles. A capacity in the same sentence still stands.
