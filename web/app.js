@@ -3867,11 +3867,7 @@ async function askAgent(question, opts = {}) {
   turn.innerHTML = (opts.from
       ? handoffBanner(opts.from, opts.why || "")
       : `<div class="q"><div class="av">You</div><div class="t">${esc(question)}</div></div>`)
-    + `<div class="research" aria-hidden="true">
-      <canvas class="rcanvas"></canvas>
-      <div class="rlabel"><span class="rdot"></span><span class="rtext">Reading the library</span>
-        <span class="rcount"></span></div>
-    </div>
+    + `<div class="research" aria-hidden="true"></div>
     <details class="steps" open><summary><span class="sdot live"></span>
       <span class="slabel">Thinking</span>
       <svg class="ic" viewBox="0 0 22 22"><use href="#i-chev"/></svg></summary>
@@ -3883,7 +3879,6 @@ async function askAgent(question, opts = {}) {
   const body = turn.querySelector(".steps .body");
   const label = turn.querySelector(".slabel");
   const stage = turn.querySelector(".research");
-  const rtext = turn.querySelector(".rtext");
   let calls = 0;
   let paced = false;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -3892,7 +3887,7 @@ async function askAgent(question, opts = {}) {
   const PACE = { start: 260, thinking: 900, tool_call: 620, tool_result: 540,
                  correcting: 1100, answer: 700 };
   const anim = window.ResearchAnim
-    ? ResearchAnim.create(turn.querySelector(".rcanvas"), { side: 26 })
+    ? ResearchAnim.create(turn.querySelector(".research"), {})
     : { step() {}, done() {}, stop() {} };
   anim.live = true;      // true while the sheet is on screen and growing
   const SAYS = {
@@ -3968,11 +3963,8 @@ async function askAgent(question, opts = {}) {
         }
         else if (ev.type === "tool_call") {
           step("Calling", ev.name, "");
-          anim.step();
+          anim.step(SAYS[ev.name] || "Working");
           calls += 1;
-          if (rtext) rtext.textContent = SAYS[ev.name] || "Working";
-          const rc = turn.querySelector(".rcount");
-          if (rc) rc.textContent = `step ${calls}`;
         }
         else if (ev.type === "tool_result") {
           const last = body.querySelector(".step2:last-of-type .r");
@@ -3980,8 +3972,7 @@ async function askAgent(question, opts = {}) {
         }
         else if (ev.type === "correcting") {
           step("Checking its own citations", "rewriting", "failed first pass");
-          anim.step();
-          if (rtext) rtext.textContent = "Checking its own citations";
+          anim.step("Checking its own citations");
         }
         else if (ev.type === "answer") {
           anim.live = false;

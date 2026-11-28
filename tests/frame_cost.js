@@ -32,7 +32,18 @@ const SETTLE_MS = 1800;        // let boot animations finish first
 // "slower than 16.7" counted half of a perfectly smooth page as dropped. A
 // frame is late when it has missed its budget by half again.
 const LATE = 25;
-const LIMITS = { longTasks: 2, p95: 34, late: 0.10 };
+/* What to fail on, and what to merely report.
+   Repeated runs of identical code on this box gave between 11% and 30%
+   late frames, while the median never moved off 16.7ms and long tasks
+   stayed at zero. The tail is measuring the machine - other work on the
+   same host - more than it is measuring the page, so gating on it tightly
+   would fail builds for reasons nobody can act on.
+   So the gates are the two numbers that held still (a 60fps median, and
+   stretches long enough to swallow a tap), plus a late-frame ceiling set
+   loosely enough to be noise-proof and still catch what this exists to
+   catch: before the background was rewritten, these screens ran at a
+   33.3ms median with 74-84% of frames late and a 152ms stall. */
+const LIMITS = { longTasks: 2, p95: 34, median: 20, late: 0.40 };
 
 // Navigated by calling the app's own switcher rather than clicking: on a
 // phone the navigation lives in a drawer, and opening it would measure the
@@ -107,18 +118,20 @@ const pct = (xs, p) => {
     const late = frames.filter((f) => f > LATE).length / Math.max(frames.length, 1);
     const p95 = pct(frames, 0.95);
     const longTotal = long.reduce((a, b) => a + b, 0);
+    const median = pct(frames, 0.5);
     const bad = long.length > LIMITS.longTasks || p95 > LIMITS.p95
-      || late > LIMITS.late;
+      || median > LIMITS.median || late > LIMITS.late;
     if (bad) over += 1;
     console.log(`  ${name.padEnd(13)} ${bad ? "OVER " : "ok   "}`
       + ` p95 ${p95.toFixed(1).padStart(6)}ms`
-      + `  median ${pct(frames, 0.5).toFixed(1).padStart(5)}ms`
+      + `  median ${median.toFixed(1).padStart(5)}ms`
       + `  late ${(late * 100).toFixed(0).padStart(3)}%`
       + `  long tasks ${String(long.length).padStart(2)}`
       + ` (${longTotal.toFixed(0)}ms)`);
   }
 
-  console.log(`\n  budget: at most ${LIMITS.longTasks} long tasks,`
+  console.log(`\n  budget: median under ${LIMITS.median}ms,`
+    + ` at most ${LIMITS.longTasks} long tasks,`
     + ` p95 under ${LIMITS.p95}ms, under ${LIMITS.late * 100}% of frames`
     + ` later than ${LATE}ms`);
   if (over) console.log(`  ${over} screen(s) over budget`);

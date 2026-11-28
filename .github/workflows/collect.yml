@@ -95,6 +95,22 @@ jobs:
           node tests/handoff_ui.js http://127.0.0.1:8099/
           node tests/mydata_ui.js http://127.0.0.1:8099/
           node tests/voice_ui.js http://127.0.0.1:8099/
+          node tests/mobile_ui.js http://127.0.0.1:8099/
+          node tests/speech_ui.js http://127.0.0.1:8099/
+          node tests/agent_stage.js http://127.0.0.1:8099/
+
+      - name: What the interface costs to look at on a slow phone
+        run: |
+          # A throttled phone, sitting on each screen doing nothing. This is
+          # the only check here that fails for being slow rather than wrong,
+          # and it is the one that caught a background redrawing 4,886 canvas
+          # paths a frame. --budget makes it exit non-zero when a screen is
+          # over the limits the script states.
+          python -m uvicorn api:app --host 127.0.0.1 --port 8099 &
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8099/api/health >/dev/null && break; sleep 2;
+          done
+          node tests/frame_cost.js http://127.0.0.1:8099/ --budget
 
       - name: Refuse to continue on an empty evidence table
         run: |

@@ -1253,37 +1253,49 @@ body{background:
 }
 
 /* ═══════════ while the agent is researching ═══════════ */
-/* The research stage is not a card. No border, no panel, no frame - the sheet
-   grows in the open page below the question, and the caption sits under it.
-   A boxed animation reads as a loading widget; an unboxed one reads as the
-   thing itself. */
-.research{position:relative;margin:4px 0 24px;display:flex;
-  flex-direction:column;align-items:center;gap:12px;
+/* Not a card and not a spinner: the steps the agent is taking, listed as it
+   takes them, with a thin line travelling down the left and reaching each
+   one as it is reached. The person waiting learns what is being done and
+   how far it has got. Nothing here runs a loop; the line moves because one
+   custom property changed and CSS transitioned a transform. */
+.research{position:relative;margin:6px 0 24px;display:flex;
+  flex-direction:column;align-items:flex-start;gap:12px;
   animation:fade-in var(--t-slow) var(--e-out) both;
   transition:opacity var(--t-slow) var(--e-out),height var(--t-slow) var(--e-out),
-             margin 620ms var(--e-out)}
+             margin var(--t-slow) var(--e-out)}
 .research.settled{opacity:0;height:0;margin:0;overflow:hidden}
-.rcanvas{display:block;width:100%;height:330px;pointer-events:none}
-/* a soft pool of light under the sheet, so it does not float on nothing */
-.research::before{content:"";position:absolute;left:50%;top:46%;
-  width:min(680px,92%);height:230px;transform:translate(-50%,-50%);
-  pointer-events:none;border-radius:50%;
-  background:radial-gradient(closest-side,var(--acc-soft),transparent 72%)}
-/* The progress line, under the sheet. It is the part a non-specialist reads,
-   so it is set at body size in the page's own ink rather than whispered. */
-.rlabel{position:relative;display:inline-flex;align-items:center;gap:11px;
-  font:500 14px var(--sans);color:var(--ink);letter-spacing:.005em;
-  padding:0 4px;text-align:center}
-.rdot{width:7px;height:7px;border-radius:50%;background:var(--acc);
-  box-shadow:0 0 12px var(--acc-glow);animation:beat 1.1s var(--e-io) infinite;
-  flex:0 0 auto}
-.rcount{font:450 12px var(--mono);color:var(--acc);
-  padding-left:12px;border-left:1px solid var(--line-2)}
+
+.rsteps{position:relative;list-style:none;margin:0;padding:2px 0 2px 26px;
+  width:min(560px,100%);display:grid}
+/* the track the line runs along */
+.rsteps::before{content:"";position:absolute;left:5px;top:16px;bottom:16px;
+  width:1px;background:var(--line-2)}
+/* the line itself */
+.rrail{position:absolute;left:5px;top:16px;bottom:16px;width:1px;
+  background:var(--acc);transform-origin:top center;
+  transform:scaleY(var(--p,0));
+  transition:transform var(--t-slow) var(--e-out)}
+.rstep{position:relative;padding:7px 0;font:450 14px var(--sans);
+  color:var(--ink-3);line-height:1.45;
+  animation:step-in var(--t) var(--e-out) both;
+  animation-delay:calc(min(var(--i,0), var(--stag-n)) * var(--stag))}
+.rstep::before{content:"";position:absolute;left:-25px;top:50%;
+  width:7px;height:7px;margin-top:-4.5px;border-radius:50%;
+  background:var(--surf);border:1px solid var(--line-2)}
+.rstep.is-done{color:var(--ink-2)}
+.rstep.is-done::before{background:var(--acc);border-color:var(--acc)}
+.rstep.is-now{color:var(--ink);font-weight:500}
+.rstep.is-now::before{background:var(--acc);border-color:var(--acc);
+  box-shadow:0 0 0 3px var(--acc-soft);
+  animation:beat 1.1s var(--e-io) infinite}
 @media(max-width:780px){
   .research{margin:2px 0 16px}
-  .rcanvas{height:265px}
-  .research::before{height:170px}
-  .rlabel{font-size:13px;gap:9px;text-align:center;line-height:1.4}
+  .rsteps{font-size:13px}
+  .rstep{font-size:13px;padding:6px 0}
+}
+@media(prefers-reduced-motion:reduce){
+  .rrail{transition:none}
+  .rstep.is-now::before{animation:none}
 }
 @media(prefers-reduced-motion:reduce){.research{transition:none}}
 @keyframes fade-in{from{opacity:0}}
