@@ -141,6 +141,38 @@ const COMMANDS = [
   }
   console.log("\n  sample:", spoken[1].line);
 
+  /* ── a spoken number is a number that is on the screen ───────────────
+     This is the whole promise of the product, carried into the one place
+     it would be easiest to break it. Speech is the way in and the way out
+     and never the record, so every figure said out loud has to be a figure
+     the written answer holds - a spoken number cannot be clicked to see
+     the sentence it came from, so it must not be the only place a number
+     appears. Nothing here is generated; the spoken line is a rewrite of
+     the same answer object the screen renders. */
+  const grounded = await page.evaluate((qs) => qs.map((q) => {
+    const a = window.build(q);
+    const said = spokenAnswer(a);
+    const { html } = window.renderAnswer ? window.renderAnswer(a) : { html: "" };
+    const onScreen = (html || "").replace(/<[^>]*>/g, " ");
+    // Every run of digits the voice says, with separators and decimals.
+    const digits = (said.match(/\d[\d,.]*/g) || [])
+      .map((d) => d.replace(/[.,]$/, ""));
+    const missing = digits.filter((d) => {
+      const bare = d.replace(/,/g, "");
+      return !(onScreen.includes(d) || onScreen.includes(bare)
+        // "969" said as part of "1,842" style grouping, or a rounded form
+        || onScreen.replace(/,/g, "").includes(bare));
+    });
+    return { q, kind: a.kind, digits: digits.length, missing };
+  }), SPOKEN);
+  const ungrounded = grounded.filter((g) => g.missing.length);
+  check("every number the voice says is a number on the screen",
+    ungrounded.length === 0,
+    ungrounded.map((g) => `${g.kind}: ${g.missing.join(", ")} not in "${g.q}"`).join(" | "));
+  check("and the answers it was checked against did contain numbers",
+    grounded.some((g) => g.digits > 0),
+    JSON.stringify(grounded.map((g) => `${g.kind}:${g.digits}`)));
+
   /* One control, and it degrades honestly. */
   const ui = await page.evaluate(() => ({
     mic: !!document.getElementById("mic"),
