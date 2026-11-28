@@ -11,7 +11,7 @@
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-<canvas id="lattice" aria-hidden="true"></canvas>
+<div id="lattice" aria-hidden="true"></div>
 <a class="skip" href="#main">Skip to content</a>
 
 <svg style="display:none" aria-hidden="true"><defs>
@@ -88,7 +88,6 @@
     <div class="vbar" id="vbar" hidden>
       <span class="vdot"></span>
       <span class="vtext" id="vtext">Listening&hellip;</span>
-      <span class="vprog" id="vprog" hidden><i id="vbarfill"></i></span>
       <button class="lnk" id="vstop">Stop</button>
     </div>
     <form class="composer" id="form"><div class="inner">
@@ -96,7 +95,8 @@
         <textarea id="ask" rows="1" aria-label="Your question"
           placeholder="Ask anything&hellip;"></textarea>
         <button type="button" class="btn icon mic" id="mic" aria-pressed="false"
-          aria-label="Ask by voice" title="Ask by voice">
+          data-ripple="off" aria-label="Start voice chat" title="Start voice chat">
+          <span class="miclive" aria-hidden="true"></span>
           <svg class="ic" viewBox="0 0 22 22"><use href="#i-mic"/></svg></button>
         <button type="submit" class="btn pri" id="send">Ask<svg class="ic" viewBox="0 0 22 22"><use href="#i-arrow"/></svg></button>
       </div>
@@ -107,33 +107,9 @@
           <button type="button" class="mode" data-mode="agent" role="radio" aria-checked="false">
             <svg class="ic" viewBox="0 0 22 22"><use href="#i-spark"/></svg>Agent</button>
         </div>
-        <button type="button" class="mode talk" id="voice-open" aria-haspopup="dialog"
-          aria-controls="vsheet" title="Voice settings">
-          <svg class="ic" viewBox="0 0 22 22"><use href="#i-wave"/></svg>Voice</button>
-        <div class="voicectl" id="voicectl">
-          <button type="button" class="mode talk" id="handsfree" aria-pressed="false"
-            title="Keep listening, and answer out loud">
-            <svg class="ic" viewBox="0 0 22 22"><use href="#i-wave"/></svg>Hands-free</button>
-          <button type="button" class="mode talk" id="servervoice" aria-pressed="false" hidden
-            title="Use the hosted recogniser; needs no download and is more accurate">
-            <svg class="ic" viewBox="0 0 22 22"><use href="#i-cloud"/></svg><span id="svlabel">Best accuracy</span></button>
-          <button type="button" class="mode talk" id="localvoice" aria-pressed="false" hidden
-            title="Run speech on this machine instead of the browser's service">
-            <svg class="ic" viewBox="0 0 22 22"><use href="#i-chip"/></svg><span id="lvlabel">On-device</span></button>
-        </div>
         <span id="hint" class="hintline">Rules only. Instant and free.</span>
       </div>
     </div></form>
-    <div class="vsheet" id="vsheet" role="dialog" aria-modal="true"
-      aria-labelledby="vsheet-h" hidden>
-      <div class="vsheet-in">
-        <div class="vgrab" aria-hidden="true"></div>
-        <h3 id="vsheet-h">Voice</h3>
-        <p class="vsheet-note" id="vsheet-note">Ask out loud and hear the answer read back.</p>
-        <div class="vsheet-slot" id="vsheet-slot"></div>
-        <button type="button" class="btn wide" id="vsheet-close">Done</button>
-      </div>
-    </div>
   </section>
 
   <section class="view" data-view="brief" hidden aria-label="Latest">
@@ -321,8 +297,8 @@
 </div>
 
 <script src="lattice.js"></script>
+<script src="ripple.js" defer></script>
 <script src="research-anim.js"></script>
-<script src="speech.js"></script>
 <script src="voice.js"></script>
 <script src="calc.js"></script>
 <script src="app.js"></script>

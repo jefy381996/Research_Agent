@@ -103,8 +103,10 @@ function check(label, ok, detail) {
   // A blocked microphone is terminal: restarting would spin forever.
   await begin();
   await page.evaluate(() => {
-    window.__rec.last.onerror({ error: "not-allowed" });
-    window.__rec.last.onend();
+    const r = window.__rec.last;
+    r.onerror({ error: "not-allowed" });
+    // A fatal error detaches the recogniser, so onend may already be gone.
+    if (typeof r.onend === "function") r.onend();
   });
   await sleep(500);
   check("a blocked microphone stops the loop rather than spinning",
@@ -124,71 +126,86 @@ function check(label, ok, detail) {
   check("and say so",
     (await page.evaluate(() => window.__spy.states.join(","))).includes("could-not-restart"));
 
-  /* ── our own voice is not a question ─────────────────── */
+  /* ── the ears are shut while it speaks ──────────────────────────────
+     The old loop ran the recogniser straight through the answer and tried
+     to recognise its own sentence coming back, which is why it sometimes
+     asked itself its own question. Nothing listens now while an answer is
+     being read, so there is no echo to catch - and the fake recogniser is
+     the thing that proves it, because the module detaches it. */
 
   const sentence = "The median specific capacity is 969 milliamp hours per gram "
                  + "across 412 measurements from 288 papers";
 
   const fire = (text, final) => page.evaluate(([t, f]) => {
-    window.__rec.last.onresult({
+    const r = window.__rec.last;
+    if (!r || typeof r.onresult !== "function") return "detached";
+    r.onresult({
       resultIndex: 0,
       results: [Object.assign([{ transcript: t }], { isFinal: f })],
     });
+    return "delivered";
   }, [text, final !== false]);
 
   await begin();
-  await page.evaluate((s) => Voice.speak(s), sentence);
-  check("the answer is being spoken",
-    await page.evaluate(() => Voice.isSpeaking()) === true);
-
-  await fire("the median specific capacity is 969 milliamp hours");
-  check("the app hearing itself is not taken as a question",
-    await page.evaluate(() => window.__spy.heard.length) === 0,
-    JSON.stringify(await page.evaluate(() => window.__spy.heard)));
-  check("and it does not cut its own answer off",
-    await page.evaluate(() => Voice.isSpeaking()) === true);
-
-  // A person talking over it is a different matter.
-  await fire("what about reduced graphene oxide");
-  check("a real interruption is heard",
+  const stopsBefore = await page.evaluate(() => window.__rec.stops + window.__rec.aborts);
+  await fire("what capacity do silicon anodes reach");
+  await sleep(120);
+  check("a question is handed over",
     await page.evaluate(() => window.__spy.heard.length) === 1,
     JSON.stringify(await page.evaluate(() => window.__spy.heard)));
-  check("and it stops talking",
-    await page.evaluate(() => Voice.isSpeaking()) === false);
-  check("the synthesiser was actually cancelled",
-    await page.evaluate(() => window.__synth.cancels) > 0);
+  check("and hearing it shuts the ears straight away",
+    await page.evaluate(() => window.__rec.stops + window.__rec.aborts) > stopsBefore);
 
-  // "Stop" must work even though we are saying words.
-  await begin();
   await page.evaluate((s) => Voice.speak(s), sentence);
-  await fire("stop");
-  check("'stop' gets through while it is speaking",
-    (await page.evaluate(() => window.__spy.heard.join("|"))).toLowerCase().includes("stop"));
-  check("and silences it",
-    await page.evaluate(() => Voice.isSpeaking()) === false);
+  await sleep(120);
+  check("the answer is being spoken",
+    await page.evaluate(() => Voice.isSpeaking()) === true);
+  check("and nothing is listening while it is",
+    await page.evaluate(() => Voice.isListening()) === false);
+  check("so the app's own sentence cannot even reach it",
+    await fire("the median specific capacity is 969 milliamp hours") === "detached");
+  check("and the answer is not cut off by itself",
+    await page.evaluate(() => Voice.isSpeaking()) === true);
 
-  // The speakers keep arriving for a moment after the voice stops.
-  await begin();
-  await page.evaluate((s) => Voice.speak(s), sentence);
-  await page.evaluate(() => { const u = window.__synth.current; if (u.onend) u.onend(); });
-  check("speaking has finished",
-    await page.evaluate(() => Voice.isSpeaking()) === false);
-  await fire("across 412 measurements from 288 papers");
-  check("an echo arriving just after the voice stops is still ignored",
-    await page.evaluate(() => window.__spy.heard.length) === 0,
+  // When the answer ends, listening resumes without anyone asking.
+  const startsBefore = await page.evaluate(() => window.__rec.starts);
+  await page.evaluate(() => { const u = window.__synth.current; if (u && u.onend) u.onend(); });
+  await sleep(200);
+  check("the answer finishing puts the ears back",
+    await page.evaluate(() => window.__rec.starts) > startsBefore);
+  check("and it is listening again",
+    await page.evaluate(() => Voice.isListening()) === true);
+  check("the same words are an ordinary question once it has stopped talking",
+    await fire("across 412 measurements from 288 papers") === "delivered");
+  await sleep(120);
+  check("and they are heard",
+    await page.evaluate(() => window.__spy.heard.length) === 2,
     JSON.stringify(await page.evaluate(() => window.__spy.heard)));
 
-  // And once the tail has passed, the same words are a legitimate question.
-  await sleep(900);
-  await fire("across 412 measurements from 288 papers");
-  check("but the same words later are heard normally",
-    await page.evaluate(() => window.__spy.heard.length) === 1);
+  /* Interrupting is now a matter of loudness rather than of words, and it
+     needs a microphone this browser has not got. What must be true without
+     one is that losing it costs only the interrupting. */
+  check("without a microphone there is no interrupting",
+    await page.evaluate(() => Voice.canInterrupt()) === false);
+  // The question just fired has not been answered by this harness, so the
+  // engine is waiting on one. What matters is that it is still in the
+  // conversation rather than shut down for want of a microphone.
+  check("and the conversation carries on without it",
+    await page.evaluate(() => Voice.wantsToListen()) === true
+      && await page.evaluate(() => Voice.state()) !== "off",
+    await page.evaluate(() => Voice.state()));
 
-  // Nothing suppressed when not speaking at all.
-  await begin();
-  await fire("how many cycles do sodium ion graphene anodes survive");
-  check("an ordinary question in silence is heard",
-    await page.evaluate(() => window.__spy.heard.length) === 1);
+  // Stopping silences the voice as well as the ears.
+  await page.evaluate((s) => Voice.speak(s), sentence);
+  await sleep(80);
+  const cancelsBefore = await page.evaluate(() => window.__synth.cancels);
+  await page.evaluate(() => Voice.stopListening());
+  await sleep(120);
+  check("stopping cancels the synthesiser",
+    await page.evaluate(() => window.__synth.cancels) > cancelsBefore);
+  check("and it is off",
+    await page.evaluate(() => Voice.state()) === "off");
+
 
   console.log(`\nVoice loop scorecard: ${pass}/${total}`);
   if (fails.length) console.log("failed:\n  " + fails.join("\n  "));

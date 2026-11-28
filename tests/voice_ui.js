@@ -141,17 +141,52 @@ const COMMANDS = [
   }
   console.log("\n  sample:", spoken[1].line);
 
-  /* The controls exist and degrade honestly. */
+  /* ── a spoken number is a number that is on the screen ───────────────
+     This is the whole promise of the product, carried into the one place
+     it would be easiest to break it. Speech is the way in and the way out
+     and never the record, so every figure said out loud has to be a figure
+     the written answer holds - a spoken number cannot be clicked to see
+     the sentence it came from, so it must not be the only place a number
+     appears. Nothing here is generated; the spoken line is a rewrite of
+     the same answer object the screen renders. */
+  const grounded = await page.evaluate((qs) => qs.map((q) => {
+    const a = window.build(q);
+    const said = spokenAnswer(a);
+    const { html } = window.renderAnswer ? window.renderAnswer(a) : { html: "" };
+    const onScreen = (html || "").replace(/<[^>]*>/g, " ");
+    // Every run of digits the voice says, with separators and decimals.
+    const digits = (said.match(/\d[\d,.]*/g) || [])
+      .map((d) => d.replace(/[.,]$/, ""));
+    const missing = digits.filter((d) => {
+      const bare = d.replace(/,/g, "");
+      return !(onScreen.includes(d) || onScreen.includes(bare)
+        // "969" said as part of "1,842" style grouping, or a rounded form
+        || onScreen.replace(/,/g, "").includes(bare));
+    });
+    return { q, kind: a.kind, digits: digits.length, missing };
+  }), SPOKEN);
+  const ungrounded = grounded.filter((g) => g.missing.length);
+  check("every number the voice says is a number on the screen",
+    ungrounded.length === 0,
+    ungrounded.map((g) => `${g.kind}: ${g.missing.join(", ")} not in "${g.q}"`).join(" | "));
+  check("and the answers it was checked against did contain numbers",
+    grounded.some((g) => g.digits > 0),
+    JSON.stringify(grounded.map((g) => `${g.kind}:${g.digits}`)));
+
+  /* One control, and it degrades honestly. */
   const ui = await page.evaluate(() => ({
     mic: !!document.getElementById("mic"),
-    handsfree: !!document.getElementById("handsfree"),
+    others: ["handsfree", "localvoice", "servervoice", "voice-open"]
+      .filter((id) => !!document.getElementById(id)),
     bar: !!document.getElementById("vbar"),
     barHidden: document.getElementById("vbar").hidden,
     canListen: Voice.supported().listen,
     canSpeak: Voice.supported().speak,
   }));
-  check("the microphone and hands-free controls are present",
-    ui.mic && ui.handsfree && ui.bar, JSON.stringify(ui));
+  check("there is one voice control and a transcript strip",
+    ui.mic && ui.bar, JSON.stringify(ui));
+  check("and no second way in to the same thing",
+    ui.others.length === 0, `still present: ${ui.others.join(", ")}`);
   check("the transcript strip starts hidden", ui.barHidden);
 
   /* A browser that cannot listen must say so rather than offer a dead button. */
@@ -169,60 +204,96 @@ const COMMANDS = [
   check("there is a reason to show for it",
     typeof (await page.evaluate(() => Voice.supported().why ?? "ok")) === "string");
 
-  /* ── telling our own voice from yours ─────────────────── */
-  /* The recogniser hears the speakers. Without this the answer cut itself
-     off and fed its own sentence back as the next question. */
-  const echo = await page.evaluate(() => {
-    const spoken = "The median specific capacity is 969 milliamp hours per gram "
-                 + "across 412 measurements from 288 papers";
-    return {
-      ownSentence: Voice.isEcho("the median specific capacity is 969 milliamp hours", spoken),
-      ownTail: Voice.isEcho("across 412 measurements from 288 papers", spoken),
-      aRealQuestion: Voice.isEcho("what about reduced graphene oxide", spoken),
-      differentTopic: Voice.isEcho("how many cycles do sodium anodes survive", spoken),
-      nothing: Voice.isEcho("", spoken),
-      noSpeech: Voice.isEcho("some words here", ""),
-    };
-  });
-  check("the app's own sentence is recognised as echo", echo.ownSentence === true);
-  check("so is a later part of it", echo.ownTail === true);
-  check("a real question during speech is not echo", echo.aRealQuestion === false);
-  check("nor is an unrelated one", echo.differentTopic === false);
-  check("silence is not echo", echo.nothing === false);
-  check("nothing being spoken means nothing to echo", echo.noSpeech === false);
+  /* ── it cannot hear itself ────────────────────────────────────────────
+     The recogniser hears the speakers. The first version answered, heard
+     its own sentence, and asked itself that sentence as the next question;
+     the second compared what came back against what was being said and let
+     through anything the recogniser had mangled.
 
-  /* The cases that matter are the ones where the follow-up reuses the
-     answer's own words. The first version of this test did not have any, and
-     a rule counting shared words passed it while throwing away every
-     follow-up spoken over an answer that named the same material. */
-  const adversarial = await page.evaluate(() => {
-    const spoken = "Across 412 measurements from 288 papers the median for rGO "
-                  + "is about 969 milliamp hours per gram, and the spread is wide";
-    return {
-      askAboutTheThingBeingSpoken: Voice.isEcho("what about rGO", spoken),
-      andForTheThingBeingSpoken:   Voice.isEcho("and for rGO", spoken),
-      askAboutAWordJustSaid:       Voice.isEcho("what about the spread", spoken),
-      aQuestionSharingWords:       Voice.isEcho("compare that with graphene oxide", spoken),
-      shortEchoFragment:           Voice.isEcho("is wide", spoken),
-      midEchoFragment:             Voice.isEcho("and the spread is wide", spoken),
-      longEchoFragment:            Voice.isEcho("milliamp hours per gram and the spread", spoken),
-      reorderedWordsAreNotEcho:    Voice.isEcho("papers measurements across 412", spoken),
+     It is no longer a thing that has to be detected. While an answer is
+     being spoken the recogniser is not running, so there is nothing for it
+     to hear. That is what is checked here, by driving a whole turn through
+     a recogniser and a voice we control the timing of. */
+  const conversation = await page.evaluate(async () => {
+    const log = [];
+    // Stand in for the browser's recogniser, and record when it is up.
+    function Fake() { Fake.live = this; this.started = false; }
+    Fake.prototype.start = function () { this.started = true; Fake.up = true; log.push("ears open"); };
+    Fake.prototype.stop = function () { this.started = false; Fake.up = false; log.push("ears shut"); if (this.onend) this.onend(); };
+    Fake.prototype.abort = function () { this.started = false; Fake.up = false; log.push("ears shut"); if (this.onend) this.onend(); };
+
+    // And for the voice, so the end of an utterance happens when we say.
+    let pending = null;
+    const synth = {
+      speak(u) { pending = u; log.push("speaking"); setTimeout(() => u.onstart && u.onstart(), 0); },
+      cancel() { pending = null; },
+      getVoices() { return []; },
     };
+    const realRec = window.SpeechRecognition, realWk = window.webkitSpeechRecognition;
+    const realSynth = Object.getOwnPropertyDescriptor(window, "speechSynthesis");
+    const realUtter = window.SpeechSynthesisUtterance;
+    window.SpeechRecognition = Fake; window.webkitSpeechRecognition = Fake;
+    Object.defineProperty(window, "speechSynthesis", { value: synth, configurable: true });
+    window.SpeechSynthesisUtterance = function (t) { this.text = t; };
+
+    const seen = [];
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    try {
+      if (!window.Voice) return { skipped: true };
+
+      Voice.listen({ onHeard: (t) => { seen.push(t); Voice.speak("The median is 969 milliamp hours per gram"); } });
+      await wait(30);
+      const afterStart = Fake.up;
+
+      // Somebody speaks, and the recogniser reports it.
+      Fake.live.onresult({
+        resultIndex: 0,
+        results: [Object.assign([{ transcript: "what about rGO" }], { isFinal: true })],
+      });
+      await wait(60);
+      const whileSpeaking = { earsUp: Fake.up, state: Voice.state(), listening: Voice.isListening() };
+
+      // The answer finishes.
+      if (pending && pending.onend) pending.onend();
+      await wait(60);
+      const afterSpeaking = { earsUp: Fake.up, state: Voice.state() };
+
+      Voice.stopListening();
+      await wait(20);
+      return { afterStart, whileSpeaking, afterSpeaking, heard: seen,
+               stopped: { earsUp: Fake.up, state: Voice.state() }, log };
+    } finally {
+      window.SpeechRecognition = realRec; window.webkitSpeechRecognition = realWk;
+      if (realSynth) Object.defineProperty(window, "speechSynthesis", realSynth);
+      window.SpeechSynthesisUtterance = realUtter;
+    }
   });
-  check("asking about the very thing being spoken is not echo",
-    adversarial.askAboutTheThingBeingSpoken === false);
-  check("nor is 'and for <that thing>'",
-    adversarial.andForTheThingBeingSpoken === false);
-  check("nor is asking about a word just said",
-    adversarial.askAboutAWordJustSaid === false);
-  check("nor is a question built from the answer's own words",
-    adversarial.aQuestionSharingWords === false);
-  check("a short run of our own words is echo",
-    adversarial.shortEchoFragment === true);
-  check("so is a longer one", adversarial.midEchoFragment === true);
-  check("and a long one", adversarial.longEchoFragment === true);
-  check("the same words in a different order are not echo",
-    adversarial.reorderedWordsAreNotEcho === false);
+
+  if (conversation.skipped) {
+    check("a whole turn can be driven", false, "the page did not expose a fakeable engine");
+  } else {
+    check("pressing the toggle opens the ears", conversation.afterStart === true);
+    check("what was said is handed over once",
+      conversation.heard.length === 1 && conversation.heard[0] === "what about rGO",
+      JSON.stringify(conversation.heard));
+    check("the ears are shut before a word is spoken",
+      conversation.whileSpeaking.earsUp === false, JSON.stringify(conversation.whileSpeaking));
+    check("and it does not claim to be listening while it speaks",
+      conversation.whileSpeaking.listening === false);
+    check("the ears open again once the answer has finished",
+      conversation.afterSpeaking.earsUp === true, JSON.stringify(conversation.afterSpeaking));
+    check("and it is listening again, without being asked twice",
+      conversation.afterSpeaking.state === "listening", conversation.afterSpeaking.state);
+    check("pressing the toggle again shuts everything",
+      conversation.stopped.earsUp === false && conversation.stopped.state === "off",
+      JSON.stringify(conversation.stopped));
+  }
+
+  /* The matcher that used to guess at echoes is gone, and must stay gone:
+     every bug it caused came from it being a guess. */
+  check("nothing is left that tries to guess at echoes",
+    await page.evaluate(() => typeof Voice.isEcho === "undefined"));
+
 
   const stops = await page.evaluate(() => ({
     stop: Voice.isStopPhrase("stop"),

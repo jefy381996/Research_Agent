@@ -6,16 +6,16 @@ toxicity and production. It answers from stored data and nothing else:
 reference entries for the fundamentals, measurements pulled out of published
 papers, and calculators you can audit.
 
-**285 reference entries · 15,003 measurements · 104,649 papers · 34 compounds ·
-28 calculators.** The measurements come in two halves: 8,558 battery
+**285 reference entries · 16,241 measurements · 104,649 papers · 34 compounds ·
+28 calculators.** The measurements come in two halves: 9,481 battery
 performance figures — capacity, retention, cycle life, rate, efficiency — and
-6,445 material properties across twelve families, from thermal conductivity and
+6,760 material properties across twelve families, from thermal conductivity and
 sheet resistance to Young's modulus, surface area, optical transmittance, water
-permeance and EMI shielding. 11,205 of them are verified; the rest carry a flag
+permeance and EMI shielding. 11,900 of them are verified; the rest carry a flag
 saying what is doubtful about them, and the answering engine serves verified
 rows only.
 
-Most were read from abstracts. 1,078 came from the full text of 274
+Most were read from abstracts. 2,591 came from the full text of 1,168
 open-access papers, fetched from the Europe PMC open-access subset into a
 separate file that is not shipped: the body is forty thousand characters where
 an abstract is twelve hundred, and the conditions a researcher asks for — at
@@ -38,9 +38,9 @@ against the sentence stored beside them, in samples of about twenty:
 
 | | the value | the material |
 |---|---|---|
-| Battery findings | 19 of 20 | 16 of 18 |
+| Battery findings | 19 of 20 | 17 of 18 |
 | Material properties | 17 of 20 | |
-| Battery findings read from full papers | 11 of 15 | |
+| Battery findings read from full papers | 12 of 15 | |
 | Material properties read from full papers | flagged, never used to answer | |
 
 Twenty rows is a small sample and the interval around each figure is wide, so
@@ -59,6 +59,12 @@ as values, controls read as results, credits in wordings the guard did not
 know, other fields' durability tests, changes read as values, and listed pairs
 read by proximity. Fixing them took the battery rows to 19 of 20 and the
 property rows to 17 of 20 on fresh samples.
+
+Three rounds of audit and fixing over one day took it from 61 of 73 to 65 of
+73 — back to where the graphene-only library stood at 66 of 73, while being a
+quarter larger and covering fourteen materials it could not answer about
+before. Every round was the same shape: read the rows, find what classes of
+sentence the new papers contain that the old ones did not, and guard those.
 
 The lesson is worth keeping: more data made the library less accurate, and
 only measuring it again showed that. Every widening from here gets audited.
@@ -270,8 +276,8 @@ sending the link to anyone.
 | [OpenAlex](https://openalex.org) | 83,409 paper records, 2019 onward, 18,699 of them shipping with their abstract | CC0 |
 | [Wikipedia](https://en.wikipedia.org) | 285 reference entries across 19 categories, stored verbatim with a link to each original | CC BY-SA 4.0 |
 | [PubChem](https://pubchem.ncbi.nlm.nih.gov) | 34 compounds: formula, mass, structure | public domain |
-| This repository | 15,003 measurements extracted from the papers (8,558 battery, 6,445 material property), and 28 calculators | the repository's licence |
-| [Europe PMC](https://europepmc.org) | open-access full text for 274 of those papers, read for measurements and not shipped | the publishers' open-access licences |
+| This repository | 16,241 measurements extracted from the papers (9,481 battery, 6,760 material property), and 28 calculators | the repository's licence |
+| [Europe PMC](https://europepmc.org) | open-access full text for 1,168 of those papers, read for measurements and not shipped | the publishers' open-access licences |
 
 All of it is open and checkable. Nothing is paid for, and nothing is behind a
 login. Every reference entry shows which source it came from and links to it,
@@ -299,18 +305,19 @@ The agent adds five more files, used only when **Agent** mode is on:
 |---|---|---|
 ## Speaking and listening
 
-Three ways, chosen in the interface, none of them required.
+One way, and nobody is asked to choose it.
 
-| | Where it runs | Needs | Trade |
-|---|---|---|---|
-| **Browser** | the visitor's browser | nothing | instant, flat voice, no recogniser in Firefox, and in Chrome the audio goes to Google |
-| **On-device** | the visitor's machine | a 39&ndash;156 MB download, once | nothing leaves the machine; needs a capable machine, and the better voice needs a real graphics card |
-| **Hosted** | this service | `GROQ_API_KEY` | most accurate and no download; the audio is sent to the service |
+Listening is the browser's own recogniser: free, instant, nothing downloaded.
+Speaking is the browser's own voice, unless this service has `GROQ_API_KEY`
+configured, in which case a better one is simply used. `/api/voice/status`
+says which, and the page never sees the credential, because a page holding
+one would hand it to everyone who opened the page.
 
-The hosted half is reached through this app rather than from the page,
-because a page holding the credential would hand it to everyone who opened
-the page. `/api/voice/status` reports which halves are configured, and the
-interface only offers what is actually there.
+There used to be three engines offered side by side in the composer, one of
+them a 39&ndash;156 MB model downloaded into the browser. It was removed. A
+choice between engines is not a choice anybody can make well, the download
+was the single heaviest thing the application did on a cheap phone, and two
+of the three were worse than the one that was free.
 
 The reading voice is optional and provider-agnostic. Any service speaking the
 OpenAI `audio/speech` shape works:
@@ -362,17 +369,25 @@ no key and no network, and returns the same answer every time.
 
 ## Asking out loud
 
-There is a microphone beside the Ask button and a hands-free switch beside it.
-Speak a question, watch the transcript appear, hear the answer, and be listened
-to again. All of it runs in the browser through the Web Speech API, so it needs
-no key, no quota and no per-minute charge — which matters, because the engine
-it is wired to needs no model either. Instant answers by rule in under a
-second, so the whole loop is free and unlimited.
+One button, beside the Ask button. Press it and it listens; speak, and the
+answer is read back; it listens again. Press it a second time and it stops.
+There is nothing else to set.
 
-What a paid realtime model would add is interruption mid-sentence. That is
-approximated rather than bought: the recogniser keeps running while the answer
-is spoken, and the moment you start talking the speech is cut off and your
-words are taken instead.
+**It cannot hear itself.** The recogniser is not running while an answer is
+being spoken, so an echo is not something that has to be detected — it cannot
+be produced. Two earlier versions tried to detect it: the first treated its own
+sentence as an interruption and asked itself its own question, and the second
+compared what came back against what was being said, which let through
+anything the recogniser had mangled. The rule is now that the ears are shut,
+and `tests/voice_live.js` proves it by driving a whole turn and finding
+nothing attached to listen with.
+
+**Interrupting still works**, by loudness rather than by words. The browser's
+echo canceller removes most of what the speakers are doing; what is left is
+measured while we speak and treated as the floor; anything well above that
+floor for a quarter of a second is a person, and the answer stops. If the
+microphone cannot be opened for this, interrupting is lost and nothing else
+is — which is the right way round.
 
 Three parts do the work that is not audio, and they are the ones with tests:
 

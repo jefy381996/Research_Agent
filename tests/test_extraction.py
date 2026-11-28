@@ -411,6 +411,64 @@ class WhatTheSecondAuditFound(unittest.TestCase):
                 E.extract_from_sentence(text, "t", text, "abstract"), text[:50])
 
 
+class AControlsRetention(unittest.TestCase):
+    """The failure-and-control guard ran on the capacity and not on the
+    retention, so a paper's poor baseline kept its percentage while its
+    capacity was correctly refused. Both rows the third full-text audit found
+    wrong were this one gap."""
+
+    def test_a_poor_controls_rate_retention_is_not_a_result(self):
+        text = ("However, as the current density increased, the PVDF"
+                " electrode exhibited poor rate performance, showing a rate"
+                " retention of 49% at 1.0 C relative to 0.1 C.")
+        self.assertIsNone(E.extract_from_sentence(text, "t", text, "abstract"))
+
+    def test_a_contrasted_failure_keeps_neither_figure(self):
+        # The capacity was already refused here; the retention was not.
+        text = ("In stark contrast, the Li/P(VDF-TrFE)/NCM712 cells only"
+                " exhibited an initial capacity of 80 mAh g -1 , with rapid"
+                " capacity decay after just 40 cycles, reaching a retention"
+                " rate of 45% at 200 cycles.")
+        self.assertIsNone(E.extract_from_sentence(text, "t", text, "abstract"))
+
+    def test_a_decay_mentioned_beside_a_real_result_keeps_the_result(self):
+        # The sentence says what it reached and what it fell to. The first is
+        # the measurement; only the second is refused.
+        text = ("The discharge capacity reached 48 mAh g -1 and gradually"
+                " decayed to 36 mAh g -1 with the capacity retention of 75%"
+                " over 150 cycles.")
+        row = E.extract_from_sentence(text, "t", text, "abstract")
+        self.assertAlmostEqual(row["specific_capacity_mah_g"], 48.0, places=1)
+        self.assertAlmostEqual(row["capacity_retention_pct"], 75.0, places=1)
+
+    def test_ordinary_retentions_are_untouched(self):
+        for text in (
+            "The cell retained 97.1% capacity after 500 cycles at 1 C.",
+            "The LFP-SWCNT electrode shows a higher specific capacity"
+            " retention of 87.4% after 200 cycles at 2 C.",
+            "AOH-VO retains 98% of its capacity after 5,000 cycles, with only"
+            " a 0.4% decay per 1,000 cycles.",
+        ):
+            row = E.extract_from_sentence(text, "t", text, "abstract")
+            self.assertIsNotNone(row, text[:50])
+            self.assertIsNotNone(row["capacity_retention_pct"], text[:50])
+
+
+class AnAdsorbentIsRegeneratedNotCycled(unittest.TestCase):
+
+    def test_a_regeneration_study_is_not_battery_cycling(self):
+        # A copper-adsorption paper, found in the material-label audit.
+        text = ("Regeneration studies demonstrated superior reusability of"
+                " MGO, which retained ~64% efficiency after five cycles"
+                " compared to ~52% for GO.")
+        self.assertIsNone(E.extract_from_sentence(text, "t", text, "abstract"))
+
+    def test_recyclability_is_the_same_thing(self):
+        text = ("The adsorbent showed good recyclability, retaining 88% of"
+                " its capacity after 5 cycles.")
+        self.assertIsNone(E.extract_from_sentence(text, "t", text, "abstract"))
+
+
 class ASupercapacitorByAnyWording(unittest.TestCase):
 
     def test_capacitive_characteristics_is_a_supercapacitor(self):

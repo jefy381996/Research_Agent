@@ -101,40 +101,52 @@ async function openApp(browser, device) {
   check("so does Escape",
     await page.evaluate(() => !document.documentElement.classList.contains("drawer-open")));
 
-  /* ── one way in to voice ──────────────────────────────── */
+  /* ── one way in to voice ─────────────────────── */
+  /* There used to be four: a microphone, a hands-free switch, a hosted
+     recogniser and a 39MB on-device engine, two of them carrying the same
+     waveform icon. There is one now, and it is the microphone. */
   await page.evaluate(() => show("ask")); await sleep(600);
-  const before = await page.evaluate(() => ({
-    oneEntry: getComputedStyle(document.getElementById("voice-open")).display !== "none",
-    pairHidden: !document.getElementById("handsfree").offsetParent,
-  }));
-  check("voice is one button on a phone, not two", before.oneEntry && before.pairHidden,
-    JSON.stringify(before));
-
-  await page.click("#voice-open"); await sleep(600);
-  const sheet = await page.evaluate(() => {
-    const hf = document.getElementById("handsfree");
-    const lv = document.getElementById("localvoice");
+  const voice = await page.evaluate(() => {
+    const mic = document.getElementById("mic");
+    const box = mic.getBoundingClientRect();
     return {
-      open: !document.getElementById("vsheet").hidden,
-      moved: !!document.querySelector("#vsheet-slot #handsfree"),
-      hfState: hf.dataset.state, lvState: lv.hidden ? "(hidden)" : lv.dataset.state,
-      sameIcon: hf.querySelector("use").getAttribute("href")
-        === (lv.querySelector("use") || {}).getAttribute?.("href"),
-      hfH: Math.round(hf.getBoundingClientRect().height),
+      leftover: ["handsfree", "localvoice", "servervoice", "voice-open", "vsheet"]
+        .filter((id) => !!document.getElementById(id)),
+      pressed: mic.getAttribute("aria-pressed"),
+      label: mic.getAttribute("aria-label") || "",
+      w: Math.round(box.width), h: Math.round(box.height),
+      hasRing: !!mic.querySelector(".miclive"),
+      optsOutOfRipple: mic.dataset.ripple === "off",
     };
   });
-  check("the button opens a sheet", sheet.open);
-  check("the controls move into it rather than being duplicated", sheet.moved);
-  check("each says whether it is on or off",
-    sheet.hfState === "off" || sheet.hfState === "on", JSON.stringify(sheet));
-  check("the two no longer carry the same icon", sheet.sameIcon === false);
-  check("and both are a thumb's height", sheet.hfH >= 44, `${sheet.hfH}px`);
+  check("there is exactly one voice control", voice.leftover.length === 0,
+    `still present: ${voice.leftover.join(", ")}`);
+  check("it starts in the off state", voice.pressed === "false", voice.pressed);
+  check("its label says what pressing it does", /voice chat/i.test(voice.label), voice.label);
+  check("it is a thumb's width and height", voice.w >= 44 && voice.h >= 44,
+    `${voice.w}x${voice.h}`);
+  check("it carries its own live ring", voice.hasRing);
+  check("and the press ripple does not clip that ring", voice.optsOutOfRipple);
 
-  await page.click("#vsheet-close"); await sleep(500);
-  check("Done closes it",
-    await page.evaluate(() => document.getElementById("vsheet").hidden));
-  check("and the controls go back where they came from",
-    await page.evaluate(() => !document.querySelector("#vsheet-slot #handsfree")));
+  await page.click("#mic"); await sleep(500);
+  const on = await page.evaluate(() => {
+    const mic = document.getElementById("mic");
+    return { pressed: mic.getAttribute("aria-pressed"),
+             label: mic.getAttribute("aria-label") || "" };
+  });
+  // A headless browser may have no recogniser, so pressing it can refuse -
+  // but whichever way it goes, the button and its label must agree.
+  check("pressing it leaves the button and its label agreeing",
+    (on.pressed === "true") === /end voice chat/i.test(on.label),
+    JSON.stringify(on));
+  if (on.pressed === "true") {
+    await page.click("#mic"); await sleep(400);
+    check("pressing it again turns it off", await page.evaluate(
+      () => document.getElementById("mic").getAttribute("aria-pressed") === "false"));
+  } else {
+    check("pressing it again turns it off", true, "(this browser has no recogniser)");
+  }
+
 
   /* ── nothing too small, nothing off the side ──────────── */
   for (const view of ["ask", "explore", "evidence", "properties", "sources", "mydata"]) {
@@ -173,13 +185,13 @@ async function openApp(browser, device) {
     barHidden: getComputedStyle(document.querySelector(".appbar")).display === "none",
     sideInline: getComputedStyle(document.getElementById("side")).position === "static",
     sideShown: getComputedStyle(document.getElementById("side")).visibility === "visible",
-    entryHidden: getComputedStyle(document.getElementById("voice-open")).display === "none",
-    pairShown: !!document.getElementById("handsfree").offsetParent,
+    micShown: !!document.getElementById("mic").offsetParent,
+    micInComposer: !!document.querySelector(".composer #mic"),
   }));
   check("on a desktop there is no app bar", desk.barHidden);
   check("the sections stay in the sidebar", desk.sideInline && desk.sideShown);
-  check("and the voice controls stay in the composer",
-    desk.entryHidden && desk.pairShown, JSON.stringify(desk));
+  check("and the one voice control sits in the composer",
+    desk.micShown && desk.micInComposer, JSON.stringify(desk));
 
   console.log(`\nMobile scorecard: ${pass}/${total}`);
   if (fails.length) console.log("failed:\n  " + fails.join("\n  "));
