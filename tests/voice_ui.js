@@ -75,6 +75,13 @@ const COMMANDS = [
   page.on("pageerror", (e) => errors.push(String(e.message)));
   page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
 
+  /* The browser's own ears, regardless of whether this machine has a
+     speech key configured. tests/voice_hosted.js covers the other path. */
+  await page.route("**/api/voice/status", (r) => r.fulfill({
+    status: 200, contentType: "application/json",
+    body: JSON.stringify({ listen: false, speak: false,
+                           listen_model: "", speak_voice: "" }),
+  }));
   await page.goto(URL, { waitUntil: "networkidle" });
   await page.waitForFunction(() => window.DATA && window.DATA.rows
     && window.DATA.rows.length > 0 && window.Voice, null, { timeout: 60000 });
@@ -242,7 +249,8 @@ const COMMANDS = [
       if (!window.Voice) return { skipped: true };
 
       Voice.listen({ onHeard: (t) => { seen.push(t); Voice.speak("The median is 969 milliamp hours per gram"); } });
-      await wait(30);
+      // Starting asks the server which ears to use before opening any.
+      await wait(150);
       const afterStart = Fake.up;
 
       // Somebody speaks, and the recogniser reports it.
