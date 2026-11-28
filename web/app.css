@@ -41,11 +41,21 @@
   --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
   --row:34px; --rail:244px;
-  --e-out:cubic-bezier(.16,1,.3,1);
-  --e-io:cubic-bezier(.65,0,.35,1);
-  --e-spring:cubic-bezier(.34,1.46,.54,1);
-  --t-fast:150ms; --t:300ms; --t-slow:520ms;
-  --ease:cubic-bezier(.16,1,.3,1);
+  /* One motion rule. Everything that moves uses one of three durations
+     and one of two curves, and moves only by transform and opacity -
+     the two things a screen can change without laying the page out or
+     repainting it. There were four curves and thirty-seven durations
+     here, and entrance animations that were still running two and a
+     half seconds after the screen appeared.
+       --t-fast  a state change you should barely notice
+       --t       the default: something arriving or leaving
+       --t-slow  a panel or a sheet, which is bigger and may travel
+     Staggers are capped: --stag per step, never more than --stag-n
+     steps, so a list of fifty cards costs the same as a list of six. */
+  --e-out:cubic-bezier(.2,.78,.26,1);
+  --e-io:cubic-bezier(.4,0,.6,1);
+  --t-fast:120ms; --t:160ms; --t-slow:200ms;
+  --stag:20ms; --stag-n:5;
   --safe-b:env(safe-area-inset-bottom,0px);
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
@@ -142,7 +152,7 @@ a{color:var(--acc);text-underline-offset:2px}
 .tabs{display:flex;gap:2px}
 .tab{appearance:none;background:none;border:0;cursor:pointer;position:relative;
   padding:8px 13px;border-radius:var(--r-s);color:var(--ink-2);
-  font:500 13px var(--sans);transition:color .15s,background .15s}
+  font:500 13px var(--sans);transition:color var(--t-fast),background var(--t-fast)}
 .tab:hover{color:var(--ink);background:var(--surf-2)}
 .tab[aria-selected="true"]{color:var(--ink);background:var(--acc-wash)}
 .tab[aria-selected="true"]::after{content:"";position:absolute;left:13px;right:13px;bottom:-1px;
@@ -153,7 +163,7 @@ a{color:var(--acc);text-underline-offset:2px}
 
 .btn{appearance:none;cursor:pointer;border:1px solid var(--line-2);background:var(--surf);
   color:var(--ink-2);border-radius:var(--r-s);padding:6px 11px;font:500 12.5px var(--sans);
-  transition:border-color .15s,color .15s,background .15s}
+  transition:border-color var(--t-fast),color var(--t-fast),background var(--t-fast)}
 .btn:hover{color:var(--ink);border-color:var(--ink-3)}
 .btn.icon{padding:6px 9px;line-height:1}
 .btn.pri{border:1px solid var(--ink);color:var(--acc-ink);background:var(--ink);
@@ -171,7 +181,7 @@ a{color:var(--acc);text-underline-offset:2px}
 input[type=search],input[type=text],input[type=number],select,textarea{
   width:100%;background:var(--surf-2);color:var(--ink);border:1px solid var(--line);
   border-radius:var(--r-s);padding:8px 10px;font:450 13px var(--sans);
-  transition:border-color .15s,background .15s}
+  transition:border-color var(--t-fast),background var(--t-fast)}
 input:focus,select:focus,textarea:focus{border-color:var(--acc);background:var(--surf)}
 input[type=number]{font-family:var(--mono)}
 
@@ -202,13 +212,13 @@ input[type=number]{font-family:var(--mono)}
 .chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:30px}
 .chips button{appearance:none;cursor:pointer;background:var(--surf);border:1px solid var(--line);
   border-radius:999px;padding:8px 15px;font:450 12.5px var(--sans);color:var(--ink-2);
-  box-shadow:var(--sh-1);transition:.18s var(--ease);text-align:left}
+  box-shadow:var(--sh-1);transition:var(--t) var(--e-out);text-align:left}
 .chips button:hover{color:var(--ink);border-color:var(--acc);transform:translateY(-1px);
   box-shadow:var(--sh-2)}
 
 /* answer */
 .thread{display:grid;gap:40px}
-.turn{display:grid;gap:18px;animation:rise .4s var(--ease) both}
+.turn{display:grid;gap:18px;animation:rise var(--t-slow) var(--e-out) both}
 @keyframes rise{from{opacity:0;transform:translateY(10px)}}
 .q{display:flex;gap:12px;align-items:flex-start}
 .q .av{width:26px;height:26px;border-radius:8px;flex:0 0 26px;margin-top:1px;
@@ -224,7 +234,7 @@ input[type=number]{font-family:var(--mono)}
 .trace-h .lnk{margin-left:auto;font-size:11.5px}
 .tr{display:grid;grid-template-columns:16px 1fr auto;gap:11px;align-items:center;
   padding:9px 14px;border-bottom:1px solid var(--line);font-size:12.5px;
-  animation:rise .3s var(--ease) both}
+  animation:rise var(--t) var(--e-out) both}
 .tr:last-child{border-bottom:0}
 .tr .d{width:6px;height:6px;border-radius:50%;background:var(--acc);justify-self:center}
 .tr .w{color:var(--ink-2)}
@@ -261,13 +271,13 @@ input[type=number]{font-family:var(--mono)}
 
 .cite{appearance:none;border:0;cursor:pointer;background:var(--acc-wash);color:var(--acc);
   font:600 10px var(--mono);border-radius:4px;padding:2px 5px;margin:0 1px;vertical-align:1px;
-  transition:.15s}
+  transition:var(--t-fast)}
 .cite:hover{background:var(--acc-fill);color:var(--acc-fill-ink)}
 
 .srcs{display:grid;gap:10px}
 .src{display:grid;grid-template-columns:26px 1fr;gap:13px;padding:15px 17px;cursor:pointer;
   background:var(--surf);border:1px solid var(--line);border-radius:var(--r-m);
-  transition:.18s var(--ease)}
+  transition:var(--t) var(--e-out)}
 .src:hover{border-color:var(--acc);transform:translateX(2px);box-shadow:var(--sh-2)}
 .src.flagged{border-left:2px solid var(--flag)}
 .src .n{font:600 11px var(--mono);color:var(--acc);background:var(--acc-wash);
@@ -299,7 +309,7 @@ input[type=number]{font-family:var(--mono)}
 .composer .inner{max-width:1040px;margin:0 auto}
 .cbox{display:flex;gap:10px;align-items:flex-end;background:var(--surf-2);
   border:1px solid var(--line);border-radius:var(--r-m);padding:8px 8px 8px 14px;
-  transition:border-color .15s,box-shadow .15s}
+  transition:border-color var(--t-fast),box-shadow var(--t-fast)}
 .cbox:focus-within{border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-wash)}
 .cbox textarea{flex:1 1 auto;border:0;background:none;padding:7px 0;resize:none;
   max-height:170px;font:450 15px/1.5 var(--sans)}
@@ -313,7 +323,7 @@ input[type=number]{font-family:var(--mono)}
 .chart text{font:450 10.5px var(--mono);fill:var(--ink-3)}
 .chart text.lab{font-family:var(--sans);font-size:11px;fill:var(--ink-2)}
 .chart text.val{font-family:var(--mono);font-size:10.5px;fill:var(--ink-2);font-weight:500}
-.chart .bar{fill:var(--b3);transition:fill .15s}
+.chart .bar{fill:var(--b3);transition:fill var(--t-fast)}
 .chart .bar.q1{fill:var(--b1)} .chart .bar.q2{fill:var(--b2)}
 .chart .bar.q3{fill:var(--b3)} .chart .bar.q4{fill:var(--b4)}
 .chart g.it:hover .bar{fill:var(--acc)}
@@ -337,7 +347,7 @@ input[type=number]{font-family:var(--mono)}
 .facet h3{font:600 11px var(--sans);color:var(--ink-3);margin:0 0 7px;letter-spacing:.03em}
 .fi{display:flex;align-items:center;gap:8px;width:100%;appearance:none;background:none;
   border:0;cursor:pointer;padding:4px 6px;border-radius:var(--r-s);color:var(--ink);
-  font:450 12.5px var(--sans);text-align:left;transition:.13s}
+  font:450 12.5px var(--sans);text-align:left;transition:var(--t-fast)}
 .fi:hover{background:var(--surf-2)}
 .fi[aria-pressed="true"]{background:var(--acc-wash);color:var(--acc);font-weight:500}
 .fi .n{margin-left:auto;font:450 11px var(--mono);color:var(--ink-3)}
@@ -366,7 +376,7 @@ table.g thead th.num{text-align:right}
 table.g thead th:hover{color:var(--ink)}
 table.g thead th[aria-sort]{color:var(--ink)}
 table.g thead th .ar{color:var(--acc);margin-left:4px}
-table.g tbody tr{height:var(--row);border-left:2px solid transparent;transition:background .12s}
+table.g tbody tr{height:var(--row);border-left:2px solid transparent;transition:background var(--t-fast)}
 table.g tbody tr:hover{background:var(--acc-wash)}
 table.g tbody tr.fl{border-left-color:var(--flag);background:var(--flag-wash)}
 table.g tbody tr.fl:hover{background:var(--acc-wash)}
@@ -386,7 +396,7 @@ table.g td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
 
 /* ── drawer ─────────────────────────────────────────────── */
 .bd{position:fixed;inset:0;background:rgba(7,9,16,.5);z-index:60;
-  animation:fade .2s var(--ease) both;backdrop-filter:blur(2px)}
+  animation:fade var(--t) var(--e-out) both}
 @keyframes fade{from{opacity:0}}
 .drawer{position:fixed;top:0;right:0;bottom:0;width:min(42vw,580px);z-index:61;
   background:var(--surf);border-left:1px solid var(--line);display:flex;flex-direction:column;
@@ -399,11 +409,12 @@ table.g td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
 .quote{font-size:15px;line-height:1.68;margin:12px 0 18px;padding:16px 18px;
   background:var(--surf-2);border-radius:var(--r-m);border-left:2px solid var(--acc)}
 .quote mark{background:none;color:var(--ink);font-family:var(--mono);font-weight:600;
-  padding:1px 4px;border-radius:3px;box-shadow:inset 0 -.62em 0 var(--acc-wash-2);
-  animation:lit .7s var(--ease) .15s both}
-@keyframes lit{0%{box-shadow:inset 0 -.62em 0 transparent}
-  45%{box-shadow:inset 0 -1.15em 0 var(--acc-wash-2)}
-  100%{box-shadow:inset 0 -.62em 0 var(--acc-wash-2)}}
+  padding:1px 4px;border-radius:3px;position:relative;isolation:isolate}
+.quote mark::before{content:"";position:absolute;left:0;right:0;bottom:0;height:.62em;
+  background:var(--acc-wash-2);border-radius:3px;z-index:-1;
+  transform:scaleX(0);transform-origin:left center;
+  animation:lit var(--t-slow) var(--e-out) var(--t-fast) both}
+@keyframes lit{to{transform:scaleX(1)}}
 .kv{display:grid;grid-template-columns:12em 1fr;gap:5px 14px;margin:12px 0}
 .kv dt{color:var(--ink-3);font-size:12.5px}
 .kv dd{margin:0;font:450 12.5px var(--mono)}
@@ -420,14 +431,14 @@ table.g td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
 .sub{color:var(--ink-2);font-size:13.5px;max-width:70ch;margin:0 0 24px}
 .calcs{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:16px}
 .calc{background:var(--surf);border:1px solid var(--line);border-radius:var(--r-m);
-  padding:18px 20px;box-shadow:var(--sh-1);transition:.2s var(--ease)}
+  padding:18px 20px;box-shadow:var(--sh-1);transition:var(--t) var(--e-out)}
 .calc:hover{box-shadow:var(--sh-2)}
 .calc h3{font:500 17px var(--display);margin:0 0 3px;letter-spacing:-.005em}
 .calc .d{color:var(--ink-3);font-size:12.5px;margin-bottom:14px}
 .ci{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
 .ci .fld{width:142px;margin:0}
 .co{margin-top:15px;padding-top:14px;border-top:1px solid var(--line);display:none}
-.co.on{display:block;animation:rise .3s var(--ease) both}
+.co.on{display:block;animation:rise var(--t) var(--e-out) both}
 .co .f{font:450 12px var(--mono);color:var(--ink-3);background:var(--surf-2);
   padding:8px 11px;border-radius:var(--r-s);margin-bottom:10px}
 .co .r{font:600 28px var(--mono);letter-spacing:-.025em}
@@ -444,7 +455,7 @@ table.g td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
 /* ── palette ────────────────────────────────────────────── */
 .pal{position:fixed;top:13vh;left:50%;transform:translateX(-50%);width:min(640px,92vw);z-index:71;
   background:var(--surf);border:1px solid var(--line-2);border-radius:var(--r-l);
-  box-shadow:var(--sh-3);overflow:hidden;animation:rise .22s var(--ease) both}
+  box-shadow:var(--sh-3);overflow:hidden;animation:rise var(--t) var(--e-out) both}
 .pal input{border:0;border-bottom:1px solid var(--line);border-radius:0;padding:15px 18px;
   font-size:15px;background:var(--surf)}
 .pal ul{list-style:none;margin:0;padding:6px;max-height:52vh;overflow-y:auto}
@@ -496,7 +507,7 @@ table.g td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
 .sitem{display:flex;align-items:center;gap:10px;width:100%;appearance:none;border:0;
   cursor:pointer;background:none;color:var(--ink-2);font:500 13.5px var(--sans);
   padding:9px 10px;border-radius:8px;text-align:left;position:relative;
-  transition:background .14s,color .14s}
+  transition:background var(--t-fast),color var(--t-fast)}
 .sitem:hover{background:var(--surf-2);color:var(--ink)}
 .sitem[aria-selected="true"]{background:var(--acc-wash);color:var(--acc);font-weight:600}
 .sitem[aria-selected="true"]::before{content:"";position:absolute;left:-12px;top:7px;bottom:7px;
@@ -519,7 +530,7 @@ table.g td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
 .exfilters{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:22px}
 .exfilters button{appearance:none;cursor:pointer;background:var(--surf);
   border:1px solid var(--line);border-radius:999px;padding:6px 14px;
-  font:500 12px var(--sans);color:var(--ink-2);transition:.15s}
+  font:500 12px var(--sans);color:var(--ink-2);transition:var(--t-fast)}
 .exfilters button:hover{color:var(--ink);border-color:var(--ink-3)}
 .exfilters button[aria-pressed="true"]{background:var(--acc-fill);border-color:var(--acc-fill);
   color:var(--acc-fill-ink)}
@@ -530,7 +541,7 @@ table.g td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
 .excards{display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));gap:12px}
 .excard{background:var(--surf);border:1px solid var(--line);border-radius:var(--r-m);
   padding:15px 17px;cursor:pointer;box-shadow:var(--sh-1);text-align:left;
-  appearance:none;font:inherit;color:inherit;transition:.2s var(--ease);position:relative;
+  appearance:none;font:inherit;color:inherit;transition:var(--t) var(--e-out);position:relative;
   overflow:hidden}
 .excard::after{content:"";position:absolute;inset:0 0 auto 0;height:1.5px;
   background:var(--ink);transform:scaleX(0);transform-origin:left;
@@ -562,7 +573,7 @@ table.g td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
 .crel button:hover{color:var(--acc);border-color:var(--acc)}
 .cpaper{display:block;width:100%;text-align:left;appearance:none;cursor:pointer;
   background:var(--surf);border:1px solid var(--line);border-radius:var(--r-m);
-  padding:13px 16px;margin-bottom:9px;transition:.16s var(--ease);font:inherit;color:inherit}
+  padding:13px 16px;margin-bottom:9px;transition:var(--t) var(--e-out);font:inherit;color:inherit}
 .cpaper:hover{border-color:var(--acc);transform:translateX(2px)}
 .cpaper b{display:block;font:500 13.5px var(--sans);line-height:1.45}
 .cpaper span{display:block;font:450 11.5px var(--mono);color:var(--ink-3);margin-top:4px}
@@ -630,10 +641,10 @@ table.g td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
     background:var(--surf);border-right:1px solid var(--line);border-bottom:0;
     overflow-y:auto;overscroll-behavior:contain;
     transform:translateX(-102%);visibility:hidden;
-    transition:transform 260ms var(--e-out),visibility 0s linear 260ms;
+    transition:transform var(--t-slow) var(--e-out),visibility 0s linear var(--t-slow);
     box-shadow:none}
   html.drawer-open .side{transform:none;visibility:visible;
-    transition:transform 260ms var(--e-out),visibility 0s;
+    transition:transform var(--t-slow) var(--e-out),visibility 0s;
     box-shadow:0 0 0 100vmax rgba(0,0,0,.01),12px 0 40px rgba(0,0,0,.18)}
   .sbrand{display:flex;justify-content:flex-start;padding:2px 6px 14px}
   .sname{display:block}
@@ -647,7 +658,7 @@ table.g td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
   .kbd{display:none}
 
   .scrim{display:block;position:fixed;inset:0;z-index:70;background:rgba(10,10,12,.44);
-    opacity:0;transition:opacity 220ms var(--e-out);-webkit-tap-highlight-color:transparent}
+    opacity:0;transition:opacity var(--t) var(--e-out);-webkit-tap-highlight-color:transparent}
   html.drawer-open .scrim{opacity:1}
 
   .ctitle{font-size:26px}.excards{grid-template-columns:1fr}
@@ -688,11 +699,11 @@ table.g td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
 /* The sheet the voice settings live in on a phone. */
 .vsheet{position:fixed;inset:0;z-index:90;display:grid;align-items:end}
 .vsheet::before{content:"";position:absolute;inset:0;background:rgba(10,10,12,.44);
-  animation:fade-in 200ms var(--e-out) both}
+  animation:fade-in var(--t) var(--e-out) both}
 .vsheet-in{position:relative;background:var(--surf);
   border-radius:18px 18px 0 0;border-top:1px solid var(--line);
   padding:10px 16px calc(16px + env(safe-area-inset-bottom,0px));
-  animation:sheet-up 260ms var(--e-out) both;max-height:76vh;overflow-y:auto}
+  animation:sheet-up var(--t) var(--e-out) both;max-height:76vh;overflow-y:auto}
 @keyframes sheet-up{from{transform:translateY(100%)}}
 @keyframes fade-in{from{opacity:0}}
 .vgrab{width:38px;height:4px;border-radius:999px;background:var(--line);margin:0 auto 12px}
@@ -716,41 +727,41 @@ table.g td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
 
 /* --- staggered reveal: set --i on the element ------------------------- */
 .rise{animation:rise-in var(--t-slow) var(--e-out) both;
-  animation-delay:calc(var(--i,0) * 55ms)}
+  animation-delay:calc(min(var(--i,0), var(--stag-n)) * var(--stag))}
 @keyframes rise-in{from{opacity:0;transform:translateY(12px)}}
 
-.excards .excard{animation:rise-in 420ms var(--e-out) both;
-  animation-delay:calc(var(--i,0) * 26ms)}
-.srcs .src{animation:rise-in 420ms var(--e-out) both;
-  animation-delay:calc(var(--i,0) * 50ms)}
-.statstrip .stat{animation:rise-in 520ms var(--e-out) both;
-  animation-delay:calc(var(--i,0) * 70ms)}
-.chips button{animation:rise-in 420ms var(--e-out) both;
-  animation-delay:calc(140ms + var(--i,0) * 40ms)}
-.tr{animation:step-in 300ms var(--e-out) both}
+.excards .excard{animation:rise-in var(--t-slow) var(--e-out) both;
+  animation-delay:calc(min(var(--i,0), var(--stag-n)) * var(--stag))}
+.srcs .src{animation:rise-in var(--t-slow) var(--e-out) both;
+  animation-delay:calc(min(var(--i,0), var(--stag-n)) * var(--stag))}
+.statstrip .stat{animation:rise-in var(--t-slow) var(--e-out) both;
+  animation-delay:calc(min(var(--i,0), var(--stag-n)) * var(--stag))}
+.chips button{animation:rise-in var(--t-slow) var(--e-out) both;
+  animation-delay:calc(min(var(--i,0), var(--stag-n)) * var(--stag))}
+.tr{animation:step-in var(--t) var(--e-out) both}
 @keyframes step-in{from{opacity:0;transform:translateX(-6px)}}
 
 /* --- the answer composes itself, block by block ----------------------- */
-.out > *{animation:rise-in 480ms var(--e-out) both}
-.out > *:nth-child(1){animation-delay:40ms}
-.out > *:nth-child(2){animation-delay:110ms}
-.out > *:nth-child(3){animation-delay:180ms}
-.out > *:nth-child(4){animation-delay:250ms}
-.out > *:nth-child(n+5){animation-delay:310ms}
+.out > *{animation:rise-in var(--t-slow) var(--e-out) both}
+.out > *:nth-child(1){animation-delay:0ms}
+.out > *:nth-child(2){animation-delay:var(--stag)}
+.out > *:nth-child(3){animation-delay:calc(var(--stag) * 2)}
+.out > *:nth-child(4){animation-delay:calc(var(--stag) * 3)}
+.out > *:nth-child(n+5){animation-delay:calc(var(--stag) * 4)}
 
 /* --- overlays: they open and they close ------------------------------- */
 .bd{animation:fade-in var(--t) var(--e-out) both}
-.bd.closing{animation:fade-out 190ms var(--e-io) both}
+.bd.closing{animation:fade-out var(--t) var(--e-io) both}
 @keyframes fade-in{from{opacity:0}}
 @keyframes fade-out{to{opacity:0}}
 
-.drawer{animation:drawer-in 380ms var(--e-out) both}
-.drawer.closing{animation:drawer-out 230ms var(--e-io) both}
+.drawer{animation:drawer-in var(--t-slow) var(--e-out) both}
+.drawer.closing{animation:drawer-out var(--t) var(--e-io) both}
 @keyframes drawer-in{from{transform:translateX(100%)}}
 @keyframes drawer-out{to{transform:translateX(100%)}}
 
-.pal{animation:pal-in 300ms var(--e-spring) both}
-.pal.closing{animation:pal-out 170ms var(--e-io) both}
+.pal{animation:pal-in var(--t) var(--e-out) both}
+.pal.closing{animation:pal-out var(--t) var(--e-io) both}
 @keyframes pal-in{from{opacity:0;transform:translateX(-50%) translateY(-10px) scale(.975)}}
 @keyframes pal-out{to{opacity:0;transform:translateX(-50%) translateY(-6px) scale(.985)}}
 
@@ -765,9 +776,9 @@ table.g td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
 .btn:active,.chips button:active,.excard:active,.crel button:active{transform:scale(.985)}
 .excard:hover,.calc:hover{transform:translateY(-3px)}
 .src:hover,.cpaper:hover{transform:translateX(3px)}
-.sitem .ic{transition:transform var(--t) var(--e-spring)}
+.sitem .ic{transition:transform var(--t) var(--e-out)}
 .sitem:hover .ic{transform:translateX(2px)}
-.btn.pri .ic{transition:transform var(--t) var(--e-spring)}
+.btn.pri .ic{transition:transform var(--t) var(--e-out)}
 .btn.pri:hover .ic{transform:translateX(3px)}
 
 :focus-visible{outline:2px solid var(--focus);outline-offset:3px;
@@ -775,28 +786,32 @@ table.g td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
 
 /* --- charts draw themselves ------------------------------------------- */
 .chart .bar{transform-box:fill-box;transform-origin:bottom;
-  animation:bar-grow 620ms var(--e-out) both;
-  animation-delay:calc(var(--i,0) * 18ms)}
+  animation:bar-grow var(--t-slow) var(--e-out) both;
+  animation-delay:calc(min(var(--i,0), var(--stag-n)) * var(--stag))}
 @keyframes bar-grow{from{transform:scaleY(0)}}
 .chart.h .bar{transform-origin:left;animation-name:bar-grow-x}
 @keyframes bar-grow-x{from{transform:scaleX(0)}}
 .chart path[data-draw]{stroke-dasharray:var(--len);stroke-dashoffset:var(--len);
-  animation:draw 900ms var(--e-out) 120ms both}
+  animation:draw var(--t-slow) var(--e-out) var(--t-fast) both}
 @keyframes draw{to{stroke-dashoffset:0}}
-.chart circle{animation:pop 380ms var(--e-spring) both;
-  animation-delay:calc(420ms + var(--i,0) * 45ms)}
+.chart circle{animation:pop var(--t-slow) var(--e-out) both;
+  animation-delay:calc(min(var(--i,0), var(--stag-n)) * var(--stag))}
 @keyframes pop{from{transform:scale(0);opacity:0}}
-.chart .med,.chart .medlab{animation:fade-in 500ms var(--e-out) 560ms both}
-.ctip{animation:fade-in 110ms var(--e-out) both}
+.chart .med,.chart .medlab{animation:fade-in var(--t-slow) var(--e-out) var(--t-slow) both}
+.ctip{animation:fade-in var(--t-fast) var(--e-out) both}
 
 /* --- the number settles --------------------------------------------- */
-.headline .big{animation:big-in 560ms var(--e-out) both}
-@keyframes big-in{from{opacity:0;transform:translateY(8px);letter-spacing:.02em}}
+.headline .big{animation:big-in var(--t-slow) var(--e-out) both}
+@keyframes big-in{from{opacity:0;transform:translateY(8px)}}
 
 /* --- the quoted digits light up last --------------------------------- */
-.src .qt mark{animation:mark-in 520ms var(--e-out) both;
-  animation-delay:calc(260ms + var(--i,0) * 50ms)}
-@keyframes mark-in{from{background:transparent}}
+.src .qt mark{position:relative;isolation:isolate;background:none}
+.src .qt mark::before{content:"";position:absolute;inset:0;border-radius:3px;
+  background:var(--acc-wash-2);z-index:-1;
+  transform:scaleX(0);transform-origin:left center;
+  animation:mark-in var(--t-slow) var(--e-out) both;
+  animation-delay:calc(min(var(--i,0), var(--stag-n)) * var(--stag))}
+@keyframes mark-in{to{transform:scaleX(1)}}
 
 /* --- composer --------------------------------------------------------- */
 .cbox{transition:border-color var(--t) var(--e-out),box-shadow var(--t) var(--e-out),
@@ -808,6 +823,10 @@ table.g td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
     scroll-behavior:auto!important}
   .chart .bar,.chart circle{transform:none!important}
   .chart path[data-draw]{stroke-dashoffset:0!important}
+  /* Anything that starts folded and is unfolded by an animation has to be
+     put back by hand here, or switching motion off hides it for good. */
+  .quote mark::before,.src .qt mark::before,
+  html.booting .hero .badge i{transform:scaleX(1)!important}
 }
 
 /* The opening screen centres itself; once a conversation starts it anchors to
@@ -825,6 +844,10 @@ table.g td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
 .headline .big.txt{font:400 42px/1.08 var(--display);letter-spacing:-.018em;
   display:block}
 @media(max-width:780px){.headline .big.txt{font-size:30px}}
+@media(max-width:780px){
+  .side,.composer{background:var(--surf);
+    backdrop-filter:none;-webkit-backdrop-filter:none}
+}
 
 /* The composer frame is the focus indicator; a second ring inside it is noise.
    The frame change is deliberate and clearly visible, so this costs nothing
@@ -863,7 +886,8 @@ body::after{
   radial-gradient(900px 480px at 50% -14%,var(--acc-soft),transparent 72%),
   var(--bg)}
 
-/* Glass on the two surfaces that float above content. */
+/* Glass on the two surfaces that float above content - on a desktop.
+   On a phone they go opaque; see the breakpoint below. */
 .side{background:color-mix(in srgb,var(--surf) 86%,transparent);
   backdrop-filter:saturate(1.4) blur(14px);
   -webkit-backdrop-filter:saturate(1.4) blur(14px)}
@@ -871,12 +895,11 @@ body::after{
   backdrop-filter:saturate(1.4) blur(16px);
   -webkit-backdrop-filter:saturate(1.4) blur(16px);
   border-top:1px solid var(--line);box-shadow:0 -20px 40px -32px rgba(0,0,0,.5)}
-table.g thead th{background:color-mix(in srgb,var(--surf) 92%,transparent);
-  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+table.g thead th{background:var(--surf)}
 
 /* ── the mark ─────────────────────────────────────────────── */
 .mark{background:var(--acc-fill);box-shadow:var(--sh-acc);border-radius:9px;
-  transition:transform var(--t) var(--e-spring),box-shadow var(--t) var(--e-out)}
+  transition:transform var(--t) var(--e-out),box-shadow var(--t) var(--e-out)}
 .mark::after{background:var(--acc-fill-ink);opacity:.95}
 .mark::before{background:var(--acc-fill-ink);opacity:.55}
 .sbrand:hover .mark{transform:rotate(-6deg) scale(1.06)}
@@ -967,7 +990,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--acc);
 
 /* Switching theme should feel like a dimmer, not a light switch. */
 html.theming,html.theming *,html.theming *::before,html.theming *::after{
-  transition:background-color 420ms var(--e-out),
+  transition:background-color var(--t-slow) var(--e-out),
              border-color 420ms var(--e-out),
              color 420ms var(--e-out),
              box-shadow 420ms var(--e-out),
@@ -994,11 +1017,11 @@ html.theming,html.theming *,html.theming *::before,html.theming *::after{
 .excard:active{transform:translateY(-1px) scale(.995)}
 
 /* Icons lead the eye in the direction the control goes. */
-.cback .ic{transition:transform var(--t) var(--e-spring)}
+.cback .ic{transition:transform var(--t) var(--e-out)}
 .cback:hover .ic{transform:translateX(-3px)}
 .btn.icon:hover{transform:rotate(90deg)}
 #theme:hover .ic{transform:rotate(45deg)}
-#theme .ic{transition:transform var(--t-slow) var(--e-spring)}
+#theme .ic{transition:transform var(--t-slow) var(--e-out)}
 
 /* The trace collapses rather than disappearing. */
 .tl{overflow:hidden;transition:max-height var(--t-slow) var(--e-io),
@@ -1006,7 +1029,7 @@ html.theming,html.theming *,html.theming *::before,html.theming *::after{
 .tl[hidden]{display:block!important;max-height:0;opacity:0}
 
 /* Tooltips arrive with a little spring. */
-.ctip{animation:tip-in 180ms var(--e-spring) both;border-radius:8px}
+.ctip{animation:tip-in var(--t) var(--e-out) both;border-radius:8px}
 @keyframes tip-in{from{opacity:0;transform:translateY(5px) scale(.96)}}
 
 /* Table rows warm up under the pointer. */
@@ -1020,19 +1043,19 @@ table.g tbody tr:hover{background:var(--acc-soft);
 .fi:hover .n{color:var(--acc)}
 
 /* Everything that enters a scroll container does so from slightly below. */
-.exgroup{animation:rise-in 520ms var(--e-out) both;
-  animation-delay:calc(var(--g,0) * 90ms)}
-.cgroup{animation:rise-in 520ms var(--e-out) both;
-  animation-delay:calc(var(--g,0) * 90ms)}
-.calcs .calc{animation:rise-in 440ms var(--e-out) both;
-  animation-delay:calc(var(--i,0) * 32ms)}
-.cpage > *{animation:rise-in 480ms var(--e-out) both}
-.cpage > *:nth-child(1){animation-delay:20ms}
-.cpage > *:nth-child(2){animation-delay:70ms}
-.cpage > *:nth-child(3){animation-delay:120ms}
-.cpage > *:nth-child(4){animation-delay:170ms}
-.cpage > *:nth-child(n+5){animation-delay:220ms}
-.kv dd,.kv dt{animation:fade-in 420ms var(--e-out) both}
+.exgroup{animation:rise-in var(--t-slow) var(--e-out) both;
+  animation-delay:calc(min(var(--g,0), var(--stag-n)) * var(--stag))}
+.cgroup{animation:rise-in var(--t-slow) var(--e-out) both;
+  animation-delay:calc(min(var(--g,0), var(--stag-n)) * var(--stag))}
+.calcs .calc{animation:rise-in var(--t-slow) var(--e-out) both;
+  animation-delay:calc(min(var(--i,0), var(--stag-n)) * var(--stag))}
+.cpage > *{animation:rise-in var(--t-slow) var(--e-out) both}
+.cpage > *:nth-child(1){animation-delay:var(--t-fast)}
+.cpage > *:nth-child(2){animation-delay:var(--t-fast)}
+.cpage > *:nth-child(3){animation-delay:var(--t-fast)}
+.cpage > *:nth-child(4){animation-delay:var(--t)}
+.cpage > *:nth-child(n+5){animation-delay:var(--t)}
+.kv dd,.kv dt{animation:fade-in var(--t-slow) var(--e-out) both}
 
 @media(prefers-reduced-motion:reduce){
   html.theming,html.theming *{transition:none!important}
@@ -1047,7 +1070,7 @@ table.g tbody tr:hover{background:var(--acc-soft);
    rather than arithmetic in a frame loop. Nothing here may animate anything
    but transform and opacity. */
 #lattice{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;
-  transform:translate3d(0,0,0);transition:transform 900ms cubic-bezier(.22,1,.36,1)}
+  transform:translate3d(0,0,0);transition:transform var(--t-slow) cubic-bezier(.22,1,.36,1)}
 .lat-drift{position:absolute;inset:0;will-change:transform;
   animation:lat-drift 96s cubic-bezier(.45,0,.55,1) infinite alternate}
 .lat-sheet,.lat-flow{position:absolute;display:block}
@@ -1097,7 +1120,7 @@ body{background:
 @keyframes beat{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.72)}}
 .step2{display:grid;grid-template-columns:14px 1fr auto;gap:10px;align-items:baseline;
   padding:7px 0;border-top:1px solid var(--line);font-size:12.5px;color:var(--ink-2);
-  animation:step-in 320ms var(--e-out) both}
+  animation:step-in var(--t-slow) var(--e-out) both}
 .step2:first-child{border-top:0}
 .step2 b{color:var(--ink);font:500 12px var(--mono)}
 .step2 .r{font:450 11.5px var(--mono);color:var(--ink-3);white-space:nowrap}
@@ -1130,7 +1153,7 @@ body{background:
 .disclose summary .ic{width:14px;height:14px;margin-left:auto;
   transition:transform var(--t) var(--e-out)}
 .disclose[open] summary .ic{transform:rotate(180deg)}
-.disclose .inner2{padding:0 16px 16px;animation:rise-in 380ms var(--e-out) both}
+.disclose .inner2{padding:0 16px 16px;animation:rise-in var(--t-slow) var(--e-out) both}
 
 /* ═══════════════════ mobile ═══════════════════ */
 /* The sections used to live in a bar across the bottom: eight of them plus a
@@ -1151,8 +1174,8 @@ body{background:
   /* the source panel becomes a sheet that rises from the bottom */
   .drawer{top:auto;left:0;right:0;bottom:0;width:100%;height:84vh;
     border-radius:var(--r-l) var(--r-l) 0 0;border-left:0;border-top:1px solid var(--line);
-    animation:sheet-in 360ms var(--e-out) both}
-  .drawer.closing{animation:sheet-out 240ms var(--e-io) both}
+    animation:sheet-in var(--t-slow) var(--e-out) both}
+  .drawer.closing{animation:sheet-out var(--t) var(--e-io) both}
   @keyframes sheet-in{from{transform:translateY(100%)}}
   @keyframes sheet-out{to{transform:translateY(100%)}}
   .drawer-h::before{content:"";position:absolute;top:7px;left:50%;
@@ -1226,8 +1249,8 @@ body{background:
    thing itself. */
 .research{position:relative;margin:4px 0 24px;display:flex;
   flex-direction:column;align-items:center;gap:12px;
-  animation:fade-in 420ms var(--e-out) both;
-  transition:opacity 620ms var(--e-out),height 620ms var(--e-out),
+  animation:fade-in var(--t-slow) var(--e-out) both;
+  transition:opacity var(--t-slow) var(--e-out),height var(--t-slow) var(--e-out),
              margin 620ms var(--e-out)}
 .research.settled{opacity:0;height:0;margin:0;overflow:hidden}
 .rcanvas{display:block;width:100%;height:330px;pointer-events:none}
@@ -1262,8 +1285,8 @@ body{background:
 .mcard{background:var(--surf);border:1px solid var(--line);border-radius:var(--r-m);
   padding:16px 18px;cursor:pointer;text-align:left;appearance:none;font:inherit;
   color:inherit;position:relative;overflow:hidden;
-  animation:rise-in 380ms var(--e-out) both;
-  animation-delay:calc(var(--i,0) * 22ms);
+  animation:rise-in var(--t-slow) var(--e-out) both;
+  animation-delay:calc(min(var(--i,0), var(--stag-n)) * var(--stag));
   transition:border-color var(--t-fast) var(--e-out),transform var(--t) var(--e-out),
              box-shadow var(--t) var(--e-out)}
 .mcard:hover{border-color:var(--acc);transform:translateY(-3px);box-shadow:var(--sh-2)}
@@ -1324,13 +1347,13 @@ body{background:
   border:1px solid var(--line);border-radius:var(--r-m);
   background:linear-gradient(180deg,var(--acc-soft),transparent 60%),var(--surf);
   box-shadow:var(--sh-1);
-  animation:primer-in 520ms var(--e-out) both;overflow:hidden}
+  animation:primer-in var(--t-slow) var(--e-out) both;overflow:hidden}
 /* .pane is a flex column, so a block child is squeezed to whatever is left
    and then clipped by its own overflow. The primer sizes to its content. */
 .pane > .primer{margin:18px 18px 0;flex:0 0 auto}
 .pane > .primer-show{flex:0 0 auto}
 @keyframes primer-in{from{opacity:0;transform:translateY(-8px)}}
-.primer.folding{animation:primer-out 320ms var(--e-io) both}
+.primer.folding{animation:primer-out var(--t-slow) var(--e-io) both}
 @keyframes primer-out{to{opacity:0;transform:translateY(-10px) scaleY(.92)}}
 .primer h3{margin:0 0 6px;font:600 14px var(--sans);color:var(--ink);
   letter-spacing:-.005em}
@@ -1338,8 +1361,8 @@ body{background:
   max-width:72ch}
 .primer dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));
   gap:14px 26px;margin:0}
-.primer dl > div{animation:rise-in 480ms var(--e-out) both;
-  animation-delay:calc(90ms + var(--i,0) * 70ms)}
+.primer dl > div{animation:rise-in var(--t-slow) var(--e-out) both;
+  animation-delay:calc(min(var(--i,0), var(--stag-n)) * var(--stag))}
 .primer dt{font:600 12.5px var(--sans);color:var(--acc);margin-bottom:3px;
   letter-spacing:.005em}
 .primer dd{margin:0;font:450 13px/1.55 var(--sans);color:var(--ink-2)}
@@ -1374,23 +1397,24 @@ body{background:
 @keyframes boot-rise{from{opacity:0;transform:translateY(14px)}}
 @keyframes boot-side{from{opacity:0;transform:translateX(-14px)}}
 @keyframes boot-scale{from{opacity:0;transform:translateY(10px) scale(.985)}}
-@keyframes boot-wipe{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
+@keyframes boot-wipe{from{transform:scaleX(0)}to{transform:scaleX(1)}}
 
-html.booting .sbrand{animation:boot-side 620ms var(--e-out) both 80ms}
-html.booting .snav .sitem{animation:boot-side 520ms var(--e-out) both;
-  animation-delay:calc(160ms + var(--n,0) * 48ms)}
-html.booting .sfoot{animation:boot-fade 700ms var(--e-out) both 520ms}
-html.booting .badge{animation:boot-scale 700ms var(--e-out) both 220ms}
-html.booting .hero h1{animation:boot-rise 820ms var(--e-out) both 300ms}
-html.booting .hero p{animation:boot-rise 820ms var(--e-out) both 420ms}
-html.booting .statstrip .stat{animation:boot-scale 620ms var(--e-spring) both;
-  animation-delay:calc(560ms + var(--i,0) * 70ms)}
-html.booting .chips button{animation:boot-scale 540ms var(--e-out) both;
-  animation-delay:calc(760ms + var(--i,0) * 42ms)}
-html.booting .composer{animation:boot-rise 720ms var(--e-out) both 640ms}
+html.booting .sbrand{animation:boot-side var(--t-slow) var(--e-out) both var(--t-fast)}
+html.booting .snav .sitem{animation:boot-side var(--t-slow) var(--e-out) both;
+  animation-delay:calc(min(var(--n,0), var(--stag-n)) * var(--stag))}
+html.booting .sfoot{animation:boot-fade var(--t-slow) var(--e-out) both var(--t-slow)}
+html.booting .badge{animation:boot-scale var(--t-slow) var(--e-out) both var(--t)}
+html.booting .hero h1{animation:boot-rise var(--t-slow) var(--e-out) both var(--t)}
+html.booting .hero p{animation:boot-rise var(--t-slow) var(--e-out) both var(--t-slow)}
+html.booting .statstrip .stat{animation:boot-scale var(--t-slow) var(--e-out) both;
+  animation-delay:calc(min(var(--i,0), var(--stag-n)) * var(--stag))}
+html.booting .chips button{animation:boot-scale var(--t-slow) var(--e-out) both;
+  animation-delay:calc(min(var(--i,0), var(--stag-n)) * var(--stag))}
+html.booting .composer{animation:boot-rise var(--t-slow) var(--e-out) both var(--t-slow)}
 /* the hairline above the brand draws itself left to right */
-html.booting .side{animation:boot-fade 400ms linear both}
-html.booting .hero .badge i{animation:boot-wipe 900ms var(--e-out) both 400ms}
+html.booting .side{animation:boot-fade var(--t-slow) linear both}
+html.booting .hero .badge i{transform-origin:left center;
+  animation:boot-wipe var(--t-slow) var(--e-out) both var(--t-slow)}
 
 @media(prefers-reduced-motion:reduce){
   html.booting *{animation:none!important}
@@ -1399,29 +1423,29 @@ html.booting .hero .badge i{animation:boot-wipe 900ms var(--e-out) both 400ms}
 /* ═══════════ moving between screens ═══════════
    Each screen arrives with its own content staggered behind it, so switching
    tabs reads as a move rather than a repaint. */
-.view{animation:view-in 420ms var(--e-out) both}
-.view[data-view] .mid > *{animation:rise-in 480ms var(--e-out) both}
-.view[data-view] .mid > *:nth-child(1){animation-delay:40ms}
-.view[data-view] .mid > *:nth-child(2){animation-delay:95ms}
-.view[data-view] .mid > *:nth-child(3){animation-delay:150ms}
-.view[data-view] .mid > *:nth-child(4){animation-delay:205ms}
-.view[data-view] .pane > *{animation:rise-in 480ms var(--e-out) both}
-.view[data-view] .pane > *:nth-child(1){animation-delay:40ms}
-.view[data-view] .pane > *:nth-child(2){animation-delay:100ms}
-.view[data-view] .pane > *:nth-child(3){animation-delay:160ms}
-.view[data-view] .rail{animation:boot-side 460ms var(--e-out) both 60ms}
+.view{animation:view-in var(--t-slow) var(--e-out) both}
+.view[data-view] .mid > *{animation:rise-in var(--t-slow) var(--e-out) both}
+.view[data-view] .mid > *:nth-child(1){animation-delay:0ms}
+.view[data-view] .mid > *:nth-child(2){animation-delay:var(--stag)}
+.view[data-view] .mid > *:nth-child(3){animation-delay:calc(var(--stag) * 2)}
+.view[data-view] .mid > *:nth-child(4){animation-delay:calc(var(--stag) * 3)}
+.view[data-view] .pane > *{animation:rise-in var(--t-slow) var(--e-out) both}
+.view[data-view] .pane > *:nth-child(1){animation-delay:0ms}
+.view[data-view] .pane > *:nth-child(2){animation-delay:var(--stag)}
+.view[data-view] .pane > *:nth-child(3){animation-delay:calc(var(--stag) * 2)}
+.view[data-view] .rail{animation:boot-side var(--t-slow) var(--e-out) both var(--t-fast)}
 
 /* the sidebar item you are on grows a filled marker rather than snapping */
-.sitem[aria-selected="true"]::before{transition:transform var(--t) var(--e-spring)}
+.sitem[aria-selected="true"]::before{transition:transform var(--t) var(--e-out)}
 @media(prefers-reduced-motion:reduce){
   .view,.view *,.rail{animation:none!important}
 }
 
 /* ═══════════ the cards, on arrival ═══════════ */
-.mcards .mcard{animation:rise-in 460ms var(--e-out) both;
-  animation-delay:calc(var(--i,0) * 24ms)}
-.exgroup .excard{animation:rise-in 440ms var(--e-out) both;
-  animation-delay:calc(var(--i,0) * 20ms)}
+.mcards .mcard{animation:rise-in var(--t-slow) var(--e-out) both;
+  animation-delay:calc(min(var(--i,0), var(--stag-n)) * var(--stag))}
+.exgroup .excard{animation:rise-in var(--t-slow) var(--e-out) both;
+  animation-delay:calc(min(var(--i,0), var(--stag-n)) * var(--stag))}
 @media(prefers-reduced-motion:reduce){
   .mcards .mcard,.exgroup .excard{animation:none!important}
 }
@@ -1438,7 +1462,7 @@ html.booting .hero .badge i{animation:boot-wipe 900ms var(--e-out) both 400ms}
   padding:11px 14px;border-radius:var(--r-m);
   border:1px dashed var(--line-2);background:var(--acc-soft);
   font:450 13.5px/1.5 var(--sans);color:var(--ink-2);
-  animation:rise-in 420ms var(--e-out) both}
+  animation:rise-in var(--t-slow) var(--e-out) both}
 .handoff b{color:var(--ink);font-weight:600}
 .handoff .hio{flex:0 0 auto;display:grid;place-items:center;
   width:24px;height:24px;border-radius:7px;background:var(--acc-fill);
@@ -1481,8 +1505,8 @@ html.booting .hero .badge i{animation:boot-wipe 900ms var(--e-out) both 400ms}
 .mdnote p:last-child{margin-bottom:0}
 .mdnote .dim{color:var(--ink-3);font-size:13px}
 
-.mdset{margin:0 0 26px;animation:rise-in 480ms var(--e-out) both;
-  animation-delay:calc(var(--g,0) * 70ms)}
+.mdset{margin:0 0 26px;animation:rise-in var(--t-slow) var(--e-out) both;
+  animation-delay:calc(min(var(--g,0), var(--stag-n)) * var(--stag))}
 .mdset > header{display:flex;align-items:flex-start;justify-content:space-between;
   gap:16px;flex-wrap:wrap;padding:0 0 12px;margin-bottom:4px;
   border-bottom:1px solid var(--line)}
@@ -1532,7 +1556,7 @@ html.booting .hero .badge i{animation:boot-wipe 900ms var(--e-out) both 400ms}
 .vbar{display:flex;align-items:center;gap:11px;max-width:1040px;
   margin:0 auto;padding:9px 28px;
   font:450 13.5px/1.5 var(--sans);color:var(--ink-2);
-  animation:rise-in 300ms var(--e-out) both}
+  animation:rise-in var(--t) var(--e-out) both}
 .vbar .vtext{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap}
 .vdot{flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:var(--acc);
@@ -1553,7 +1577,7 @@ html.booting .hero .badge i{animation:boot-wipe 900ms var(--e-out) both 400ms}
    it: its own frame, its own count, its own colour */
 .minestrip{margin:18px 0 0;padding:16px 18px;border-radius:var(--r-m);
   border:1px solid var(--acc-soft-2);background:var(--acc-soft);
-  animation:rise-in 460ms var(--e-out) both}
+  animation:rise-in var(--t-slow) var(--e-out) both}
 .mshead{display:flex;align-items:center;gap:9px;flex-wrap:wrap;
   font:600 13px var(--sans);color:var(--ink)}
 .mshead .ic{width:16px;height:16px;color:var(--acc);stroke-width:1.7}
@@ -1574,7 +1598,7 @@ html.booting .hero .badge i{animation:boot-wipe 900ms var(--e-out) both 400ms}
 .vprog{display:inline-block;width:94px;height:4px;border-radius:999px;
   background:var(--line);overflow:hidden;vertical-align:middle;margin:0 2px}
 .vprog i{display:block;height:100%;width:0;border-radius:999px;background:var(--accent);
-  transition:width 220ms var(--e-out)}
+  transition:width var(--t) var(--e-out)}
 .mode.talk[aria-pressed="true"] #lvlabel{font-weight:600}
 
 /* ───────────────── what is new ─────────────────
@@ -1582,8 +1606,8 @@ html.booting .hero .badge i{animation:boot-wipe 900ms var(--e-out) both 400ms}
    sentence it reported it in, so it can be judged without opening anything. */
 .briefwrap{display:grid;gap:12px;margin-top:18px;max-width:760px}
 .bitem{background:var(--surf);border:1px solid var(--line);border-radius:14px;
-  padding:16px 18px;animation:rise-in 420ms var(--e-out) both;
-  animation-delay:calc(var(--i,0) * 32ms)}
+  padding:16px 18px;animation:rise-in var(--t-slow) var(--e-out) both;
+  animation-delay:calc(min(var(--i,0), var(--stag-n)) * var(--stag))}
 .bhead{display:flex;align-items:center;gap:10px;margin-bottom:6px}
 .bhead time{font:450 11.5px var(--mono);color:var(--ink-3);letter-spacing:.02em}
 .btag{font:500 10.5px var(--mono);letter-spacing:.04em;text-transform:uppercase;
@@ -1610,7 +1634,7 @@ html.booting .hero .badge i{animation:boot-wipe 900ms var(--e-out) both 400ms}
 .acc{margin:26px auto 0;max-width:640px}
 .acc .accbar{display:flex;align-items:center;gap:12px;width:100%;cursor:pointer;
   appearance:none;text-align:left;background:var(--surf);border:1px solid var(--line);
-  border-radius:14px;padding:13px 16px;box-shadow:var(--sh-1);transition:.18s var(--ease)}
+  border-radius:14px;padding:13px 16px;box-shadow:var(--sh-1);transition:var(--t) var(--e-out)}
 .acc .accbar:hover{border-color:var(--acc);box-shadow:var(--sh-2)}
 .acc .accnum{font:600 15px var(--sans);color:var(--ink);white-space:nowrap}
 .acc .acctext{font:450 12.5px var(--sans);color:var(--ink-2);line-height:1.45}
