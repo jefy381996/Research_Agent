@@ -835,6 +835,11 @@ TTS_KEY_ENV = os.environ.get("TTS_KEY_ENV", "GROQ_API_KEY" if _GROQ else "TTS_AP
 TTS_MODEL = os.environ.get(
     "TTS_MODEL", "canopylabs/orpheus-v1-english" if _GROQ else "tts-1")
 TTS_VOICE = os.environ.get("TTS_VOICE", "troy" if _GROQ else "alloy")
+# Suppliers disagree about this and one of them accepts only wav, so it is a
+# setting like everything else here rather than a constant in the request.
+TTS_FORMAT = os.environ.get("TTS_FORMAT", "wav" if _GROQ else "mp3")
+TTS_MEDIA = {"wav": "audio/wav", "mp3": "audio/mpeg", "ogg": "audio/ogg",
+             "flac": "audio/flac", "opus": "audio/opus"}
 
 
 def _why_refused(resp):
@@ -929,7 +934,7 @@ def voice_speak(payload: dict):
             TTS_URL,
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
             json={"model": TTS_MODEL, "voice": TTS_VOICE, "input": text,
-                  "response_format": "mp3"},
+                  "response_format": TTS_FORMAT},
             timeout=45)
     except Exception as exc:
         raise HTTPException(status_code=502,
@@ -938,7 +943,8 @@ def voice_speak(payload: dict):
         raise HTTPException(status_code=502,
                             detail=f"voice refused ({resp.status_code}): "
                                    f"{_why_refused(resp)}")
-    return Response(content=resp.content, media_type="audio/mpeg")
+    return Response(content=resp.content,
+                    media_type=TTS_MEDIA.get(TTS_FORMAT, "audio/mpeg"))
 
 
 @app.post("/api/extract/pdf", summary="Read measurements out of a PDF you supply")
