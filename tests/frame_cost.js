@@ -28,7 +28,11 @@ const SAMPLE_MS = 4000;
 const SETTLE_MS = 1800;        // let boot animations finish first
 
 // What a screen is allowed to cost while the reader is doing nothing.
-const LIMITS = { longTasks: 2, p95: 34, janky: 0.25 };
+// A frame at 60fps is 16.667ms and the clock jitters either side of it, so
+// "slower than 16.7" counted half of a perfectly smooth page as dropped. A
+// frame is late when it has missed its budget by half again.
+const LATE = 25;
+const LIMITS = { longTasks: 2, p95: 34, late: 0.10 };
 
 // Navigated by calling the app's own switcher rather than clicking: on a
 // phone the navigation lives in a drawer, and opening it would measure the
@@ -74,10 +78,11 @@ const pct = (xs, p) => {
 
   // How much there is to draw, which is the thing to reduce.
   const scene = await page.evaluate(() => {
-    const c = document.getElementById("lattice");
+    const c = document.querySelector(".lat-sheet")
+      || document.getElementById("lattice");
     return {
       canvases: document.querySelectorAll("canvas").length,
-      lattice: c ? `${c.width}x${c.height}` : "none",
+      lattice: c && c.width ? `${c.width}x${c.height}` : "none",
       keyframed: [...document.styleSheets].reduce((n, sheet) => {
         try {
           return n + [...sheet.cssRules].filter((r) => r.type === 7).length;
@@ -99,22 +104,23 @@ const pct = (xs, p) => {
     const { frames, long } = await page.evaluate(() => ({
       frames: window.__frames, long: window.__long,
     }));
-    const janky = frames.filter((f) => f > 16.7).length / Math.max(frames.length, 1);
+    const late = frames.filter((f) => f > LATE).length / Math.max(frames.length, 1);
     const p95 = pct(frames, 0.95);
     const longTotal = long.reduce((a, b) => a + b, 0);
     const bad = long.length > LIMITS.longTasks || p95 > LIMITS.p95
-      || janky > LIMITS.janky;
+      || late > LIMITS.late;
     if (bad) over += 1;
     console.log(`  ${name.padEnd(13)} ${bad ? "OVER " : "ok   "}`
       + ` p95 ${p95.toFixed(1).padStart(6)}ms`
       + `  median ${pct(frames, 0.5).toFixed(1).padStart(5)}ms`
-      + `  janky ${(janky * 100).toFixed(0).padStart(3)}%`
+      + `  late ${(late * 100).toFixed(0).padStart(3)}%`
       + `  long tasks ${String(long.length).padStart(2)}`
       + ` (${longTotal.toFixed(0)}ms)`);
   }
 
   console.log(`\n  budget: at most ${LIMITS.longTasks} long tasks,`
-    + ` p95 under ${LIMITS.p95}ms, under ${LIMITS.janky * 100}% janky frames`);
+    + ` p95 under ${LIMITS.p95}ms, under ${LIMITS.late * 100}% of frames`
+    + ` later than ${LATE}ms`);
   if (over) console.log(`  ${over} screen(s) over budget`);
   await browser.close();
   process.exit(BUDGET && over ? 1 : 0);

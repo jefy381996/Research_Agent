@@ -1040,7 +1040,22 @@ table.g tbody tr:hover{background:var(--acc-soft);
 }
 
 /* ═══════════════════ the sheet behind everything ═══════════════════ */
-#lattice{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:1}
+/* The sheet of graphene behind the opening screen.
+   Two layers inside one wrapper: the sheet is painted once and the carriers
+   are redrawn, and the slow drift is a compositor animation on the wrapper
+   rather than arithmetic in a frame loop. Nothing here may animate anything
+   but transform and opacity. */
+#lattice{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;
+  transform:translate3d(0,0,0);transition:transform 900ms cubic-bezier(.22,1,.36,1)}
+.lat-drift{position:absolute;inset:0;will-change:transform;
+  animation:lat-drift 96s cubic-bezier(.45,0,.55,1) infinite alternate}
+.lat-sheet,.lat-flow{position:absolute;display:block}
+@keyframes lat-drift{
+  from{transform:translate3d(-1.1%,-0.8%,0) scale(1.015)}
+  to  {transform:translate3d(1.1%,0.9%,0) scale(1.035)}}
+@media (prefers-reduced-motion:reduce){
+  .lat-drift{animation:none;transform:none}
+  .lat-flow{display:none}}
 .shell{position:relative;z-index:1}
 /* The sheet belongs behind the opening screen, where it is the subject. On a
    screen of data it is interference, so those are opaque. */
