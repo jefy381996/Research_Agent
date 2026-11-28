@@ -2722,6 +2722,17 @@ async function ask(question, opts = {}) {
   turn.scrollIntoView({ behavior: "smooth", block: "start" });
 
   const a = build(question);
+
+  /* Say it now, not after the screen has finished. The trace below reveals
+     one step every 130ms on purpose, which is worth watching and is dead
+     air to listen to: measured on a throttled phone it was most of the
+     943ms between hearing a question and the first word of the answer.
+     The one thing the voice must not do is say an answer that is about to
+     be replaced, so it waits when the library came up short and the
+     question is about to be escalated. */
+  const mayEscalate = !opts.from && worthEscalating(a);
+  if (!mayEscalate) voiceAfterAnswer(spokenAnswer(a));
+
   const steps = traceFor(a);
   const list = turn.querySelector(".tl");
   for (let i = 0; i < steps.length; i++) {
@@ -2765,15 +2776,16 @@ async function ask(question, opts = {}) {
   // The library came up short. Try the researcher's own data next, and only
   // then the agent: it is the one step that costs nothing and is most likely
   // to hold the answer to a question about their own work.
-  if (!opts.from && worthEscalating(a)) {
+  if (mayEscalate) {
     const why = escalationReason(a);
     if (await askMine(question, why)) { $("ask").focus(); return; }
     if (agentCanTry(question)) {
       syncMode("agent");
       return askAgent(question, { from: "instant", why });
     }
+    // Nothing better was found, so the first answer stands after all.
+    voiceAfterAnswer(spokenAnswer(a));
   }
-  voiceAfterAnswer(spokenAnswer(a));
   $("ask").focus();
 }
 
