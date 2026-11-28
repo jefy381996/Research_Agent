@@ -172,6 +172,68 @@ const FAKE_MIC = () => {
     await page.evaluate(() => window.__rec.state) === "inactive");
   check("no page errors", errors.length === 0, errors.slice(0, 2).join(" | "));
 
+  /* ── an answer that ends without saying so ────────────────────────────
+     The supplier sends a WAV header declaring two billion frames, because
+     it does not know the length when it starts sending. A browser can
+     therefore finish the audio and still believe there are twenty-four
+     hours left to play, and the event that puts the ears back never comes -
+     which is what "it only speaks one line" looks like from the outside:
+     the first answer plays, and the conversation never resumes.
+
+     So the end is watched rather than waited for. This needs its own page,
+     because the one above has just been through a service failure and has
+     deliberately given up on the hosted ears. */
+  {
+    const p2 = await ctx.newPage();
+    await p2.route("**/api/voice/status", (r) => r.fulfill({
+      status: 200, contentType: "application/json",
+      body: JSON.stringify({ listen: false, speak: true,
+                             listen_model: "", speak_voice: "troy" }),
+    }));
+    await p2.addInitScript(() => {
+      // An audio element that plays for a moment, stops, and says nothing.
+      window.__audio = null;
+      window.Audio = function () {
+        const el = {
+          currentTime: 0, paused: false, networkState: 2 /* LOADING */,
+          playbackRate: 1, preload: "", src: "", endedFired: false,
+          play() {
+            window.__audio = el;
+            setTimeout(() => { if (el.onplaying) el.onplaying(); }, 10);
+            const t = setInterval(() => { el.currentTime += 0.2; }, 100);
+            setTimeout(() => { clearInterval(t); el.networkState = 1 /* IDLE */; }, 600);
+            return Promise.resolve();
+          },
+          pause() { el.paused = true; },
+          addEventListener() {}, removeEventListener() {},
+        };
+        return el;
+      };
+    });
+    await p2.goto(URL, { waitUntil: "networkidle" });
+    await p2.waitForFunction(() => window.DATA && window.DATA.rows && window.DATA.rows.length > 0,
+      null, { timeout: 90000 });
+    await sleep(500);
+
+    await p2.evaluate(() => Voice.listen({ onHeard: () => {} }));
+    await sleep(300);
+    await p2.evaluate(() => Voice.speak("Across the measurements, the median is 969."));
+    await sleep(500);
+    check("the hosted voice is playing",
+      await p2.evaluate(() => Voice.isSpeaking()) === true,
+      await p2.evaluate(() => Voice.state()));
+    check("and the audio never reports that it finished",
+      await p2.evaluate(() => !!window.__audio && !window.__audio.endedFired));
+    await sleep(2200);
+    check("the conversation comes back anyway",
+      await p2.evaluate(() => Voice.state()) === "listening",
+      await p2.evaluate(() => Voice.state()));
+    check("it was played at a readable pace, not the supplier's crawl",
+      await p2.evaluate(() => window.__audio.playbackRate) > 1.05,
+      String(await p2.evaluate(() => window.__audio.playbackRate)));
+    await p2.close();
+  }
+
   console.log(`\nHosted ears: ${pass}/${total}`);
   if (fails.length) console.log("failed:\n  " + fails.join("\n  "));
   await browser.close();

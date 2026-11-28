@@ -704,36 +704,85 @@
     setTimeout(() => { try { synth.speak(u); } catch (e) { finishedSpeaking(done); } }, 0);
   }
 
+  /* Played as it arrives, not after it has all arrived.
+
+     Fetching the whole file first and then playing it meant waiting for the
+     supplier to finish generating - about two seconds of silence after every
+     question. The audio is a plain address now, so the browser starts
+     playing at the first bytes, which arrive in about seven tenths of a
+     second.
+
+     The end is watched rather than waited for. The supplier sends a WAV
+     header that declares two billion frames, because it does not know the
+     length when it starts sending, so a browser can finish the audio and
+     still believe there are twenty-four hours left to play - and the event
+     that puts the ears back may never come. If the playing position stops
+     advancing and there is nothing left arriving, the answer is over. */
+  const STALL_MS = 700;
+  /* The voice reads at about 110 words a minute, where ordinary speech is
+     nearer 150, so a two sentence answer took sixteen seconds to say. The
+     supplier accepts a speed setting and ignores it, so the browser does it
+     instead - this is a playback rate, not a pitch change, and at this much
+     it is simply someone talking at a normal pace. */
+  const READ_RATE = 1.18;
+
   function speakHosted(said, done) {
     const a = new Audio();
     audioOut = a;
+    let ended = false;
+    let watch = 0;
+
+    function over() {
+      if (ended || audioOut !== a) return;
+      ended = true;
+      clearInterval(watch);
+      finishedSpeaking(done);
+    }
+
     a.preload = "auto";
-    a.onplaying = () => { setState("speaking"); startWatching(); };
-    a.onended = () => { if (audioOut === a) finishedSpeaking(done); };
-    a.onerror = () => {
+    a.playbackRate = READ_RATE;
+    a.onplaying = () => {
+      a.playbackRate = READ_RATE;   // some builds reset it when the source loads
       if (audioOut !== a) return;
-      // The server could not read it; the browser still can.
+      setState("speaking");
+      startWatching();
+      // The position should move; if it stops and nothing more is coming,
+      // the answer has finished whatever the header claims.
+      let seen = -1, stuckFrom = 0;
+      clearInterval(watch);
+      watch = setInterval(() => {
+        if (ended || audioOut !== a) { clearInterval(watch); return; }
+        const t = a.currentTime;
+        if (t > seen + 0.01) { seen = t; stuckFrom = 0; return; }
+        if (a.paused) return;
+        if (!stuckFrom) { stuckFrom = Date.now(); return; }
+        const nothingComing = a.networkState === 1 /* IDLE */
+          || a.networkState === 3 /* NO_SOURCE */;
+        if (nothingComing && Date.now() - stuckFrom > STALL_MS) over();
+      }, 200);
+    };
+    a.onended = over;
+    a.onerror = () => {
+      if (audioOut !== a || ended) return;
+      // The service could not read it; the browser still can.
+      ended = true;
+      clearInterval(watch);
       audioOut = null;
       speakWithSynth(said, done);
     };
-    fetch("/api/voice/speak", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: said }),
-    }).then((r) => {
-      if (!r.ok) throw new Error("speak " + r.status);
-      return r.blob();
-    }).then((b) => {
-      if (audioOut !== a) return;
-      a.src = URL.createObjectURL(b);
-      return a.play();
-    }).catch(() => {
-      if (audioOut !== a) return;
-      audioOut = null;
-      speakWithSynth(said, done);
-    });
-  }
 
+    a.src = "/api/voice/speak?text=" + encodeURIComponent(said);
+    const started = a.play();
+    if (started && started.catch) {
+      started.catch(() => {
+        if (audioOut !== a || ended) return;
+        ended = true;
+        clearInterval(watch);
+        audioOut = null;
+        speakWithSynth(said, done);
+      });
+    }
+  }
   function speak(text, done) {
     const said = sayable(text);
     if (!said) { finishedSpeaking(done); return false; }

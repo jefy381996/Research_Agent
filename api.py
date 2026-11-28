@@ -915,16 +915,16 @@ def voice_transcribe(file: UploadFile = File(...)):
     return {"text": (text or "").strip()}
 
 
-@app.post("/api/voice/speak", summary="Read an answer out loud")
-def voice_speak(payload: dict):
-    """Text in, audio out, through whichever service is configured. Any
-    provider speaking the OpenAI audio/speech shape works; the address, key,
-    model and voice are all settings, so changing supplier is configuration
-    rather than code."""
+def _speak_stream(text):
+    """Audio out, forwarded as it arrives rather than collected first.
+
+    The supplier starts sending about half a second in and finishes at about
+    one and eight tenths. Waiting for the last byte before playing the first
+    one therefore cost a second of silence on every single answer, which is
+    the difference between a conversation and a wait."""
     key = os.environ.get(TTS_KEY_ENV, "").strip()
     if not (TTS_URL and key):
         raise HTTPException(status_code=503, detail="no voice service is configured")
-    text = (payload or {}).get("text", "")
     if not isinstance(text, str) or not text.strip():
         raise HTTPException(status_code=400, detail="nothing to say")
     text = text[:4000]
@@ -935,7 +935,7 @@ def voice_speak(payload: dict):
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
             json={"model": TTS_MODEL, "voice": TTS_VOICE, "input": text,
                   "response_format": TTS_FORMAT},
-            timeout=45)
+            timeout=45, stream=True)
     except Exception as exc:
         raise HTTPException(status_code=502,
                             detail=f"the voice service did not answer: {type(exc).__name__}")
@@ -943,8 +943,32 @@ def voice_speak(payload: dict):
         raise HTTPException(status_code=502,
                             detail=f"voice refused ({resp.status_code}): "
                                    f"{_why_refused(resp)}")
-    return Response(content=resp.content,
-                    media_type=TTS_MEDIA.get(TTS_FORMAT, "audio/mpeg"))
+
+    def chunks():
+        try:
+            for part in resp.iter_content(chunk_size=8192):
+                if part:
+                    yield part
+        finally:
+            resp.close()
+
+    return StreamingResponse(
+        chunks(),
+        media_type=TTS_MEDIA.get(TTS_FORMAT, "audio/mpeg"),
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+
+@app.get("/api/voice/speak", summary="Read an answer out loud")
+def voice_speak_get(text: str = Query("", max_length=4000)):
+    """The same thing as a plain address, so an audio element can play it
+    while it is still arriving. A browser cannot stream from a POST."""
+    return _speak_stream(text)
+
+
+@app.post("/api/voice/speak", summary="Read an answer out loud")
+def voice_speak(payload: dict):
+    """Kept so anything already calling this keeps working."""
+    return _speak_stream((payload or {}).get("text", ""))
 
 
 @app.post("/api/extract/pdf", summary="Read measurements out of a PDF you supply")

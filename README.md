@@ -328,6 +328,21 @@ What the key buys, measured by sending recorded speech through
 It costs about £0.03 per hour of talking, and silence is never sent, so a
 microphone left open in a quiet room bills nothing.
 
+The audio is played as it arrives rather than after it has all arrived. The
+supplier starts sending about half a second in and finishes at about two
+seconds, so waiting for the last byte cost a second and a half of silence
+after every question; the first word now comes at about one second. It is
+played at 1.18x, because the voice reads at about 110 words a minute where
+ordinary speech is nearer 150 — the supplier accepts a speed setting and
+ignores it, so the browser does it.
+
+The end of an answer is watched for rather than waited for. The supplier
+sends a WAV header declaring two billion frames, because it does not know
+the length when it starts sending, so a browser can finish the audio and
+still believe there are twenty-four hours left — and the event that puts the
+ears back never arrives. From the outside that looks like "it only speaks
+one line": the first answer plays and the conversation never resumes.
+
 Two things the supplier requires, and neither is in this repository:
 
 1. A key from <https://console.groq.com>, set as `GROQ_API_KEY`.
