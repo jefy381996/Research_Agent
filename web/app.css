@@ -765,6 +765,16 @@ table.g td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
 @keyframes pal-in{from{opacity:0;transform:translateX(-50%) translateY(-10px) scale(.975)}}
 @keyframes pal-out{to{opacity:0;transform:translateX(-50%) translateY(-6px) scale(.985)}}
 
+/* --- the press ---------------------------------------------------------
+   A ring of charge opening from where the finger landed. Placed and sized
+   by web/ripple.js, which only ever sets left, top, width and height; the
+   movement is entirely here, and it is transform and opacity. */
+.rip{position:absolute;border-radius:50%;pointer-events:none;z-index:0;
+  border:1.5px solid var(--acc);
+  transform:translate(-50%,-50%) scale(0);opacity:.55;
+  animation:rip var(--t-slow) var(--e-out) forwards}
+@keyframes rip{to{transform:translate(-50%,-50%) scale(1);opacity:0}}
+
 /* --- touch targets ----------------------------------------------------- */
 .btn,.lnk,.sitem,.fi,.excard,.src,.cpaper,.crel button,.chips button,
 .exfilters button,.tab,.stat,.calc{
