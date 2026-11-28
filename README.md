@@ -336,6 +336,30 @@ played at 1.18x, because the voice reads at about 110 words a minute where
 ordinary speech is nearer 150 — the supplier accepts a speed setting and
 ignores it, so the browser does it.
 
+### The sound of it still working
+
+An instant answer takes about half a second and needs no sound. The agent
+takes seconds — it calls tools, reads what comes back, checks its own
+citations — and in a voice conversation that is a long flat silence in which
+the only reasonable thought is that the thing has died.
+
+So the wait has a sound, and the sound carries information: a soft tap every
+two and a half seconds while it works, and a brighter one each time a step
+finishes, so progress can be heard without looking.
+
+It is a struck sheet, and that is not decoration. A suspended sheet of
+graphene is a real resonator — a drum one atom thick — so the tap is built
+the way a drum actually sounds. A circular membrane's modes are not
+whole-number multiples of its fundamental, and it is that inharmonic set,
+with the higher modes dying first, that stops a struck sheet sounding like a
+bell or a notification. The test checks those ratios rather than trusting
+them: 1.00, 1.59, 2.14, 2.30, 2.92.
+
+Nothing is heard by anyone who has not already pressed the microphone, it
+begins only after 2.2 seconds so short waits stay silent, and every way out
+of an agent turn silences it — including the `finally`, so no branch added
+later can leave it ticking.
+
 The end of an answer is watched for rather than waited for. The supplier
 sends a WAV header declaring two billion frames, because it does not know
 the length when it starts sending, so a browser can finish the audio and

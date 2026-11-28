@@ -3689,7 +3689,14 @@ async function askAgent(question, opts = {}) {
   const anim = window.ResearchAnim
     ? ResearchAnim.create(turn.querySelector(".research"), {})
     : { step() {}, done() {}, stop() {} };
-  anim.live = true;      // true while the sheet is on screen and growing
+  anim.live = true;      // true while the steps are on screen and growing
+  /* The agent takes seconds, and in a voice conversation that is a silence
+     with nothing in it. It gets a sound instead - but only for somebody who
+     has already asked for audio; nothing makes a noise at a reader who is
+     working in silence. */
+  const waiting = VOICE.on && window.Waiting ? window.Waiting : null;
+  if (waiting) waiting.start();
+  const hush = () => { if (waiting) waiting.stop(); };
   const SAYS = {
     describe_library: "Checking what the library holds",
     search_measurements: "Searching the measurements",
@@ -3764,6 +3771,7 @@ async function askAgent(question, opts = {}) {
         else if (ev.type === "tool_call") {
           step("Calling", ev.name, "");
           anim.step(SAYS[ev.name] || "Working");
+          if (waiting) waiting.step();
           calls += 1;
         }
         else if (ev.type === "tool_result") {
@@ -3773,10 +3781,12 @@ async function askAgent(question, opts = {}) {
         else if (ev.type === "correcting") {
           step("Checking its own citations", "rewriting", "failed first pass");
           anim.step("Checking its own citations");
+          if (waiting) waiting.step();
         }
         else if (ev.type === "answer") {
           anim.live = false;
           anim.done();
+          hush();                      // the wait is over before a word of it
           voiceAfterAnswer(spokenAgentAnswer(ev.text));
           if (stage) { stage.classList.add("settled");
             setTimeout(() => stage.remove(), 700); }
@@ -3807,6 +3817,7 @@ async function askAgent(question, opts = {}) {
         }
         else if (ev.type === "error") {
           anim.live = false;
+          hush();
           anim.stop(); if (stage) stage.remove();
           turn.querySelector(".sdot").classList.remove("live");
           label.textContent = "Could not finish";
@@ -3845,6 +3856,7 @@ async function askAgent(question, opts = {}) {
     }
   } catch (err) {
     anim.live = false;
+    hush();
     anim.stop(); if (stage) stage.remove();
     failed = String(err.message || err);
     if (opts.from) {
@@ -3852,6 +3864,8 @@ async function askAgent(question, opts = {}) {
         <p>${esc(failed)}</p></div>`;
     }
   } finally {
+    // However this turn ended, it is over and it must not still be ticking.
+    hush();
     busy = false; $("send").disabled = false;
     if (failed && !opts.from) {
       // The agent could not answer. Instant always can, and costs nothing.
