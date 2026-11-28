@@ -16,8 +16,10 @@
  * So the work is split by what actually changes. The sheet is painted once,
  * into its own layer, and then moved by the compositor - a transform costs
  * the processor nothing, which is the whole reason to prefer one. Only the
- * carriers are redrawn, and there are seven of them. Per frame this is about
- * thirty operations instead of five thousand.
+ * carriers are redrawn, and there are fourteen of them, each leaving a short
+ * fading trail. Per frame that is a few hundred operations instead of five
+ * thousand, and the layer clears only the boxes those trails occupy rather
+ * than its whole surface.
  *
  * What that trades away is the standing wave: the sheet no longer breathes,
  * because a deforming sheet cannot be painted once. It drifts and it
@@ -34,12 +36,13 @@
     && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const SIDE = 52;          // hexagon edge in world units
+  const TRAIL = 46;         // points of path kept behind each carrier
   const FOV = 900;          // camera focal length
   const DEPTH = 1950;       // camera distance
   const TILT = -0.66;       // how far the sheet lies back
   const YAW = 0.07;
   const BLEED = 0.14;       // extra sheet beyond the viewport, for drifting
-  const CARRIERS = 7;
+  const CARRIERS = 14;
 
   // Two layers so the two jobs stay apart: the sheet is painted once and
   // never touched again, the carriers are cleared and redrawn.
@@ -122,10 +125,17 @@
   }
 
   function spawn() {
-    return { bond: (Math.random() * bonds.length) | 0, u: Math.random(),
+    let bond = (Math.random() * bonds.length) | 0;
+    for (let tries = 0; tries < 12; tries++) {
+      const bd = bonds[bond], a = nodes[bd.a], b = nodes[bd.b];
+      if (a.s && b.s && (a.s + b.s) / 2 > 0.42) break;
+      bond = (Math.random() * bonds.length) | 0;
+    }
+    return { bond: bond, u: Math.random(),
              dir: Math.random() < 0.5 ? 1 : -1,
-             speed: 0.009 + Math.random() * 0.011,
-             life: 0, max: 280 + Math.random() * 340, box: null };
+             speed: 0.026 + Math.random() * 0.030,
+             life: 0, max: 1600 + Math.random() * 1400,
+             pts: [], box: null };
   }
 
   /* ---- camera ------------------------------------------------------
@@ -202,6 +212,13 @@
         p.dir = nb.a === at ? 1 : -1;
         p.u = nb.a === at ? 0 : 1;
       }
+      const bd2 = bonds[p.bond];
+      if (bd2) {
+        const a = nodes[bd2.a], b = nodes[bd2.b];
+        p.pts.push({ x: a.sx + (b.sx - a.sx) * p.u,
+                     y: a.sy + (b.sy - a.sy) * p.u });
+        if (p.pts.length > TRAIL) p.pts.shift();
+      }
       if (p.life > p.max) {
         const box = p.box;
         pulses[i] = spawn();
@@ -236,20 +253,34 @@
       const life = Math.min(1, p.life / 260) * Math.min(1, (p.max - p.life) / 260);
       const alpha = fade * Math.max(0, life) * 0.85;
       if (alpha <= 0.02) continue;
-      const tail = Math.max(0, p.u - p.dir * 0.22);
-      const x0 = a.sx + (b.sx - a.sx) * tail, y0 = a.sy + (b.sy - a.sy) * tail;
-      const x1 = a.sx + (b.sx - a.sx) * p.u, y1 = a.sy + (b.sy - a.sy) * p.u;
-      const width = 0.8 + fade * 1.6;
+      const pts = p.pts;
+      if (pts.length < 2) continue;
+      const width = 0.9 + fade * 1.9;
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      // Oldest segment first, so the head is drawn over its own trail.
+      for (let k = 1; k < pts.length; k++) {
+        const q = pts[k - 1], r = pts[k];
+        const along = k / (pts.length - 1);          // 0 at the tail, 1 at the head
+        fctx.globalAlpha = alpha * along * along;
+        fctx.lineWidth = width * (0.35 + along * 0.65);
+        fctx.beginPath();
+        fctx.moveTo(q.x, q.y);
+        fctx.lineTo(r.x, r.y);
+        fctx.stroke();
+        if (q.x < x0) x0 = q.x; if (q.x > x1) x1 = q.x;
+        if (q.y < y0) y0 = q.y; if (q.y > y1) y1 = q.y;
+      }
+      const head = pts[pts.length - 1];
+      if (head.x < x0) x0 = head.x; if (head.x > x1) x1 = head.x;
+      if (head.y < y0) y0 = head.y; if (head.y > y1) y1 = head.y;
       fctx.globalAlpha = alpha;
-      fctx.lineWidth = width;
+      fctx.fillStyle = glow;
       fctx.beginPath();
-      fctx.moveTo(x0, y0);
-      fctx.lineTo(x1, y1);
-      fctx.stroke();
-      // Remember what to wipe next frame, padded for the round cap.
-      const pad = width + 2;
-      p.box = [Math.min(x0, x1) - pad, Math.min(y0, y1) - pad,
-               Math.abs(x1 - x0) + pad * 2, Math.abs(y1 - y0) + pad * 2];
+      fctx.arc(head.x, head.y, width * 0.75, 0, 6.2832);
+      fctx.fill();
+      // Remember what to wipe next frame, padded for cap and head.
+      const pad = width * 2 + 2;
+      p.box = [x0 - pad, y0 - pad, (x1 - x0) + pad * 2, (y1 - y0) + pad * 2];
     }
     fctx.globalAlpha = 1;
   }

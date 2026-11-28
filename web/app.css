@@ -2,36 +2,39 @@
 
 :root{
   color-scheme:light;
-  /* Obsidian and champagne. Precision-instrument language rather than
-     software-product language: warm neutrals, one metallic accent, colour
-     reserved for state and data. Every pairing below clears WCAG AA. */
-  --bg:#FBF9F4; --bg-2:#F3F0E8;
-  --surf:#FFFFFF; --surf-2:#F7F4EC; --surf-3:#EEEAE0;
-  --ink:#191610; --ink-2:#6B6252; --ink-3:#978D7A;
-  --line:#E7E1D4; --line-2:#D2C9B6;
-  --acc:#8A6A2F; --acc-2:#8A6A2F; --acc-hi:#7A5C28; --acc-ink:#FFFFFF;
-  --acc-soft:rgba(138,106,47,.075); --acc-soft-2:rgba(138,106,47,.17);
-  --acc-glow:rgba(138,106,47,.22);
+  /* Graphite and conduction. Graphene is carbon: the interface is carbon
+     greys on cool paper, and the single accent is the colour of a carrier
+     moving through the sheet. Colour is reserved for state and for data;
+     nothing is tinted for decoration. Every pairing below was measured
+     against WCAG AA, not judged by eye. */
+  --bg:#F7F8FA; --bg-2:#EEF0F4;
+  --surf:#FFFFFF; --surf-2:#F4F6F9; --surf-3:#E8ECF1;
+  --ink:#10141A; --ink-2:#58616E; --ink-3:#848D9B;
+  --line:#E1E5EC; --line-2:#C8CFD9;
+  --acc:#097183; --acc-2:#097183; --acc-hi:#065C6B; --acc-ink:#FFFFFF;
+  --acc-fill:#097183; --acc-fill-ink:#FFFFFF; --acc-fill-hi:#065C6B;
+  --acc-soft:rgba(9,113,131,.07); --acc-soft-2:rgba(9,113,131,.16);
+  --acc-glow:rgba(9,113,131,.20);
   --acc-wash:var(--acc-soft); --acc-wash-2:var(--acc-soft-2);
-  --focus:#8A6A2F;
-  --flag:#A33A2E; --flag-wash:rgba(163,58,46,.07);
-  --good:#4A6B3F;
-  --lattice:rgba(138,106,47,.16);
-  /* The sheet behind the page. It has to be seen to be worth drawing:
-     the first version used 10% alpha and was invisible on every screen.
-     Depth keeps it out of the way, not faintness. */
-  --lattice-line:rgba(138,106,47,.42);
-  --lattice-node:rgba(138,106,47,.5);
-  --lattice-glow:#B08A3E;
+  --focus:#097183;
+  --flag:#B3261E; --flag-wash:rgba(179,38,30,.07);
+  --good:#1F6F4A;
+  --lattice:rgba(88,97,110,.14);
+  /* The sheet behind the page is carbon, and only the carriers are lit.
+     It has to be seen to be worth drawing: depth keeps it out of the way,
+     not faintness. */
+  --lattice-line:rgba(88,97,110,.16);
+  --lattice-node:rgba(88,97,110,.24);
+  --lattice-glow:#11A6C2;
   /* bare triples: the research sheet composes its own alphas */
-  --anim-lit:240,219,178; --anim-dark:92,66,22; --anim-edge:120,92,40;
-  --c1:#2a78d6; --c2:#eb6834; --c3:#1baf7a; --c0:#A79D8A;
-  --b1:#D9C089; --b2:#BE9E55; --b3:#8A6A2F; --b4:#5C451C;
-  --track:#EFEBE1;
+  --anim-lit:206,236,244; --anim-dark:10,24,30; --anim-edge:52,132,152;
+  --c1:#1E6FD9; --c2:#CC5A14; --c3:#0E8F79; --c0:#9AA3B1;
+  --b1:#C3DDE4; --b2:#8CBFCC; --b3:#4894A8; --b4:#0B6274;
+  --track:#E8ECF1;
   --grain:.028;
-  --sh-1:0 1px 2px rgba(25,22,16,.05);
-  --sh-2:0 1px 2px rgba(25,22,16,.05),0 10px 24px -10px rgba(25,22,16,.16);
-  --sh-3:0 2px 10px rgba(25,22,16,.08),0 30px 70px -18px rgba(25,22,16,.28);
+  --sh-1:0 1px 2px rgba(16,20,26,.05);
+  --sh-2:0 1px 2px rgba(16,20,26,.05),0 10px 24px -10px rgba(16,20,26,.16);
+  --sh-3:0 2px 10px rgba(16,20,26,.08),0 30px 70px -18px rgba(16,20,26,.28);
   --sh-acc:0 8px 24px -10px var(--acc-glow);
   --r-s:8px; --r-m:14px; --r-l:22px;
   --display:"Newsreader",Georgia,"Times New Roman",serif;
@@ -47,25 +50,26 @@
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   color-scheme:dark;
-  --bg:#07090D; --bg-2:#0A0D12;
-  --surf:#0E1218; --surf-2:#141922; --surf-3:#1C222C;
-  --ink:#EDEAE3; --ink-2:#A49C8C; --ink-3:#6F695C;
-  --line:#1A202A; --line-2:#2A323E;
-  --acc:#E8C27A; --acc-2:#E8C27A; --acc-hi:#F2D194; --acc-ink:#0B0E13;
-  --acc-soft:rgba(232,194,122,.10); --acc-soft-2:rgba(232,194,122,.21);
-  --acc-glow:rgba(232,194,122,.26);
+  --bg:#0A0C10; --bg-2:#0D1015;
+  --surf:#12161C; --surf-2:#181D25; --surf-3:#212832;
+  --ink:#E8EBF0; --ink-2:#99A2B0; --ink-3:#6A7381;
+  --line:#1D232C; --line-2:#2C343F;
+  --acc:#4FD3EC; --acc-2:#4FD3EC; --acc-hi:#7BE2F5; --acc-ink:#04141A;
+  --acc-fill:#17808F; --acc-fill-ink:#FFFFFF; --acc-fill-hi:#146F7D;
+  --acc-soft:rgba(79,211,236,.10); --acc-soft-2:rgba(79,211,236,.20);
+  --acc-glow:rgba(79,211,236,.24);
   --acc-wash:var(--acc-soft); --acc-wash-2:var(--acc-soft-2);
-  --focus:#E8C27A;
-  --flag:#F28B82; --flag-wash:rgba(242,139,130,.10);
-  --good:#9ED7A8;
-  --lattice:rgba(232,194,122,.13);
-  --lattice-line:rgba(232,194,122,.34);
-  --lattice-node:rgba(232,194,122,.46);
-  --lattice-glow:#E8C27A;
-  --anim-lit:250,224,164; --anim-dark:38,28,10; --anim-edge:226,186,116;
-  --c1:#6FA8F5; --c2:#F0905C; --c3:#5FCFB2; --c0:#5A5648;
-  --b1:#5C451C; --b2:#8A6A2F; --b3:#C2A05C; --b4:#E8C27A;
-  --track:#161B23;
+  --focus:#4FD3EC;
+  --flag:#FF8A80; --flag-wash:rgba(255,138,128,.10);
+  --good:#5FD39B;
+  --lattice:rgba(153,162,176,.12);
+  --lattice-line:rgba(153,162,176,.30);
+  --lattice-node:rgba(153,162,176,.40);
+  --lattice-glow:#4FD3EC;
+  --anim-lit:220,245,252; --anim-dark:8,18,24; --anim-edge:79,211,236;
+  --c1:#6FA8F5; --c2:#F0905C; --c3:#4FC9AE; --c0:#5A6472;
+  --b1:#0B4150; --b2:#12687C; --b3:#2E9FB8; --b4:#6BD8EE;
+  --track:#1A2028;
   --grain:.05;
   --sh-1:0 1px 2px rgba(0,0,0,.6);
   --sh-2:0 1px 2px rgba(0,0,0,.6),0 12px 30px -12px rgba(0,0,0,.85);
@@ -74,25 +78,26 @@
 }}
 :root[data-theme="dark"]{
   color-scheme:dark;
-  --bg:#07090D; --bg-2:#0A0D12;
-  --surf:#0E1218; --surf-2:#141922; --surf-3:#1C222C;
-  --ink:#EDEAE3; --ink-2:#A49C8C; --ink-3:#6F695C;
-  --line:#1A202A; --line-2:#2A323E;
-  --acc:#E8C27A; --acc-2:#E8C27A; --acc-hi:#F2D194; --acc-ink:#0B0E13;
-  --acc-soft:rgba(232,194,122,.10); --acc-soft-2:rgba(232,194,122,.21);
-  --acc-glow:rgba(232,194,122,.26);
+  --bg:#0A0C10; --bg-2:#0D1015;
+  --surf:#12161C; --surf-2:#181D25; --surf-3:#212832;
+  --ink:#E8EBF0; --ink-2:#99A2B0; --ink-3:#6A7381;
+  --line:#1D232C; --line-2:#2C343F;
+  --acc:#4FD3EC; --acc-2:#4FD3EC; --acc-hi:#7BE2F5; --acc-ink:#04141A;
+  --acc-fill:#17808F; --acc-fill-ink:#FFFFFF; --acc-fill-hi:#146F7D;
+  --acc-soft:rgba(79,211,236,.10); --acc-soft-2:rgba(79,211,236,.20);
+  --acc-glow:rgba(79,211,236,.24);
   --acc-wash:var(--acc-soft); --acc-wash-2:var(--acc-soft-2);
-  --focus:#E8C27A;
-  --flag:#F28B82; --flag-wash:rgba(242,139,130,.10);
-  --good:#9ED7A8;
-  --lattice:rgba(232,194,122,.13);
-  --lattice-line:rgba(232,194,122,.34);
-  --lattice-node:rgba(232,194,122,.46);
-  --lattice-glow:#E8C27A;
-  --anim-lit:250,224,164; --anim-dark:38,28,10; --anim-edge:226,186,116;
-  --c1:#6FA8F5; --c2:#F0905C; --c3:#5FCFB2; --c0:#5A5648;
-  --b1:#5C451C; --b2:#8A6A2F; --b3:#C2A05C; --b4:#E8C27A;
-  --track:#161B23;
+  --focus:#4FD3EC;
+  --flag:#FF8A80; --flag-wash:rgba(255,138,128,.10);
+  --good:#5FD39B;
+  --lattice:rgba(153,162,176,.12);
+  --lattice-line:rgba(153,162,176,.30);
+  --lattice-node:rgba(153,162,176,.40);
+  --lattice-glow:#4FD3EC;
+  --anim-lit:220,245,252; --anim-dark:8,18,24; --anim-edge:79,211,236;
+  --c1:#6FA8F5; --c2:#F0905C; --c3:#4FC9AE; --c0:#5A6472;
+  --b1:#0B4150; --b2:#12687C; --b3:#2E9FB8; --b4:#6BD8EE;
+  --track:#1A2028;
   --grain:.05;
   --sh-1:0 1px 2px rgba(0,0,0,.6);
   --sh-2:0 1px 2px rgba(0,0,0,.6),0 12px 30px -12px rgba(0,0,0,.85);
@@ -257,7 +262,7 @@ input[type=number]{font-family:var(--mono)}
 .cite{appearance:none;border:0;cursor:pointer;background:var(--acc-wash);color:var(--acc);
   font:600 10px var(--mono);border-radius:4px;padding:2px 5px;margin:0 1px;vertical-align:1px;
   transition:.15s}
-.cite:hover{background:var(--acc);color:var(--acc-ink)}
+.cite:hover{background:var(--acc-fill);color:var(--acc-fill-ink)}
 
 .srcs{display:grid;gap:10px}
 .src{display:grid;grid-template-columns:26px 1fr;gap:13px;padding:15px 17px;cursor:pointer;
@@ -516,8 +521,8 @@ table.g td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
   border:1px solid var(--line);border-radius:999px;padding:6px 14px;
   font:500 12px var(--sans);color:var(--ink-2);transition:.15s}
 .exfilters button:hover{color:var(--ink);border-color:var(--ink-3)}
-.exfilters button[aria-pressed="true"]{background:var(--acc);border-color:var(--acc);
-  color:var(--acc-ink)}
+.exfilters button[aria-pressed="true"]{background:var(--acc-fill);border-color:var(--acc-fill);
+  color:var(--acc-fill-ink)}
 .exgroup{margin-bottom:32px}
 .exgroup h3{font:600 12px var(--sans);color:var(--ink-3);letter-spacing:.04em;
   margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line)}
@@ -667,7 +672,8 @@ table.g td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
     border:1px solid var(--line);background:var(--surf);color:var(--ink);
     box-shadow:none}
   body.vsheet-open .voicectl .mode[aria-pressed="true"]{
-    background:var(--acc);border-color:var(--acc);color:var(--on-acc,#fff)}
+    background:var(--acc-fill);border-color:var(--acc-fill);
+    color:var(--acc-fill-ink)}
   body.vsheet-open .voicectl .mode[disabled]{opacity:.55}
   body.vsheet-open .voicectl .mode::after{content:attr(data-state);margin-left:auto;
     font:450 12px var(--mono);color:var(--ink-3)}
@@ -869,10 +875,10 @@ table.g thead th{background:color-mix(in srgb,var(--surf) 92%,transparent);
   backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
 
 /* ── the mark ─────────────────────────────────────────────── */
-.mark{background:var(--acc);box-shadow:var(--sh-acc);border-radius:9px;
+.mark{background:var(--acc-fill);box-shadow:var(--sh-acc);border-radius:9px;
   transition:transform var(--t) var(--e-spring),box-shadow var(--t) var(--e-out)}
-.mark::after{background:var(--acc-ink);opacity:.95}
-.mark::before{background:var(--acc-ink);opacity:.55}
+.mark::after{background:var(--acc-fill-ink);opacity:.95}
+.mark::before{background:var(--acc-fill-ink);opacity:.55}
 .sbrand:hover .mark{transform:rotate(-6deg) scale(1.06)}
 
 /* ── navigation ───────────────────────────────────────────── */
@@ -889,16 +895,11 @@ table.g thead th{background:color-mix(in srgb,var(--surf) 92%,transparent);
 /* ── buttons ──────────────────────────────────────────────── */
 .btn{border-radius:9px}
 .btn:hover{border-color:var(--acc);color:var(--acc);background:var(--acc-soft)}
-.btn.pri{background:var(--acc);border-color:var(--acc);color:var(--acc-ink);
+.btn.pri{background:var(--acc-fill);border-color:var(--acc-fill);color:var(--acc-fill-ink);
   box-shadow:var(--sh-acc);position:relative;overflow:hidden;font-weight:600}
-.btn.pri::after{content:"";position:absolute;inset:0;
-  background:linear-gradient(100deg,transparent 35%,
-    color-mix(in srgb,var(--acc-ink) 26%,transparent) 50%,transparent 65%);
-  transform:translateX(-120%);transition:transform 620ms var(--e-out)}
-.btn.pri:hover{background:var(--acc-hi);border-color:var(--acc-hi);
-  color:var(--acc-ink);transform:translateY(-1px);
+.btn.pri:hover{background:var(--acc-fill-hi);border-color:var(--acc);
+  color:var(--acc-fill-ink);transform:translateY(-1px);
   box-shadow:0 10px 26px -8px var(--acc-glow)}
-.btn.pri:hover::after{transform:translateX(120%)}
 .btn.pri:active{transform:translateY(0) scale(.985)}
 
 /* ── links that underline themselves ──────────────────────── */
@@ -945,8 +946,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--acc);
   color:var(--ink)}
 .cite,.src .n{border-radius:6px}
 .fi[aria-pressed="true"]{background:var(--acc-soft);color:var(--acc)}
-.exfilters button[aria-pressed="true"]{background:var(--acc);border-color:var(--acc);
-  color:var(--acc-ink);box-shadow:var(--sh-acc)}
+.exfilters button[aria-pressed="true"]{background:var(--acc-fill);border-color:var(--acc-fill);
+  color:var(--acc-fill-ink);box-shadow:var(--sh-acc)}
 .chips button:hover{border-color:var(--acc);color:var(--acc);
   box-shadow:var(--sh-1);background:var(--acc-soft)}
 .crel button:hover{background:var(--acc-soft)}
@@ -1075,7 +1076,7 @@ body{background:
   transition:background var(--t) var(--e-out),color var(--t) var(--e-out)}
 .mode .ic{width:13px;height:13px;stroke-width:1.8}
 .mode:hover{color:var(--ink-2)}
-.mode[aria-checked="true"]{background:var(--acc);color:var(--acc-ink);
+.mode[aria-checked="true"]{background:var(--acc-fill);color:var(--acc-fill-ink);
   box-shadow:var(--sh-acc)}
 .chint{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .hintline{transition:opacity var(--t) var(--e-out)}
@@ -1316,7 +1317,7 @@ body{background:
 .agentchip{display:inline-flex!important;align-items:center;gap:8px}
 .agentchip .ic{width:13px;height:13px;color:var(--acc);
   stroke-width:1.7;flex:0 0 auto}
-.mode.replayonly[aria-checked="true"]{background:var(--acc);color:var(--acc-ink)}
+.mode.replayonly[aria-checked="true"]{background:var(--acc-fill);color:var(--acc-fill-ink)}
 
 /* ═══════════ the plain-words primer on each data screen ═══════════ */
 .primer{position:relative;margin:0 0 20px;padding:20px 22px 18px;
@@ -1440,8 +1441,8 @@ html.booting .hero .badge i{animation:boot-wipe 900ms var(--e-out) both 400ms}
   animation:rise-in 420ms var(--e-out) both}
 .handoff b{color:var(--ink);font-weight:600}
 .handoff .hio{flex:0 0 auto;display:grid;place-items:center;
-  width:24px;height:24px;border-radius:7px;background:var(--acc);
-  color:var(--acc-ink);margin-top:-1px}
+  width:24px;height:24px;border-radius:7px;background:var(--acc-fill);
+  color:var(--acc-fill-ink);margin-top:-1px}
 .handoff .hio .ic{width:14px;height:14px;stroke-width:1.9}
 .turn.continued{margin-top:-6px}
 @media(max-width:640px){
@@ -1517,7 +1518,7 @@ html.booting .hero .badge i{animation:boot-wipe 900ms var(--e-out) both 400ms}
 .btn.icon.mic{flex:0 0 auto;width:40px;height:40px;border-radius:50%;
   display:grid;place-items:center;padding:0}
 .btn.icon.mic .ic{width:19px;height:19px;stroke-width:1.7}
-.btn.icon.mic[aria-pressed="true"]{background:var(--acc);color:var(--acc-ink);
+.btn.icon.mic[aria-pressed="true"]{background:var(--acc-fill);color:var(--acc-fill-ink);
   border-color:var(--acc);box-shadow:var(--sh-acc)}
 .btn.icon.mic[aria-pressed="true"] .ic{animation:mic-live 1.6s var(--e-io) infinite}
 @keyframes mic-live{0%,100%{opacity:1}50%{opacity:.45}}
