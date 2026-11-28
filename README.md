@@ -305,18 +305,19 @@ The agent adds five more files, used only when **Agent** mode is on:
 |---|---|---|
 ## Speaking and listening
 
-Three ways, chosen in the interface, none of them required.
+One way, and nobody is asked to choose it.
 
-| | Where it runs | Needs | Trade |
-|---|---|---|---|
-| **Browser** | the visitor's browser | nothing | instant, flat voice, no recogniser in Firefox, and in Chrome the audio goes to Google |
-| **On-device** | the visitor's machine | a 39&ndash;156 MB download, once | nothing leaves the machine; needs a capable machine, and the better voice needs a real graphics card |
-| **Hosted** | this service | `GROQ_API_KEY` | most accurate and no download; the audio is sent to the service |
+Listening is the browser's own recogniser: free, instant, nothing downloaded.
+Speaking is the browser's own voice, unless this service has `GROQ_API_KEY`
+configured, in which case a better one is simply used. `/api/voice/status`
+says which, and the page never sees the credential, because a page holding
+one would hand it to everyone who opened the page.
 
-The hosted half is reached through this app rather than from the page,
-because a page holding the credential would hand it to everyone who opened
-the page. `/api/voice/status` reports which halves are configured, and the
-interface only offers what is actually there.
+There used to be three engines offered side by side in the composer, one of
+them a 39&ndash;156 MB model downloaded into the browser. It was removed. A
+choice between engines is not a choice anybody can make well, the download
+was the single heaviest thing the application did on a cheap phone, and two
+of the three were worse than the one that was free.
 
 The reading voice is optional and provider-agnostic. Any service speaking the
 OpenAI `audio/speech` shape works:
@@ -368,17 +369,25 @@ no key and no network, and returns the same answer every time.
 
 ## Asking out loud
 
-There is a microphone beside the Ask button and a hands-free switch beside it.
-Speak a question, watch the transcript appear, hear the answer, and be listened
-to again. All of it runs in the browser through the Web Speech API, so it needs
-no key, no quota and no per-minute charge — which matters, because the engine
-it is wired to needs no model either. Instant answers by rule in under a
-second, so the whole loop is free and unlimited.
+One button, beside the Ask button. Press it and it listens; speak, and the
+answer is read back; it listens again. Press it a second time and it stops.
+There is nothing else to set.
 
-What a paid realtime model would add is interruption mid-sentence. That is
-approximated rather than bought: the recogniser keeps running while the answer
-is spoken, and the moment you start talking the speech is cut off and your
-words are taken instead.
+**It cannot hear itself.** The recogniser is not running while an answer is
+being spoken, so an echo is not something that has to be detected — it cannot
+be produced. Two earlier versions tried to detect it: the first treated its own
+sentence as an interruption and asked itself its own question, and the second
+compared what came back against what was being said, which let through
+anything the recogniser had mangled. The rule is now that the ears are shut,
+and `tests/voice_live.js` proves it by driving a whole turn and finding
+nothing attached to listen with.
+
+**Interrupting still works**, by loudness rather than by words. The browser's
+echo canceller removes most of what the speakers are doing; what is left is
+measured while we speak and treated as the floor; anything well above that
+floor for a quarter of a second is a person, and the answer stops. If the
+microphone cannot be opened for this, interrupting is lost and nothing else
+is — which is the right way round.
 
 Three parts do the work that is not audio, and they are the ones with tests:
 

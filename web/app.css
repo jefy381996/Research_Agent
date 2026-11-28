@@ -670,50 +670,11 @@ table.g td.num{text-align:right;font-family:var(--mono);font-size:12.5px}
   .composer .btn.pri{min-height:48px}
   #mic{width:48px;height:48px}
 
-  /* One way in to voice. Two buttons sitting side by side, both labelled with
-     the same waveform, were read as two halves of one setting. */
-  #voice-open{display:inline-flex}
-  .voicectl{display:none}
-  body.vsheet-open .voicectl{display:flex;flex-direction:column;gap:8px;width:100%}
-  /* In the sheet these are settings, so they have to read as on or off. The
-     filled treatment belongs to the one that is on; both were filled before,
-     which said both were running when neither was. */
-  body.vsheet-open .voicectl .mode{width:100%;justify-content:flex-start;height:48px;
-    gap:12px;padding:0 14px;border-radius:12px;font-size:14.5px;
-    border:1px solid var(--line);background:var(--surf);color:var(--ink);
-    box-shadow:none}
-  body.vsheet-open .voicectl .mode[aria-pressed="true"]{
-    background:var(--acc-fill);border-color:var(--acc-fill);
-    color:var(--acc-fill-ink)}
-  body.vsheet-open .voicectl .mode[disabled]{opacity:.55}
-  body.vsheet-open .voicectl .mode::after{content:attr(data-state);margin-left:auto;
-    font:450 12px var(--mono);color:var(--ink-3)}
-  body.vsheet-open .voicectl .mode[aria-pressed="true"]::after{color:inherit;opacity:.85}
 }
 
-@media(min-width:781px){
-  #voice-open{display:none}
-  .voicectl{display:contents}
-}
-
-/* The sheet the voice settings live in on a phone. */
-.vsheet{position:fixed;inset:0;z-index:90;display:grid;align-items:end}
-.vsheet::before{content:"";position:absolute;inset:0;background:rgba(10,10,12,.44);
-  animation:fade-in var(--t) var(--e-out) both}
-.vsheet-in{position:relative;background:var(--surf);
-  border-radius:18px 18px 0 0;border-top:1px solid var(--line);
-  padding:10px 16px calc(16px + env(safe-area-inset-bottom,0px));
-  animation:sheet-up var(--t) var(--e-out) both;max-height:76vh;overflow-y:auto}
 @keyframes sheet-up{from{transform:translateY(100%)}}
 @keyframes fade-in{from{opacity:0}}
-.vgrab{width:38px;height:4px;border-radius:999px;background:var(--line);margin:0 auto 12px}
-.vsheet-in h3{margin:0 0 4px;font:600 17px var(--sans)}
-.vsheet-note{margin:0 0 14px;font:450 13px/1.5 var(--sans);color:var(--ink-3)}
-.vsheet-slot{display:block;margin-bottom:14px}
-#vsheet-close{justify-content:center;height:48px}
-@media(min-width:781px){.vsheet{display:none}}
 @media(prefers-reduced-motion:reduce){
-  .vsheet-in,.vsheet::before{animation:none}
   .side{transition:none}
 }
 
@@ -1561,13 +1522,20 @@ html.booting .hero .badge i{transform-origin:left center;
 }
 
 /* ═══════════ asking out loud ═══════════ */
-.btn.icon.mic{flex:0 0 auto;width:40px;height:40px;border-radius:50%;
-  display:grid;place-items:center;padding:0}
-.btn.icon.mic .ic{width:19px;height:19px;stroke-width:1.7}
+/* One button, and it has to say which of two states it is in from across a
+   room: pressed, filled, and ringed. The icon used to pulse its own opacity,
+   which dimmed the only thing on the button worth looking at. */
+.btn.icon.mic{position:relative;flex:0 0 auto;width:40px;height:40px;
+  border-radius:50%;display:grid;place-items:center;padding:0}
+.btn.icon.mic .ic{width:19px;height:19px;stroke-width:1.7;position:relative}
 .btn.icon.mic[aria-pressed="true"]{background:var(--acc-fill);color:var(--acc-fill-ink);
   border-color:var(--acc);box-shadow:var(--sh-acc)}
-.btn.icon.mic[aria-pressed="true"] .ic{animation:mic-live 1.6s var(--e-io) infinite}
-@keyframes mic-live{0%,100%{opacity:1}50%{opacity:.45}}
+.miclive{position:absolute;inset:0;border-radius:50%;pointer-events:none;
+  border:1.5px solid var(--acc);opacity:0}
+.btn.icon.mic[aria-pressed="true"] .miclive{
+  animation:mic-live 1.8s var(--e-io) infinite}
+@keyframes mic-live{from{transform:scale(1);opacity:.6}
+  to{transform:scale(1.95);opacity:0}}
 .btn.icon.mic:disabled{opacity:.4;cursor:not-allowed}
 
 .mode.talk .ic{width:14px;height:14px}
@@ -1588,7 +1556,7 @@ html.booting .hero .badge i{transform-origin:left center;
   .btn.icon.mic{width:36px;height:36px}
 }
 @media(prefers-reduced-motion:reduce){
-  .vdot,.btn.icon.mic[aria-pressed="true"] .ic{animation:none}
+  .vdot,.btn.icon.mic[aria-pressed="true"] .miclive{animation:none}
 }
 
 /* an answer that came from the researcher's own data, not the library */
@@ -1614,14 +1582,6 @@ html.booting .hero .badge i{transform-origin:left center;
   .minestrip{padding:14px}
   .minestrip .mcards{grid-template-columns:1fr}
 }
-
-/* The download bar for the local speech engine. A hundred and sixty megabytes
-   with no sign of progress reads as a hang, so it always has a bar. */
-.vprog{display:inline-block;width:94px;height:4px;border-radius:999px;
-  background:var(--line);overflow:hidden;vertical-align:middle;margin:0 2px}
-.vprog i{display:block;height:100%;width:0;border-radius:999px;background:var(--accent);
-  transition:width var(--t) var(--e-out)}
-.mode.talk[aria-pressed="true"] #lvlabel{font-weight:600}
 
 /* ───────────────── what is new ─────────────────
    A list of recent work, each entry carrying the number it reported and the

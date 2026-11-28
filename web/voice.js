@@ -245,65 +245,11 @@
 
   /* ── telling our own voice from yours ─────────────────── */
 
-  /* The recogniser hears the speakers, not just you. On a laptop without
-     headphones the synthesised answer goes straight back into the microphone,
-     and the first version treated that as an interruption: the answer cut
-     itself off after a few words, and its own sentence came back as the next
-     question. A realtime model is sold partly on solving this.
-
-     It is solvable here for nothing, because we know exactly what we are
-     saying. If most of what came back is words we are in the middle of
-     speaking, it is an echo. If it is not, it is a person, and they get to
-     interrupt. */
-
+  /* Splitting on words is shared by the follow-up test below. */
   function words(text) {
     return String(text == null ? "" : text).toLowerCase()
       .replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim()
       .split(" ").filter(Boolean);
-  }
-
-  const ECHO_SHARE = 0.6;     // this much of it being a run of ours = echo
-  const ECHO_TAIL_MS = 800;   // the speakers keep arriving after we stop
-
-  /* Counting shared words is not enough, and getting this wrong is worse than
-     having no filter at all. An answer about rGO is being read out, the person
-     says "what about rGO", and almost every word they said is a word in the
-     sentence - so the follow-up is thrown away as an echo, silently, which is
-     exactly the moment a follow-up is most natural.
-
-     What separates them is order, not vocabulary. An echo is a run of what we
-     are saying, in sequence. A question reuses the same words in an order we
-     are not saying them in. So the test is the longest consecutive run of what
-     came back that appears consecutively in what we are speaking. */
-  function longestRun(heard, spoken) {
-    let best = 0;
-    for (let i = 0; i < spoken.length; i++) {
-      for (let j = 0; j < heard.length; j++) {
-        let k = 0;
-        while (i + k < spoken.length && j + k < heard.length
-               && spoken[i + k] === heard[j + k]) k += 1;
-        if (k > best) best = k;
-      }
-    }
-    return best;
-  }
-
-  /* Three words are not many, and in a long answer two of them will line up
-     by chance: "and for rGO" collides with "...the median for rGO is...", and
-     a ratio alone throws the follow-up away. A short utterance therefore has
-     to match in full to count as ours, while a longer one only has to be
-     mostly a run - by then chance has stopped being a plausible explanation. */
-  const ECHO_MIN_WORDS = 4;
-
-  function isEcho(heard, spoken) {
-    const h = words(heard);
-    const s = words(spoken);
-    // One word is not enough to tell whose it is; the caller drops those
-    // while speaking anyway.
-    if (h.length < 2 || !s.length) return false;
-    const run = longestRun(h, s);
-    if (run / h.length < ECHO_SHARE) return false;
-    return h.length >= ECHO_MIN_WORDS || run === h.length;
   }
 
   /* "Stop" has to work even while we are saying the word "stop". */
@@ -334,308 +280,366 @@
     return null;
   }
 
-  /* ── the browser's own ears and voice ─────────────────── */
+  /* ── one conversation ─────────────────────────────────────────────────
+     There used to be three sets of ears to choose between - the browser's,
+     a hosted service, and a 39MB model downloaded into the page - and the
+     echo was handled by comparing what came back against what we were in
+     the middle of saying. That comparison is why it heard itself: a
+     recogniser that mishears half a sentence produces words that match
+     nothing, so the echo got through and the app answered its own question.
 
-  const Rec = global.SpeechRecognition || global.webkitSpeechRecognition;
-  const synth = global.speechSynthesis;
+     There is now one path and one rule. While the answer is being spoken
+     the recogniser is not running at all, so an echo is not something that
+     has to be detected - it cannot be produced. Interrupting still works,
+     because the microphone is watched for loudness rather than for words:
+     the browser's echo canceller takes out most of what the speakers are
+     doing, the rest is measured while we speak and treated as the floor,
+     and anything well above that floor for a quarter of a second is a
+     person. If that watcher cannot be set up, interrupting is lost and
+     nothing else is - which is the right way round. */
+
+  /* Looked up when they are used rather than when this file loads. A module
+     that grabs the recogniser at load time cannot be driven by a test, and a
+     conversation that cannot be driven by a test is one whose echo behaviour
+     nobody can check without a microphone and a room. */
+  const recCtor = () => global.SpeechRecognition || global.webkitSpeechRecognition;
+  const getSynth = () => global.speechSynthesis;
 
   function supported() {
+    const listen = !!recCtor();
     return {
-      listen: !!Rec,
-      speak: !!synth,
-      // Firefox has the synthesiser but not the recogniser.
-      why: !Rec ? "This browser cannot listen. Chrome, Edge and Safari can."
-                : null,
+      listen: listen,
+      speak: !!getSynth(),
+      why: listen ? ""
+        : "This browser cannot listen. Chrome, Edge and Safari can; "
+          + "Firefox cannot. You can still type.",
     };
   }
 
-  let rec = null, listening = false, speaking = false;
-  let onPartial = null, onHeard = null, onState = null;
-  let spokenNow = "", echoUntil = 0;
+  /* state is one of: off, listening, thinking, speaking */
+  let state = "off";
+  let want = false;              // the toggle: does the person want a conversation
+  let rec = null;
+  let onState = null, onPartial = null, onHeard = null;
+  let utter = null, audioOut = null;
+  let hosted = null;             // {speak:true} once the server says it can read
+  let restarts = 0, restartTimer = 0;
 
-  /* The recogniser does not stay on. Chrome ends it after about a minute of
-     quiet, and on any network hiccup, and the first version simply let that
-     happen: hands-free died while the bar still read "Listening...". It is
-     restarted here for as long as the caller wants to be listening, with a
-     backoff so a microphone that cannot start does not spin. */
-  let wantListening = false, rapid = 0, restartTimer = null, startedAt = 0;
+  const MAX_RAPID = 6;           // a recogniser that will not stay up
   const FATAL = new Set(["not-allowed", "service-not-allowed", "audio-capture"]);
-  const MAX_RAPID = 6;
 
-  function announce(state, detail) {
-    if (onState) onState(state, detail);
+  function announce(s, detail) {
+    if (onState) { try { onState(s, detail); } catch (e) { /* the page's problem */ } }
   }
 
-  function build(opts) {
-    const r = new Rec();
-    r.lang = opts.lang || "en-GB";
+  function setState(s, detail) {
+    if (state === s && !detail) return;
+    state = s;
+    announce(s, detail);
+  }
+
+  /* ── listening ──────────────────────────────────────────────────────── */
+
+  function beginListening() {
+    const Rec = recCtor();
+    if (!want || !Rec) return false;
+    if (rec) return true;                       // already up
+    let r;
+    try { r = new Rec(); } catch (e) { announce("error", "could-not-start"); return false; }
     r.continuous = true;
     r.interimResults = true;
+    r.lang = (global.navigator && navigator.language) || "en-GB";
     r.maxAlternatives = 1;
 
-    r.onstart = () => {
-      listening = true;
-      startedAt = Date.now();
-      announce("listening");
+    r.onresult = (ev) => {
+      let finalText = "", interim = "";
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const res = ev.results[i];
+        if (res.isFinal) finalText += res[0].transcript;
+        else interim += res[0].transcript;
+      }
+      if (interim && state === "listening") {
+        setState("hearing");
+        if (onPartial) onPartial(interim.trim());
+      }
+      const text = finalText.trim();
+      if (!text) return;
+      restarts = 0;
+      // The ears close before anything is said back, and they stay closed
+      // until the speaking has finished. This is the whole echo fix.
+      endListening();
+      setState("thinking");
+      if (onHeard) onHeard(text);
     };
 
-    r.onerror = (e) => {
-      const why = e && e.error ? String(e.error) : "unknown";
-      listening = false;
+    r.onerror = (ev) => {
+      const why = (ev && ev.error) || "unknown";
       if (FATAL.has(why)) {
-        wantListening = false;
+        want = false;
+        endListening();
+        setState("off", why);
         announce("error", why);
         return;
       }
-      // no-speech and network are ordinary. onend follows and restarts.
-      if (why !== "no-speech") announce("error", why);
+      if (why !== "no-speech" && why !== "aborted") announce("error", why);
     };
 
     r.onend = () => {
-      listening = false;
-      if (!wantListening) { announce("idle"); return; }
-      // A session that ran for a while is a normal timeout; one that ended
-      // immediately is a failure, and repeated failures need backing off.
-      if (Date.now() - startedAt > 5000) rapid = 0; else rapid += 1;
-      if (rapid > MAX_RAPID) {
-        wantListening = false;
+      rec = null;
+      // The browser ends recognition on its own after about a minute of
+      // quiet, and on any network hiccup. If a conversation is still wanted
+      // and we are not mid-answer, put it back up.
+      if (!want || state === "thinking" || state === "speaking") return;
+      restarts += 1;
+      if (restarts > MAX_RAPID) {
+        want = false;
+        setState("off");
         announce("error", "could-not-restart");
         return;
       }
-      const wait = rapid ? Math.min(250 * Math.pow(2, rapid - 1), 8000) : 120;
       clearTimeout(restartTimer);
       restartTimer = setTimeout(() => {
-        if (!wantListening) return;
-        try { r.start(); }
-        catch (err) {
-          // Already running, or refused. Either way onend will come again.
-          if (!/InvalidStateError/.test(String(err))) announce("error", String(err.message || err));
+        if (want && !rec && state !== "speaking" && state !== "thinking") {
+          if (beginListening()) setState("listening");
         }
-      }, wait);
+      }, Math.min(1200, 120 * restarts));
     };
 
-    r.onresult = (event) => {
-      let interim = "", final = "";
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const chunk = event.results[i][0].transcript;
-        if (event.results[i].isFinal) final += chunk; else interim += chunk;
-      }
-      const now = (final || interim).trim();
-
-      if (now && (speaking || Date.now() < echoUntil)) {
-        if (isStopPhrase(now)) {
-          shutUp();                       // and fall through, so it is obeyed
-        } else if (isEcho(now, spokenNow) || words(now).length < 2) {
-          return;                         // our own voice, or too little to judge
-        } else {
-          shutUp();                       // a person, interrupting
-        }
-      }
-
-      if (interim && onPartial) onPartial(fixTerms(interim));
-      if (final.trim() && onHeard) onHeard(fixTerms(final));
-    };
-    return r;
-  }
-
-  function listen(opts) {
-    opts = opts || {};
-    if (local.ears) return localListen(opts);
-    if (!Rec) { announce("unsupported"); return false; }
-    onPartial = opts.onPartial || null;
-    onHeard = opts.onHeard || null;
-    onState = opts.onState || onState;
-
-    // Already listening and only the callbacks changed: keep the session.
-    // Tearing a recogniser down and building a new one for every turn adds
-    // latency to each answer and is what made the conversation feel stepped.
-    if (rec && listening) { wantListening = true; return true; }
-
-    stopListening();
-    wantListening = true;
-    rapid = 0;
-    rec = build(opts);
-    try { rec.start(); return true; }
-    catch (e) {
-      announce("error", String(e.message || e));
+    try { r.start(); } catch (e) {
+      // Chrome throws if start() lands while the previous one is still
+      // winding down. onend will come along and retry.
       return false;
     }
-  }
-
-  function stopListening() {
-    wantListening = false;
-    if (global.LocalSpeech && global.LocalSpeech.isMicOpen()) global.LocalSpeech.closeMic();
-    clearTimeout(restartTimer);
-    restartTimer = null;
-    rapid = 0;
-    if (rec) {
-      try { rec.onend = null; rec.stop(); } catch (e) {}
-      try { rec.abort(); } catch (e) {}
-    }
-    rec = null; listening = false;
-  }
-
-  function pickVoice() {
-    if (!synth) return null;
-    const voices = synth.getVoices() || [];
-    if (!voices.length) return null;
-    const want = ["Google UK English Female", "Daniel", "Samantha",
-                  "Google US English", "Microsoft Sonia"];
-    for (const name of want) {
-      const hit = voices.find((v) => v.name === name);
-      if (hit) return hit;
-    }
-    return voices.find((v) => /^en[-_]GB/i.test(v.lang))
-        || voices.find((v) => /^en/i.test(v.lang))
-        || voices[0];
-  }
-
-  function speak(text, done) {
-    if (local.voice && global.LocalSpeech && global.LocalSpeech.ready().voice)
-      return localSpeak(text, done);
-    if (!synth) { if (done) done(); return false; }
-    const said = sayable(text);
-    if (!said) { if (done) done(); return false; }
-    shutUp();
-    const utter = new SpeechSynthesisUtterance(said);
-    const voice = pickVoice();
-    if (voice) { utter.voice = voice; utter.lang = voice.lang; }
-    utter.rate = 1.02;
-    utter.pitch = 1;
-    // What we are saying, so the recogniser can recognise it coming back.
-    spokenNow = said;
-    const settle = () => {
-      speaking = false;
-      echoUntil = Date.now() + ECHO_TAIL_MS;
-      announce("spoke");
-      if (done) done();
-    };
-    utter.onstart = () => { speaking = true; announce("speaking"); };
-    utter.onend = settle;
-    utter.onerror = settle;
-    try { synth.speak(utter); return true; }
-    catch (e) { speaking = false; if (done) done(); return false; }
-  }
-
-  function shutUp() {
-    if (global.LocalSpeech && global.LocalSpeech.isSpeaking()) {
-      global.LocalSpeech.stop();
-      speaking = false;
-      echoUntil = Date.now() + ECHO_TAIL_MS;
-    }
-    if (!synth) return;
-    try { synth.cancel(); } catch (e) {}
-    speaking = false;
-    echoUntil = Date.now() + ECHO_TAIL_MS;
-  }
-
-  /* ── the local engine, when it is loaded ──────────────── */
-
-  /* Whisper and Kokoro are a different shape from the browser's recogniser:
-     one hands over a finished utterance rather than a stream of words, and
-     the other returns audio rather than speaking by itself. The difference is
-     absorbed here, so the rest of the app goes on calling listen and speak
-     without knowing which engine answered. Everything either engine produces
-     still goes through fixTerms, because a recogniser trained on ordinary
-     English mishears a materials lab whoever wrote it - the round-trip test
-     has Whisper turning "graphene" into "graphing". */
-  let local = { ears: false, voice: false, via: "device" }, localFails = 0;
-
-  function useLocal(which) {
-    local = {
-      ears: !!(which && which.ears),
-      voice: !!(which && which.voice),
-      via: (which && which.via) || "device",
-    };
-    return local;
-  }
-
-  function usingLocal() {
-    return { ears: local.ears, voice: local.voice, via: local.via };
-  }
-
-  function localListen(opts) {
-    const LS = global.LocalSpeech;
-    if (!LS) return false;
-    onPartial = opts.onPartial || null;
-    onHeard = opts.onHeard || null;
-    onState = opts.onState || onState;
-    wantListening = true;
-    LS.openMic({
-      onSpeech: (ev) => {
-        if (ev.type === "start") {
-          // Somebody started talking. The browser's echo cancellation means
-          // this is them and not us, so the answer stops.
-          if (LS.isSpeaking()) LS.stop();
-          if (speaking) shutUp();
-          announce("hearing");
-          return;
-        }
-        if (ev.type !== "utterance") return;
-        announce("thinking");
-        const hear = local.via === "service" ? LS.cloudTranscribe : LS.transcribe;
-        hear(ev.audio).then((text) => {
-          localFails = 0;
-          const clean = fixTerms(String(text || "").trim());
-          // Whisper fills silence with its own punctuation and stock phrases.
-          if (!clean || /^[\s.,!?-]*$/.test(clean) || /^\(.*\)$/.test(clean)) {
-            announce("listening");
-            return;
-          }
-          if (onHeard) onHeard(clean);
-        }).catch((e) => {
-          // Twice in a row is not bad luck. Rather than leave somebody
-          // talking to a listener that cannot answer, hand the microphone
-          // back to the browser's own engine and say so.
-          localFails += 1;
-          if (localFails >= 2) {
-            localFails = 0;
-            const opts2 = { onPartial, onHeard, onState };
-            LS.closeMic();
-            local = { ears: false, voice: false };
-            announce("error", "local-gave-up");
-            listen(opts2);
-          } else {
-            announce("error", String(e && e.message || e));
-            announce("listening");
-          }
-        });
-      },
-    }).then(() => announce("listening"))
-      .catch((e) => {
-        wantListening = false;
-        const why = /denied|not allowed|NotAllowed/i.test(String(e)) ? "not-allowed" : String(e && e.message || e);
-        announce("error", why);
-      });
+    rec = r;
     return true;
   }
 
-  function localSpeak(text, done) {
-    const LS = global.LocalSpeech;
+  function endListening() {
+    clearTimeout(restartTimer);
+    const r = rec;
+    rec = null;
+    if (!r) return;
+    r.onresult = r.onerror = r.onend = null;
+    try { r.abort(); } catch (e) { try { r.stop(); } catch (e2) { /* gone */ } }
+  }
+
+  /* ── the watcher that lets a person interrupt ───────────────────────── */
+
+  const CALIBRATE_MS = 700;   // our own leakage, measured while we speak
+  const MARGIN = 2.4;         // how far above that floor counts as a person
+  const ABS_MIN = 0.014;      // and never trigger on a quiet room
+  const SUSTAIN_MS = 260;     // held this long, so a door closing is not speech
+  const TICK_MS = 50;
+
+  let micStream = null, actx = null, analyser = null, buf = null;
+  let watchTimer = 0, floor = 0, floorUntil = 0, loudSince = 0;
+  let bargeIn = false;        // only true once it has actually been set up
+
+  function openMic() {
+    if (micStream) return Promise.resolve(true);
+    const md = global.navigator && navigator.mediaDevices;
+    if (!md || !md.getUserMedia) return Promise.resolve(false);
+    return md.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    }).then((s) => {
+      micStream = s;
+      const AC = global.AudioContext || global.webkitAudioContext;
+      if (!AC) return false;
+      actx = new AC();
+      analyser = actx.createAnalyser();
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.5;
+      actx.createMediaStreamSource(s).connect(analyser);
+      buf = new Uint8Array(analyser.fftSize);
+      bargeIn = true;
+      return true;
+    }).catch(() => false);
+  }
+
+  function level() {
+    if (!analyser || !buf) return 0;
+    analyser.getByteTimeDomainData(buf);
+    let sum = 0;
+    for (let i = 0; i < buf.length; i++) {
+      const v = (buf[i] - 128) / 128;
+      sum += v * v;
+    }
+    return Math.sqrt(sum / buf.length);
+  }
+
+  function startWatching() {
+    if (!bargeIn) return;
+    if (actx && actx.state === "suspended") actx.resume().catch(() => {});
+    floor = 0;
+    floorUntil = Date.now() + CALIBRATE_MS;
+    loudSince = 0;
+    clearInterval(watchTimer);
+    watchTimer = setInterval(() => {
+      if (state !== "speaking") return;
+      const now = Date.now();
+      const rms = level();
+      if (now < floorUntil) { if (rms > floor) floor = rms; return; }
+      const over = rms > Math.max(floor * MARGIN, ABS_MIN);
+      if (!over) { loudSince = 0; return; }
+      if (!loudSince) { loudSince = now; return; }
+      if (now - loudSince >= SUSTAIN_MS) {
+        loudSince = 0;
+        // Somebody is talking over the answer. Stop talking and listen.
+        shutUp();
+        if (want && beginListening()) setState("listening", "interrupted");
+      }
+    }, TICK_MS);
+  }
+
+  function stopWatching() {
+    clearInterval(watchTimer);
+    watchTimer = 0;
+    loudSince = 0;
+  }
+
+  function closeMic() {
+    stopWatching();
+    bargeIn = false;
+    if (micStream) {
+      for (const t of micStream.getTracks()) { try { t.stop(); } catch (e) {} }
+      micStream = null;
+    }
+    if (actx) { try { actx.close(); } catch (e) {} actx = null; }
+    analyser = null; buf = null;
+  }
+
+  /* ── speaking ───────────────────────────────────────────────────────── */
+
+  function finishedSpeaking(done) {
+    stopWatching();
+    utter = null; audioOut = null;
+    if (want) {
+      if (beginListening()) setState("listening");
+      else setState("listening");
+    } else {
+      setState("off");
+    }
+    if (done) { try { done(); } catch (e) {} }
+  }
+
+  function speakWithSynth(said, done) {
+    const synth = getSynth();
+    if (!synth) { finishedSpeaking(done); return; }
+    try { synth.cancel(); } catch (e) {}
+    const u = new SpeechSynthesisUtterance(said);
+    u.rate = 1.02;
+    u.lang = (global.navigator && navigator.language) || "en-GB";
+    u.onstart = () => { setState("speaking"); startWatching(); };
+    u.onend = () => { if (utter === u) finishedSpeaking(done); };
+    u.onerror = () => { if (utter === u) finishedSpeaking(done); };
+    utter = u;
+    // Some builds drop an utterance queued in the same tick as a cancel.
+    setTimeout(() => { try { synth.speak(u); } catch (e) { finishedSpeaking(done); } }, 0);
+  }
+
+  function speakHosted(said, done) {
+    const a = new Audio();
+    audioOut = a;
+    a.preload = "auto";
+    a.onplaying = () => { setState("speaking"); startWatching(); };
+    a.onended = () => { if (audioOut === a) finishedSpeaking(done); };
+    a.onerror = () => {
+      if (audioOut !== a) return;
+      // The server could not read it; the browser still can.
+      audioOut = null;
+      speakWithSynth(said, done);
+    };
+    fetch("/api/voice/speak", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: said }),
+    }).then((r) => {
+      if (!r.ok) throw new Error("speak " + r.status);
+      return r.blob();
+    }).then((b) => {
+      if (audioOut !== a) return;
+      a.src = URL.createObjectURL(b);
+      return a.play();
+    }).catch(() => {
+      if (audioOut !== a) return;
+      audioOut = null;
+      speakWithSynth(said, done);
+    });
+  }
+
+  function speak(text, done) {
     const said = sayable(text);
-    if (!LS || !said) { if (done) done(); return false; }
-    spokenNow = said;
-    const read = local.via === "service" ? LS.cloudSpeak : LS.speak;
-    read(said, {
-      onStart: () => { speaking = true; announce("speaking"); },
-      onEnd: () => {
-        speaking = false;
-        echoUntil = Date.now() + ECHO_TAIL_MS;
-        announce("spoke");
-        if (done) done();
-      },
+    if (!said) { finishedSpeaking(done); return false; }
+    endListening();                  // belt and braces: never speak with ears open
+    setState("speaking");
+    const useHosted = hosted && hosted.speak;
+    // The microphone is opened before the first word so interrupting works
+    // from the first answer, not the second.
+    openMic().then(() => {
+      if (useHosted) speakHosted(said, done);
+      else speakWithSynth(said, done);
     });
     return true;
   }
 
+  function shutUp() {
+    stopWatching();
+    const synth = getSynth();
+    if (synth) { try { synth.cancel(); } catch (e) {} }
+    if (audioOut) {
+      const a = audioOut; audioOut = null;
+      try { a.pause(); a.src = ""; } catch (e) {}
+    }
+    utter = null;
+  }
+
+  /* ── the toggle ─────────────────────────────────────────────────────── */
+
+  function listen(opts) {
+    opts = opts || {};
+    onPartial = opts.onPartial || null;
+    onHeard = opts.onHeard || null;
+    onState = opts.onState || null;
+    if (!recCtor()) { announce("error", "unsupported"); return false; }
+    want = true;
+    restarts = 0;
+    // Ask for the microphone up front, so the permission prompt happens on
+    // the tap that asked for it rather than halfway through an answer.
+    openMic();
+    if (beginListening()) { setState("listening"); return true; }
+    setState("listening");
+    return true;
+  }
+
+  function stopListening() {
+    want = false;
+    endListening();
+    shutUp();
+    closeMic();
+    setState("off");
+  }
+
+  /* Asked once, at start-up: can the server read an answer aloud? If it
+     cannot, or there is no server, the browser's own voice is used and
+     nobody is offered a choice they do not have. */
+  function useHostedVoiceIfAvailable() {
+    if (!global.fetch) return Promise.resolve(false);
+    return fetch("/api/voice/status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { hosted = j && j.speak ? { speak: true } : null; return !!hosted; })
+      .catch(() => false);
+  }
+
   global.Voice = {
     supported, listen, stopListening, speak, shutUp,
-    useLocal, usingLocal,
-    isListening: () => listening,
-    isSpeaking: () => speaking,
-    wantsToListen: () => wantListening,
+    useHostedVoiceIfAvailable,
+    isListening: () => state === "listening" || state === "hearing",
+    isSpeaking: () => state === "speaking",
+    wantsToListen: () => want,
+    canInterrupt: () => bargeIn,
+    state: () => state,
     onState: (fn) => { onState = fn; },
     // pure, and therefore the parts worth testing
-    sayable, fixTerms, parseCommand, isEcho, isStopPhrase, followUp, snap,
+    sayable, fixTerms, parseCommand, isStopPhrase, followUp, snap,
   };
 })(window);

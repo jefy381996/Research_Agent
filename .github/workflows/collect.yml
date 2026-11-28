@@ -95,8 +95,8 @@ jobs:
           node tests/handoff_ui.js http://127.0.0.1:8099/
           node tests/mydata_ui.js http://127.0.0.1:8099/
           node tests/voice_ui.js http://127.0.0.1:8099/
+          node tests/voice_live.js http://127.0.0.1:8099/
           node tests/mobile_ui.js http://127.0.0.1:8099/
-          node tests/speech_ui.js http://127.0.0.1:8099/
           node tests/agent_stage.js http://127.0.0.1:8099/
 
       - name: What the interface costs to look at on a slow phone

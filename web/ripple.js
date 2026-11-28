@@ -32,6 +32,9 @@
     if (ev.button !== undefined && ev.button !== 0) return;
     const el = ev.target && ev.target.closest && ev.target.closest(TOUCHABLE);
     if (!el || el.disabled) return;
+    // A control that shows its own state outside its edge cannot have that
+    // edge clipped. The voice toggle rings outwards while it listens.
+    if (el.dataset && el.dataset.ripple === "off") return;
 
     const box = el.getBoundingClientRect();
     if (box.width < MIN_SIDE || box.height < MIN_SIDE) return;

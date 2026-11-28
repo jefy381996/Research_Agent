@@ -578,7 +578,7 @@ async function askMine(question, why) {
    the way in and the way out; it is never the record. A spoken number cannot
    be clicked to see the sentence it came from, so the screen keeps that job. */
 
-let VOICE = { on: false, handsFree: false, last: "", busy: false,
+let VOICE = { on: false, last: "", busy: false,
               lastQuestion: "", pending: "" };
 
 /* What to say out loud. The screen can hold sixty cards; an ear cannot, so
@@ -642,144 +642,6 @@ function spokenAgentAnswer(text) {
   return sentences.slice(0, 2).join(" ") || "The answer is on screen.";
 }
 
-/* ── speech that runs on this machine ─────────────────── */
-
-/* Nothing is downloaded until somebody asks. The button says what it will
-   cost before it costs it, because a hundred and sixty megabytes arriving
-   unannounced on a conference connection is the fastest way to lose a demo.
-   If the machine cannot run it, the button says why rather than disappearing,
-   and the browser's own voice carries on as it did. */
-let LOCAL = { plan: null, loading: false, on: false };
-let SERVER = { listen: false, speak: false, on: false };
-
-function vprog(frac, label) {
-  const bar = $("vprog"), fill = $("vbarfill");
-  if (!bar || !fill) return;
-  if (frac === null) { bar.hidden = true; return; }
-  bar.hidden = false;
-  fill.style.width = `${Math.round(frac * 100)}%`;
-  if (label) vbar(true, label);
-}
-
-/* The hosted option is only shown where there is a service behind it. A
-   static copy of this app has no server, so the button would be a promise it
-   could not keep. */
-async function serverOffer() {
-  const btn = $("servervoice");
-  if (!btn || !window.LocalSpeech) return;
-  let svc;
-  try { svc = await LocalSpeech.service(); } catch (e) { return; }
-  SERVER = svc || { listen: false, speak: false };
-  if (!SERVER.listen) return;             // stays hidden
-  btn.hidden = false;
-  btn.title = SERVER.speak
-    ? "Listening and the voice both run on the server. Nothing is downloaded."
-    : "Listening runs on the server, which is more accurate and needs no "
-      + "download. The voice stays the browser's own.";
-}
-
-async function serverToggle() {
-  const btn = $("servervoice");
-  if (!btn || !SERVER.listen) return;
-  if (SERVER.on) {
-    SERVER.on = false;
-    Voice.stopListening();
-    Voice.useLocal({ ears: false, voice: false });
-    btn.setAttribute("aria-pressed", "false");
-    vbar(true, "Back to the browser's own speech.");
-    markVoiceState();
-    return;
-  }
-  // Turning this on turns the on-device engine off: one set of ears at a time.
-  if (LOCAL.on) {
-    LOCAL.on = false;
-    const lv = $("localvoice");
-    if (lv) lv.setAttribute("aria-pressed", "false");
-  }
-  SERVER.on = true;
-  Voice.useLocal({ ears: true, voice: !!SERVER.speak, via: "service" });
-  btn.setAttribute("aria-pressed", "true");
-  vbar(true, SERVER.speak
-    ? "Speech runs on the server. Your voice is sent there to be read."
-    : "Listening runs on the server \u2014 more accurate, no download. "
-      + "Your voice is sent there to be written down.");
-  markVoiceState();
-}
-
-async function localOffer() {
-  const btn = $("localvoice");
-  if (!btn || !window.LocalSpeech) return;
-  let cap;
-  try { cap = await LocalSpeech.inspect(); }
-  catch (e) { return; }
-  const plan = LocalSpeech.plan(cap);
-  LOCAL.plan = plan;
-  btn.hidden = false;
-  if (!plan.ears) {
-    btn.disabled = true;
-    btn.title = plan.why;
-    $("lvlabel").textContent = "On-device speech";
-    return;
-  }
-  $("lvlabel").textContent = plan.cached
-    ? "On-device speech"
-    : `On-device speech (${plan.mb} MB)`;
-  btn.title = plan.cached
-    ? "Already downloaded. Runs entirely on this machine."
-    : `${plan.why} One download of about ${plan.mb} MB, kept for next time.`;
-}
-
-async function localToggle() {
-  const btn = $("localvoice");
-  if (!btn || LOCAL.loading || !LOCAL.plan || !LOCAL.plan.ears) return;
-  if (LOCAL.on) {                       // back to the browser's own engine
-    LOCAL.on = false;
-    Voice.stopListening();
-    Voice.useLocal({ ears: false, voice: false });
-    btn.setAttribute("aria-pressed", "false");
-    vprog(null);
-    vbar(true, "Back to the browser's own speech.");
-    return;
-  }
-  if (SERVER.on) {                      // one set of ears at a time
-    SERVER.on = false;
-    const sv = $("servervoice");
-    if (sv) sv.setAttribute("aria-pressed", "false");
-    Voice.stopListening();
-  }
-  LOCAL.loading = true;
-  btn.disabled = true;
-  vbar(true, LOCAL.plan.cached ? "Starting the speech engine…"
-    : `Downloading about ${LOCAL.plan.mb} MB, once…`);
-  vprog(0);
-  try {
-    const got = await LocalSpeech.load(LOCAL.plan, (f, label) => vprog(f, label));
-    LOCAL.on = true;
-    Voice.useLocal(got);
-    btn.setAttribute("aria-pressed", "true");
-    $("lvlabel").textContent = "On-device speech";
-    vprog(null);
-    vbar(true, got.voice
-      ? "Running on this machine. Nothing is sent anywhere."
-      : got.voiceRejected
-        ? `Listening runs on this machine. The better voice was tried and `
-          + `dropped \u2014 ${got.voiceRejected} \u2014 so the browser's own is `
-          + `speaking, which is instant.`
-        : "Listening runs on this machine. The voice is the browser's own, "
-          + "because this device has no graphics card to run the better one.");
-  } catch (e) {
-    LOCAL.on = false;
-    Voice.useLocal({ ears: false, voice: false });
-    vprog(null);
-    // A failed download must not take the working engine down with it.
-    vbar(true, "Could not start on-device speech. The browser's own is still "
-      + "working, so carry on.");
-  } finally {
-    LOCAL.loading = false;
-    btn.disabled = false;
-  }
-}
-
 /* ── the phone layout ─────────────────────────────────── */
 
 /* The sections live in a drawer here rather than in a row along the bottom.
@@ -800,62 +662,9 @@ function drawer(open) {
   } else if (btn) { btn.focus({ preventScroll: true }); }
 }
 
-/* The voice settings are one button on a phone and a row on a desktop. The
-   controls themselves are moved between the two places rather than written
-   twice, so there is only ever one hands-free button in the document. */
-function voiceSheet(open) {
-  const sheet = $("vsheet"), slot = $("vsheet-slot"), ctl = $("voicectl");
-  if (!sheet || !slot || !ctl) return;
-  if (open) {
-    slot.appendChild(ctl);
-    sheet.hidden = false;
-    document.body.classList.add("vsheet-open");
-    const note = $("vsheet-note");
-    if (note) {
-      note.textContent = LOCAL.plan && !LOCAL.plan.ears
-        ? `Hands-free works here. ${LOCAL.plan.why}`
-        : "Hands-free keeps listening and reads answers out loud. "
-          + "On-device runs the speech on this phone instead of a service.";
-    }
-    markVoiceState();
-    const close = $("vsheet-close");
-    if (close) close.focus({ preventScroll: true });
-  } else {
-    sheet.hidden = true;
-    document.body.classList.remove("vsheet-open");
-    placeVoiceControls();
-    const open_ = $("voice-open");
-    if (open_) open_.focus({ preventScroll: true });
-  }
-}
-
-/* On a desktop the controls belong beside the mode switch. */
-function placeVoiceControls() {
-  const ctl = $("voicectl"), home = $("voice-open");
-  if (!ctl || !home || !home.parentNode) return;
-  if (ctl.parentNode !== home.parentNode) home.parentNode.insertBefore(ctl, home.nextSibling);
-}
-
-/* The sheet says "on" or "off" beside each setting, because a highlighted
-   button on its own is read as decoration as often as as state. */
-function markVoiceState() {
-  const hf = $("handsfree"), lv = $("localvoice");
-  if (hf) hf.dataset.state = hf.getAttribute("aria-pressed") === "true" ? "on" : "off";
-  if (lv) {
-    lv.dataset.state = lv.disabled ? "unavailable"
-      : lv.getAttribute("aria-pressed") === "true" ? "on" : "off";
-  }
-  const sv = $("servervoice");
-  if (sv) sv.dataset.state = sv.getAttribute("aria-pressed") === "true" ? "on" : "off";
-}
-
 function wireMobile() {
   const open = $("drawer-open"), scrim = $("scrim");
   if (open) open.addEventListener("click", () => drawer(true));
-  ["handsfree", "localvoice", "servervoice"].forEach((id) => {
-    const b = $(id);
-    if (b) b.addEventListener("click", () => setTimeout(markVoiceState, 0));
-  });
   if (scrim) scrim.addEventListener("click", () => drawer(false));
   // Choosing a section closes the drawer, as it would in an application.
   document.querySelectorAll(".sitem").forEach((b) =>
@@ -864,23 +673,13 @@ function wireMobile() {
   const palm = $("pal-open-m"), pal = $("pal-open");
   if (palm && pal) palm.addEventListener("click", () => pal.click());
 
-  const vopen = $("voice-open"), vclose = $("vsheet-close"), sheet = $("vsheet");
-  if (vopen) vopen.addEventListener("click", () => voiceSheet(true));
-  if (vclose) vclose.addEventListener("click", () => voiceSheet(false));
-  if (sheet) sheet.addEventListener("click", (e) => {
-    if (e.target === sheet) voiceSheet(false);     // tapping the dimmed area
-  });
-
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
-    if (sheet && !sheet.hidden) { voiceSheet(false); return; }
     if (document.documentElement.classList.contains("drawer-open")) drawer(false);
   });
 
-  // Rotating a phone, or opening on a tablet, must not strand the controls
-  // inside a sheet that is no longer shown.
   window.matchMedia("(max-width:780px)").addEventListener("change", (m) => {
-    if (!m.matches) { voiceSheet(false); drawer(false); }
+    if (!m.matches) drawer(false);
   });
   syncAppBar();
 }
@@ -979,17 +778,16 @@ function vbar(show, text) {
 
 function voiceSay(text, then) {
   VOICE.last = text;
-  if (!VOICE.on && !VOICE.handsFree) { if (then) then(); return; }
+  if (!VOICE.on) { if (then) then(); return; }
   Voice.speak(text, then);
 }
 
-/* After an answer has rendered, say it, and in hands-free mode go back to
-   listening the moment it has finished. */
+/* Say the answer. Going back to listening afterwards is the engine's job,
+   not this one's: the ears must not reopen until the speaking has actually
+   stopped, and only the engine knows when that is. */
 function voiceAfterAnswer(sentence) {
-  if (!VOICE.on && !VOICE.handsFree) return;
-  voiceSay(sentence, () => {
-    if (VOICE.handsFree) startListening(true);
-  });
+  if (!VOICE.on) return;
+  voiceSay(sentence);
 }
 
 function runVoiceCommand(cmd) {
@@ -1099,16 +897,18 @@ function runHeard(question) {
   });
 }
 
-function startListening(quietly) {
+/* One toggle. It starts a conversation: it listens, answers out loud, and
+   listens again, until it is pressed a second time. */
+function startVoice() {
   const can = Voice.supported();
   if (!can.listen) {
     vbar(true, can.why);
-    $("mic").setAttribute("aria-pressed", "false");
+    markMic(false);
     return;
   }
   VOICE.on = true;
-  $("mic").setAttribute("aria-pressed", "true");
-  if (!quietly) vbar(true, "Listening…");
+  markMic(true);
+  vbar(true, "Listening…");
   Voice.listen({
     onPartial: (text) => vbar(true, text),
     onHeard: heard,
@@ -1120,8 +920,6 @@ function startListening(quietly) {
         const why = detail === "not-allowed"
           ? "Microphone blocked. Allow it in the address bar to ask out loud."
           : detail === "no-speech" ? "I did not catch that."
-          : detail === "local-gave-up"
-            ? "On-device listening kept failing, so the browser's own is back on."
           : detail === "could-not-restart"
             ? "Listening stopped and would not restart. Press the microphone again."
           : `Listening stopped: ${detail}`;
@@ -1134,16 +932,24 @@ function startListening(quietly) {
 
 function stopVoice() {
   VOICE.on = false;
-  VOICE.handsFree = false;
   Voice.stopListening();
   Voice.shutUp();
-  $("mic").setAttribute("aria-pressed", "false");
-  $("handsfree").setAttribute("aria-pressed", "false");
+  markMic(false);
   vbar(false);
 }
 
+/* The button is the only thing that says whether it is listening, so it has
+   to say it in more than one way: pressed, filled, and a live dot. */
+function markMic(on) {
+  const mic = $("mic");
+  if (!mic) return;
+  mic.setAttribute("aria-pressed", String(!!on));
+  mic.setAttribute("aria-label", on ? "End voice chat" : "Start voice chat");
+  mic.title = on ? "End voice chat" : "Start voice chat";
+}
+
 function wireVoice() {
-  const mic = $("mic"), hf = $("handsfree");
+  const mic = $("mic");
   if (!mic) return;
   const can = Voice.supported();
 
@@ -1151,25 +957,12 @@ function wireVoice() {
     // Firefox has no recogniser. Say why rather than offering a dead button.
     mic.disabled = true;
     mic.title = can.why;
-    if (hf) { hf.disabled = true; hf.title = can.why; }
+    mic.setAttribute("aria-label", can.why);
   }
 
   mic.addEventListener("click", () => {
     if (VOICE.on) { stopVoice(); return; }
-    startListening();
-  });
-
-  if (hf) hf.addEventListener("click", () => {
-    VOICE.handsFree = !VOICE.handsFree;
-    hf.setAttribute("aria-pressed", String(VOICE.handsFree));
-    if (VOICE.handsFree) {
-      vbar(true, "Hands-free. Ask away, follow up with \u201cwhat about rGO\u201d, "
-        + "and say \u201cstop\u201d to cut me off.");
-      startListening(true);
-    } else {
-      Voice.shutUp();
-      if (!VOICE.on) vbar(false);
-    }
+    startVoice();
   });
 
   const stop = $("vstop");
@@ -3623,14 +3416,9 @@ async function loadData() {
   wireVoice();
   wireMobile();
   markNew();
-  const lv = $("localvoice");
-  if (lv) lv.addEventListener("click", localToggle);
-  // Asks the machine what it can do, and the server what it offers.
-  // Neither downloads anything.
-  localOffer();
-  serverOffer();
-  const sv = $("servervoice");
-  if (sv) sv.addEventListener("click", serverToggle);
+  // If the server can read an answer aloud it is simply used; there is no
+  // choice to offer, because there is nothing a person could usefully pick.
+  if (window.Voice) Voice.useHostedVoiceIfAvailable();
   // The opening sequence is one-shot. Clearing the class once it has played
   // stops every later tab switch from replaying the whole arrival.
   setTimeout(() => document.documentElement.classList.remove("booting"), 2200);
