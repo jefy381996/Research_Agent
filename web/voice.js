@@ -306,13 +306,19 @@
   const getSynth = () => global.speechSynthesis;
 
   function supported() {
-    const listen = !!recCtor();
+    // Hosted ears record and send, which every current browser can do - so
+    // where a key is configured, Firefox can hold a conversation too.
+    const viaHosted = !!(hosted && hosted.listen && canRecord()
+      && global.navigator && navigator.mediaDevices);
+    const listen = !!recCtor() || viaHosted;
     return {
       listen: listen,
-      speak: !!getSynth(),
+      speak: !!getSynth() || !!(hosted && hosted.speak),
+      via: viaHosted ? "hosted" : listen ? "browser" : "none",
       why: listen ? ""
         : "This browser cannot listen. Chrome, Edge and Safari can; "
-          + "Firefox cannot. You can still type.",
+          + "Firefox cannot unless the hosted speech service is switched on. "
+          + "You can still type.",
     };
   }
 
@@ -322,7 +328,9 @@
   let rec = null;
   let onState = null, onPartial = null, onHeard = null;
   let utter = null, audioOut = null;
-  let hosted = null;             // {speak:true} once the server says it can read
+  let hosted = null;             // {listen, speak}, or null for neither
+  let askedServer = false;       // null above means "neither", not "not asked"
+
   let restarts = 0, restartTimer = 0;
 
   const MAX_RAPID = 6;           // a recogniser that will not stay up
@@ -332,7 +340,25 @@
     if (onState) { try { onState(s, detail); } catch (e) { /* the page's problem */ } }
   }
 
+  /* Between hearing a sentence and speaking an answer the ears are shut, on
+     purpose. If the answer never arrives - a failed request, a thrown error
+     anywhere in the page - that shut state is permanent, and the
+     conversation is deaf until somebody presses the button twice and works
+     out why. So waiting has a time limit, after which it goes back to
+     listening. Nothing else in the page can be relied on to do this,
+     because the whole point is that something in the page went wrong. */
+  const THINKING_LIMIT_MS = 12000;
+  let thinkingTimer = 0;
+
   function setState(s, detail) {
+    clearTimeout(thinkingTimer);
+    if (s === "thinking") {
+      thinkingTimer = setTimeout(() => {
+        if (state !== "thinking" || !want) return;
+        announce("error", "no-answer-came");
+        if (beginListening()) setState("listening");
+      }, THINKING_LIMIT_MS);
+    }
     if (state === s && !detail) return;
     state = s;
     announce(s, detail);
@@ -340,7 +366,148 @@
 
   /* ── listening ──────────────────────────────────────────────────────── */
 
+  /* Two sets of ears, and the better one is used when it is there.
+
+     The browser's recogniser is free and streams, and it writes "graphing"
+     for graphene and "are gee oh" for rGO. The hosted one is told the
+     vocabulary in advance and gets those right, at about four pence an hour
+     of talking. Nobody is asked to choose: if the server has a key the
+     hosted ears are used, and if anything about them fails the browser's
+     own take over mid-conversation rather than the conversation ending. */
   function beginListening() {
+    if (!want) return false;
+    if (hosted && hosted.listen && canRecord()) return beginHostedListening();
+    return beginBrowserListening();
+  }
+
+  function endListening() {
+    if (recorder || utterTimer) endHostedListening();
+    endBrowserListening();
+  }
+
+  /* ---- the hosted ears: record, notice the end of a sentence, send ----
+     There is no streaming here, so something has to decide when a sentence
+     has finished. That is the same loudness meter the interruption watcher
+     uses: the room is measured first, speech is anything well above it, and
+     the recording goes off once the speech has stopped for most of a
+     second. Nothing is sent unless somebody actually spoke, so sitting
+     there in silence costs nothing. */
+
+  const CAL_MS = 500;          // long enough to measure the room
+  const START_MARGIN = 2.6;    // this far above the room is a voice
+  const START_MIN = 0.015;     // and never trigger in a silent room
+  const START_SUSTAIN = 140;   // held this long, so a cough is not a sentence
+  const END_SILENCE_MS = 900;  // quiet this long means the sentence is over
+  const MAX_UTTER_MS = 15000;  // a hard stop, so nothing records for ever
+
+  let recorder = null, chunks = [], utterTimer = 0;
+  let roomFloor = 0, roomUntil = 0, speechFrom = 0, quietFrom = 0;
+
+  const canRecord = () => typeof global.MediaRecorder === "function";
+
+  function recorderType() {
+    for (const t of ["audio/webm;codecs=opus", "audio/webm",
+                     "audio/ogg;codecs=opus", "audio/mp4"]) {
+      try { if (global.MediaRecorder.isTypeSupported(t)) return t; } catch (e) {}
+    }
+    return "";
+  }
+
+  /* Anything that goes wrong with the hosted ears costs the hosted ears and
+     nothing else: the browser's own take over and the conversation carries
+     on, which is the only acceptable way for a paid service to fail. */
+  function fallBackToBrowserEars(why) {
+    hosted = { listen: false, speak: !!(hosted && hosted.speak) };
+    if (why) announce("error", why);
+    if (want && beginBrowserListening()) setState("listening");
+  }
+
+  function beginHostedListening() {
+    if (recorder) return true;
+    openMic().then((ok) => {
+      if (!want || recorder) return;
+      if (!ok) { fallBackToBrowserEars(); return; }
+      let r;
+      try {
+        const type = recorderType();
+        r = type ? new global.MediaRecorder(micStream, { mimeType: type })
+                 : new global.MediaRecorder(micStream);
+      } catch (e) { fallBackToBrowserEars(); return; }
+
+      chunks = [];
+      r.ondataavailable = (ev) => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+      r.onstop = () => {
+        const parts = chunks; chunks = [];
+        const spoke = speechFrom > 0;
+        recorder = null;
+        if (!want) return;
+        if (!spoke || !parts.length) { if (beginListening()) setState("listening"); return; }
+        setState("thinking");
+        send(new Blob(parts, { type: parts[0].type || "audio/webm" }));
+      };
+      recorder = r;
+      roomFloor = 0; roomUntil = Date.now() + CAL_MS;
+      speechFrom = 0; quietFrom = 0;
+      try { r.start(); } catch (e) { recorder = null; fallBackToBrowserEars(); return; }
+      listenForTheEnd();
+    });
+    return true;
+  }
+
+  function listenForTheEnd() {
+    clearInterval(utterTimer);
+    utterTimer = setInterval(() => {
+      if (!recorder || state === "speaking" || state === "thinking") return;
+      const now = Date.now();
+      const rms = level();
+      if (now < roomUntil) { if (rms > roomFloor) roomFloor = rms; return; }
+      if (rms > Math.max(roomFloor * START_MARGIN, START_MIN)) {
+        quietFrom = 0;
+        if (!speechFrom) speechFrom = now;
+        else if (now - speechFrom > MAX_UTTER_MS) finishUtterance();
+        return;
+      }
+      if (!speechFrom) return;                     // nobody has spoken yet
+      if (now - speechFrom < START_SUSTAIN) { speechFrom = 0; return; }   // a noise
+      if (!quietFrom) { quietFrom = now; return; }
+      if (now - quietFrom >= END_SILENCE_MS) finishUtterance();
+    }, TICK_MS);
+  }
+
+  function finishUtterance() {
+    clearInterval(utterTimer); utterTimer = 0;
+    if (recorder && recorder.state !== "inactive") {
+      try { recorder.stop(); } catch (e) { recorder = null; }
+    }
+  }
+
+  function endHostedListening() {
+    clearInterval(utterTimer); utterTimer = 0;
+    speechFrom = 0; quietFrom = 0;
+    const r = recorder; recorder = null;
+    if (!r) return;
+    r.onstop = null; r.ondataavailable = null;
+    try { if (r.state !== "inactive") r.stop(); } catch (e) {}
+  }
+
+  function send(blob) {
+    const form = new FormData();
+    form.append("file", blob, "speech.webm");
+    fetch("/api/voice/transcribe", { method: "POST", body: form })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("transcribe " + r.status))))
+      .then((j) => {
+        const text = ((j && j.text) || "").trim();
+        if (!want) return;
+        if (!text) { if (beginListening()) setState("listening"); return; }
+        restarts = 0;
+        if (onHeard) onHeard(text);
+      })
+      .catch(() => fallBackToBrowserEars("hosted-ears-unavailable"));
+  }
+
+  /* ---- the browser's own ears --------------------------------------- */
+
+  function beginBrowserListening() {
     const Rec = recCtor();
     if (!want || !Rec) return false;
     if (rec) return true;                       // already up
@@ -414,7 +581,7 @@
     return true;
   }
 
-  function endListening() {
+  function endBrowserListening() {
     clearTimeout(restartTimer);
     const r = rec;
     rec = null;
@@ -572,7 +739,7 @@
     if (!said) { finishedSpeaking(done); return false; }
     endListening();                  // belt and braces: never speak with ears open
     setState("speaking");
-    const useHosted = hosted && hosted.speak;
+    const useHosted = !!(hosted && hosted.speak);
     // The microphone is opened before the first word so interrupting works
     // from the first answer, not the second.
     openMic().then(() => {
@@ -600,19 +767,28 @@
     onPartial = opts.onPartial || null;
     onHeard = opts.onHeard || null;
     onState = opts.onState || null;
-    if (!recCtor()) { announce("error", "unsupported"); return false; }
     want = true;
     restarts = 0;
     // Ask for the microphone up front, so the permission prompt happens on
     // the tap that asked for it rather than halfway through an answer.
     openMic();
-    if (beginListening()) { setState("listening"); return true; }
     setState("listening");
+
+    // Which ears to use depends on an answer from the server. If it has not
+    // arrived yet, wait for it rather than starting on the worse ones and
+    // switching a second later.
+    const ready = askedServer ? Promise.resolve(true) : useHostedVoiceIfAvailable();
+    ready.then(() => {
+      if (!want) return;
+      if (!supported().listen) { want = false; setState("off"); announce("error", "unsupported"); return; }
+      beginListening();
+    });
     return true;
   }
 
   function stopListening() {
     want = false;
+    clearTimeout(thinkingTimer);
     endListening();
     shutUp();
     closeMic();
@@ -623,11 +799,16 @@
      cannot, or there is no server, the browser's own voice is used and
      nobody is offered a choice they do not have. */
   function useHostedVoiceIfAvailable() {
-    if (!global.fetch) return Promise.resolve(false);
+    if (!global.fetch) { askedServer = true; return Promise.resolve(false); }
     return fetch("/api/voice/status")
       .then((r) => (r.ok ? r.json() : null))
-      .then((j) => { hosted = j && j.speak ? { speak: true } : null; return !!hosted; })
-      .catch(() => false);
+      .then((j) => {
+        hosted = j && (j.listen || j.speak)
+          ? { listen: !!j.listen, speak: !!j.speak } : null;
+        askedServer = true;
+        return !!hosted;
+      })
+      .catch(() => { askedServer = true; return false; });
   }
 
   global.Voice = {

@@ -307,11 +307,39 @@ The agent adds five more files, used only when **Agent** mode is on:
 
 One way, and nobody is asked to choose it.
 
-Listening is the browser's own recogniser: free, instant, nothing downloaded.
-Speaking is the browser's own voice, unless this service has `GROQ_API_KEY`
-configured, in which case a better one is simply used. `/api/voice/status`
-says which, and the page never sees the credential, because a page holding
-one would hand it to everyone who opened the page.
+**With no key**, both halves are the browser's own: free, nothing downloaded,
+and a flat voice that writes "graphing" for graphene.
+
+**With `GROQ_API_KEY` set**, both halves become the hosted ones automatically.
+There is nothing else to configure and no button to press: `/api/voice/status`
+reports what is available and the page uses the best it is offered. The page
+never sees the credential, because a page holding one would hand it to
+everyone who opened the page.
+
+What the key buys, measured by sending recorded speech through
+`/api/voice/transcribe`:
+
+| spoken | browser | hosted |
+|---|---|---|
+| "are gee oh" | "are gee oh" | **rGO** |
+| "see vee dee grown graphene" | "CVD" rarely | **CVD-grown graphene** |
+| "lithium sulfur cells" | "lithium sulphur" | **lithium-sulfur** |
+
+It costs about £0.03 per hour of talking, and silence is never sent, so a
+microphone left open in a quiet room bills nothing.
+
+Two things the supplier requires, and neither is in this repository:
+
+1. A key from <https://console.groq.com>, set as `GROQ_API_KEY`.
+2. For the voice only, the model's terms accepted once in that console. Until
+   that is done, listening works and speaking falls back to the browser's own
+   voice; `/api/voice/speak` returns the supplier's own explanation rather
+   than a bare status code, because a bare status code sent this author
+   looking in the wrong place for an hour.
+
+The model names are not hard-coded. `playai-tts`, which this originally used,
+was decommissioned by the supplier between one commit and the next; the model
+and voice are both environment variables for exactly that reason.
 
 There used to be three engines offered side by side in the composer, one of
 them a 39&ndash;156 MB model downloaded into the browser. It was removed. A

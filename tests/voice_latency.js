@@ -87,6 +87,13 @@ const pct = (xs, p) => {
   const cdp = await ctx.newCDPSession(page);
   await cdp.send("Emulation.setCPUThrottlingRate", { rate: THROTTLE });
   await page.addInitScript(FAKE);
+  /* Timed against the browser's own ears, so the number does not move
+     depending on whether this machine has a speech key configured. */
+  await page.route("**/api/voice/status", (r) => r.fulfill({
+    status: 200, contentType: "application/json",
+    body: JSON.stringify({ listen: false, speak: false,
+                           listen_model: "", speak_voice: "" }),
+  }));
   await page.goto(URL, { waitUntil: "networkidle" });
   await page.waitForFunction(
     () => window.DATA && window.DATA.rows && window.DATA.rows.length > 0,

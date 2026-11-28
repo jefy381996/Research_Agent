@@ -823,10 +823,38 @@ ASR_PROMPT = ("Graphene, reduced graphene oxide, rGO, graphene oxide, CVD, "
               "specific capacity, mAh/g, coulombic efficiency, supercapacitor, "
               "thermal conductivity, sheet resistance, Young's modulus.")
 
-TTS_URL = os.environ.get("TTS_URL", "")
-TTS_KEY_ENV = os.environ.get("TTS_KEY_ENV", "TTS_API_KEY")
-TTS_MODEL = os.environ.get("TTS_MODEL", "tts-1")
-TTS_VOICE = os.environ.get("TTS_VOICE", "alloy")
+# One key, not four settings. Whoever runs this should have to supply a
+# single credential and nothing else, so when GROQ_API_KEY is present the
+# voice defaults to the same supplier that is already doing the listening.
+# Every one of these is still an environment variable, so moving to another
+# supplier remains configuration rather than code.
+_GROQ = bool(os.environ.get("GROQ_API_KEY", "").strip())
+TTS_URL = os.environ.get(
+    "TTS_URL", "https://api.groq.com/openai/v1/audio/speech" if _GROQ else "")
+TTS_KEY_ENV = os.environ.get("TTS_KEY_ENV", "GROQ_API_KEY" if _GROQ else "TTS_API_KEY")
+TTS_MODEL = os.environ.get(
+    "TTS_MODEL", "canopylabs/orpheus-v1-english" if _GROQ else "tts-1")
+TTS_VOICE = os.environ.get("TTS_VOICE", "troy" if _GROQ else "alloy")
+
+
+def _why_refused(resp):
+    """What the supplier said, in its own words.
+
+    A bare status code sent me looking in the wrong place for an hour: the
+    model had been decommissioned and the reply said so plainly. These
+    messages are about model names and account terms and never contain the
+    credential, which is held by this process and never echoed back."""
+    try:
+        body = resp.json()
+    except Exception:
+        return (resp.text or "")[:200].strip() or "no reason given"
+    if isinstance(body, dict):
+        err = body.get("error")
+        if isinstance(err, dict):
+            return str(err.get("message") or err)[:300]
+        if err:
+            return str(err)[:300]
+    return str(body)[:300]
 
 
 def _voice_services():
@@ -873,7 +901,8 @@ def voice_transcribe(file: UploadFile = File(...)):
                                    f"{type(exc).__name__}")
     if resp.status_code != 200:
         raise HTTPException(status_code=502,
-                            detail=f"transcription refused ({resp.status_code})")
+                            detail=f"transcription refused ({resp.status_code}): "
+                                   f"{_why_refused(resp)}")
     try:
         text = (resp.json() or {}).get("text", "")
     except ValueError:
@@ -906,7 +935,9 @@ def voice_speak(payload: dict):
         raise HTTPException(status_code=502,
                             detail=f"the voice service did not answer: {type(exc).__name__}")
     if resp.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"voice refused ({resp.status_code})")
+        raise HTTPException(status_code=502,
+                            detail=f"voice refused ({resp.status_code}): "
+                                   f"{_why_refused(resp)}")
     return Response(content=resp.content, media_type="audio/mpeg")
 
 

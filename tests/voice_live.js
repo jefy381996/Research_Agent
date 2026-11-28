@@ -59,9 +59,26 @@ function check(label, ok, detail) {
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   await page.addInitScript(FAKE);
+  /* This file is about the browser's own ears. Whether the machine
+     running it happens to have a speech key configured must not change
+     what is tested, so the hosted service is reported as absent here;
+     tests/voice_hosted.js is where the other path is driven. */
+  await page.route("**/api/voice/status", (r) => r.fulfill({
+    status: 200, contentType: "application/json",
+    body: JSON.stringify({ listen: false, speak: false,
+                           listen_model: "", speak_voice: "" }),
+  }));
   await page.goto(URL, { waitUntil: "networkidle" });
 
-  const begin = () => page.evaluate(() => {
+  /* Starting is no longer synchronous: the toggle asks the server which ears
+     to use before it opens any, so that it does not start on the browser's
+     and switch a moment later. */
+  const begin = async () => {
+    const r = await beginNow();
+    await sleep(120);
+    return r;
+  };
+  const beginNow = () => page.evaluate(() => {
     window.__spy = { heard: [], partial: [], states: [] };
     window.__rec.starts = 0;
     Voice.stopListening();
@@ -194,6 +211,34 @@ function check(label, ok, detail) {
     await page.evaluate(() => Voice.wantsToListen()) === true
       && await page.evaluate(() => Voice.state()) !== "off",
     await page.evaluate(() => Voice.state()));
+
+  /* If an answer never arrives, the ears must come back on their own.
+     They are shut on purpose between hearing a question and speaking the
+     reply, so anything that throws in between would otherwise leave the
+     conversation deaf with no sign of why. This waits the real limit out
+     rather than inspecting a timer, because the limit is the behaviour. */
+  await begin();
+  await page.evaluate(() => {
+    window.__spy.heard = [];
+    // Hand over a question and then do nothing at all about it.
+    window.__rec.last.onresult({
+      resultIndex: 0,
+      results: [Object.assign([{ transcript: "a question nobody answers" }], { isFinal: true })],
+    });
+  });
+  await sleep(300);
+  check("while it waits for an answer, nothing is listening",
+    await page.evaluate(() => Voice.state()) === "thinking",
+    await page.evaluate(() => Voice.state()));
+  const startsBeforeWait = await page.evaluate(() => window.__rec.starts);
+  await sleep(13000);
+  check("an answer that never comes does not leave it deaf",
+    await page.evaluate(() => Voice.state()) === "listening",
+    await page.evaluate(() => Voice.state()));
+  check("and the ears were actually reopened",
+    await page.evaluate(() => window.__rec.starts) > startsBeforeWait);
+  check("and it said why",
+    (await page.evaluate(() => window.__spy.states.join(","))).includes("no-answer-came"));
 
   // Stopping silences the voice as well as the ears.
   await page.evaluate((s) => Voice.speak(s), sentence);
